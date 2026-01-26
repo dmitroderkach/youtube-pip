@@ -7,12 +7,17 @@ const pkg = require('./package.json') as { version: string };
 
 const userscriptHeader = `// ==UserScript==
 // @name         YouTube PiP
-// @namespace    http://tampermonkey.net/
+// @namespace    https://github.com/dmitroderkach/youtube-pip
 // @version      ${pkg.version}
 // @description  Smart Picture-in-Picture mode with all YouTube controls and functions
 // @author       Dmytro Derkach
 // @match        https://www.youtube.com/*
 // @grant        none
+// @homepageURL  https://github.com/dmitroderkach/youtube-pip
+// @supportURL   https://github.com/dmitroderkach/youtube-pip/issues
+// @updateURL    https://github.com/dmitroderkach/youtube-pip/releases/latest/download/youtube-pip.user.js
+// @downloadURL  https://github.com/dmitroderkach/youtube-pip/releases/latest/download/youtube-pip.user.js
+// @license      MIT
 // ==/UserScript==
 
 `;
