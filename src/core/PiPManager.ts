@@ -264,9 +264,10 @@ export class PiPManager {
    */
   private setWindowsTitle(title: string): void {
     const newTitle = `${title} - YouTube`;
-    document.title = newTitle;
     if (this.pipWindow) {
+      document.title = newTitle;
       this.pipWindow.document.title = newTitle;
+      logger.debug(`Title synced from MediaSession: ${title}`);
     }
   }
 
@@ -275,6 +276,5 @@ export class PiPManager {
    */
   public updateTitle(title: string): void {
     this.setWindowsTitle(title);
-    logger.debug(`Title synced from MediaSession: ${title}`);
   }
 }
