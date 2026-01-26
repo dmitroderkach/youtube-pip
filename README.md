@@ -28,7 +28,7 @@ This project is **not affiliated with, endorsed by, or officially connected to**
 1. Clone the repo and install dependencies:
 
    ```bash
-   git clone <repo-url>
+   git clone https://github.com/dmitroderkach/youtube-pip.git
    cd youtube-pip
    npm install
    ```
