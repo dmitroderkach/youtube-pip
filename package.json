@@ -4,6 +4,14 @@
   "description": "Smart Picture-in-Picture mode with all YouTube controls and functions",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dmitroderkach/youtube-pip.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dmitroderkach/youtube-pip/issues"
+  },
+  "homepage": "https://github.com/dmitroderkach/youtube-pip#readme",
   "scripts": {
     "build": "npm run type-check && vite build",
     "build:debug": "npm run type-check && BUILD_DEBUG=1 vite build",
