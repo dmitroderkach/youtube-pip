@@ -35,7 +35,7 @@ export class ContextMenuHandler {
       this.startMonitoring();
       this.setupDismissalHandler();
     } catch (e) {
-      logger.error('Error initializing context menu handler:', e);
+      logger.warn('Error initializing context menu handler:', e);
     }
   }
 
