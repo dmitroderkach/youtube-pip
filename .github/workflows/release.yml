@@ -53,7 +53,7 @@ jobs:
             Click here to install: [youtube-pip.user.js](https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/youtube-pip.user.js)
 
             **Option 2: Greasy Fork**
-            Install from [Greasy Fork](https://greasyfork.org/scripts/YOUR_SCRIPT_ID)
+            Install from [Greasy Fork](https://greasyfork.org/en/scripts/564173-youtube-pip)
 
             ### Changes
             See [commit history](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }})
