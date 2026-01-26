@@ -86,8 +86,7 @@ export class NavigationHandler {
 
           logger.log(`SPA navigation via yt-navigate: ${href}`);
 
-          // Dispatch navigation event
-          window.history.pushState(state, '', href);
+          // Trigger navigation (no pushState — YouTube does not update URL in mini player)
           window.dispatchEvent(new PopStateEvent('popstate', { state }));
         } catch (e) {
           logger.error('Error handling navigation:', e);
