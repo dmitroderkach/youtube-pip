@@ -56,7 +56,11 @@ class YouTubePiPApp {
     miniplayer: Element
   ): Promise<PiPCleanupCallback> {
     await this.initializePiPWindowHandlers(pipWindow, miniplayer);
-    return () => this.contextMenuHandler.stop();
+    return () => {
+      this.seekHandler.cleanup();
+      this.likeButtonHandler.cleanup();
+      this.contextMenuHandler.stop();
+    };
   }
 
   /**
@@ -81,7 +85,8 @@ class YouTubePiPApp {
     // Initialize handlers
     this.resizeTracker.start(miniplayer, pipWindow);
     this.menuObserver.start(pipWindow);
-    this.contextMenuHandler.initialize(pipWindow);
+    // Run in background - may wait indefinitely for menu to appear
+    void this.contextMenuHandler.initialize(pipWindow);
     this.seekHandler.initialize(pipWindow);
     this.likeButtonHandler.initialize(pipWindow);
 
