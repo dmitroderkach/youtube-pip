@@ -36,6 +36,33 @@ jobs:
         id: package-version
         run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
 
+      - name: Extract changelog for version
+        id: changelog
+        run: |
+          VERSION="${{ github.ref_name }}"
+          # Remove 'v' prefix if present (v1.0.1 -> 1.0.1)
+          VERSION_NUM="${VERSION#v}"
+
+          # Extract changelog section for this version
+          # Find section starting with ## [VERSION] and extract until next ## or link section
+          CHANGELOG_SECTION=$(awk -v version="$VERSION_NUM" '
+            /^## \[/ { 
+              if ($0 ~ "^## \\[" version "\\]") { 
+                found=1
+                next
+              } else if (found) { 
+                exit
+              }
+            }
+            /^\[/ && found { exit }
+            found { print }
+          ' CHANGELOG.md)
+
+          # Set as multiline output
+          echo "content<<EOF" >> $GITHUB_OUTPUT
+          echo "$CHANGELOG_SECTION" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
@@ -55,8 +82,12 @@ jobs:
             **Option 2: Greasy Fork**
             Install from [Greasy Fork](https://greasyfork.org/en/scripts/564173-youtube-pip)
 
-            ### Changes
-            See [commit history](https://github.com/${{ github.repository }}/commits/${{ github.ref_name }})
+            ### Changelog
+
+            ${{ steps.changelog.outputs.content }}
+
+            ### Full Changelog
+            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for all changes.
           draft: false
           prerelease: false
         env:

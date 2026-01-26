@@ -1,6 +1,7 @@
 import { Logger } from '../logger';
 import { DEFAULT_DIMENSIONS } from '../constants';
 import { SELECTORS } from '../selectors';
+import { DOMUtils } from '../utils/DOMUtils';
 import type { Nullable } from '../types/app';
 
 const logger = Logger.getInstance('MenuObserver');
@@ -14,12 +15,13 @@ export class MenuObserver {
   /**
    * Start observing menu button in PiP window
    */
-  public start(pipWindow: Window): void {
-    const button = pipWindow.document.querySelector(SELECTORS.MENU_BUTTON);
-    if (!button) {
-      logger.warn('Menu button not found for observation');
-      return;
-    }
+  public async start(pipWindow: Window): Promise<void> {
+    const button = await DOMUtils.waitForElementSelector(
+      SELECTORS.MENU_BUTTON,
+      pipWindow.document,
+      0,
+      pipWindow
+    );
 
     logger.debug('Starting menu observation');
 
