@@ -84,7 +84,8 @@ class YouTubePiPApp {
 
     // Initialize handlers
     this.resizeTracker.start(miniplayer, pipWindow);
-    this.menuObserver.start(pipWindow);
+    // Run in background - may wait indefinitely for menu to appear
+    void this.menuObserver.start(pipWindow);
     // Run in background - may wait indefinitely for menu to appear
     void this.contextMenuHandler.initialize(pipWindow);
     this.seekHandler.initialize(pipWindow);
