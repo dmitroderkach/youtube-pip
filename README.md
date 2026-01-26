@@ -67,7 +67,9 @@ youtube-pip/
 │   ├── logger.ts            # Scoped logger (dayjs, %c styles, optional metadata)
 │   ├── constants.ts         # Timeouts, retries, dimensions, keyboard, etc.
 │   ├── selectors.ts         # DOM selectors
-│   ├── styles.ts            # CSS fixes for PiP layout
+│   ├── styles.css           # PiP CSS fixes (mini player, progress bar, etc.)
+│   ├── styles.ts            # Re-exports styles.css as CSS_FIXES (?raw)
+│   ├── vite-env.d.ts        # Vite client types, *.css?raw module declaration
 │   │
 │   ├── core/                # PiP lifecycle and YouTube integration
 │   │   ├── PiPManager.ts    # Document PiP window, move player main ↔ PiP
@@ -101,7 +103,10 @@ youtube-pip/
 ├── vite.config.ts           # Build config, userscript header, source map offset
 ├── eslint.config.js         # ESLint flat + TypeScript + Prettier
 ├── tsconfig.json
-└── package.json
+├── package.json
+├── .prettierrc / .prettierignore
+├── .gitignore
+└── LICENSE
 ```
 
 ## Scripts
