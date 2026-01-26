@@ -5,16 +5,19 @@ Smart Picture-in-Picture mode for YouTube with full playback controls and naviga
 ## ✨ Features
 
 ### Core Functionality
+
 - **🖼️ Document Picture-in-Picture** — Opens YouTube mini player in a separate, always-on-top window using Chrome's Document PiP API
 - **🎮 Media Session Integration** — Trigger PiP directly from browser's native media controls (e.g., "Enter Picture-in-Picture" button)
 - **🔄 SPA Navigation** — Click on video links inside PiP window to navigate without reloading the page
 
 ### Playback Controls
+
 - **⏩ Seek Support** — Click or drag the progress bar in PiP window to jump to any point in the video
 - **👍 Like/Dislike** — Fully functional like and dislike buttons in PiP window
 - **📋 Context Menu** — Right-click menu works seamlessly between main window and PiP
 
 ### Smart Features
+
 - **📊 Playlist Panel** — Automatic window height adjustment when playlist expands
 - **📝 Title Sync** — Window titles stay synchronized between main page and PiP
 - **▶️ State Preservation** — Playback position and playing state are preserved when closing PiP
