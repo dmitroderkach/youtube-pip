@@ -22,6 +22,10 @@ Smart Picture-in-Picture mode for YouTube with full playback controls and naviga
 - **📝 Title Sync** — Window titles stay synchronized between main page and PiP
 - **▶️ State Preservation** — Playback position and playing state are preserved when closing PiP
 
+## 📸 Screenshot
+
+![YouTube PiP Window](https://raw.githubusercontent.com/dmitroderkach/youtube-pip/main/screenshots/pip-window.png)
+
 ## 🔧 Requirements
 
 - **Browser:** Chrome or Chromium-based browser with [Document Picture-in-Picture API](https://developer.chrome.com/docs/web-platform/document-picture-in-picture/) support
