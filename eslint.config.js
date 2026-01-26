@@ -14,6 +14,8 @@ export default [
         'warn',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+      'no-unused-private-class-members': 'off',
+      '@typescript-eslint/no-unused-private-class-members': 'error',
     },
   },
   eslintConfigPrettier,

@@ -10,14 +10,11 @@ const logger = Logger.getInstance('ResizeTracker');
  */
 export class ResizeTracker {
   private observer: Nullable<ResizeObserver> = null;
-  private pipWindow: Nullable<Window> = null;
 
   /**
    * Start tracking resize events for element in PiP window
    */
   public start(targetElement: Element, pipWindow: Window): void {
-    this.pipWindow = pipWindow;
-
     if (typeof ResizeObserver === 'undefined') {
       logger.error('ResizeObserver not available');
       return;
@@ -57,6 +54,5 @@ export class ResizeTracker {
       this.observer = null;
       logger.debug('Resize tracking stopped');
     }
-    this.pipWindow = null;
   }
 }

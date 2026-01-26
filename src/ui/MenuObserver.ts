@@ -10,14 +10,11 @@ const logger = Logger.getInstance('MenuObserver');
  */
 export class MenuObserver {
   private observer: Nullable<MutationObserver> = null;
-  private pipWindow: Nullable<Window> = null;
 
   /**
    * Start observing menu button in PiP window
    */
   public start(pipWindow: Window): void {
-    this.pipWindow = pipWindow;
-
     const button = pipWindow.document.querySelector(SELECTORS.MENU_BUTTON);
     if (!button) {
       logger.warn('Menu button not found for observation');
