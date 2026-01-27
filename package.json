@@ -19,7 +19,9 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "prettier": "prettier --check .",
-    "prettier:fix": "prettier --write ."
+    "prettier:fix": "prettier --write .",
+    "version:patch": "npm version patch --no-git-tag-version",
+    "release:tag": "node scripts/release-tag.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",

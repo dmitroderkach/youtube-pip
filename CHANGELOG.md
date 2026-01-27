@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - When navigating back to a video with a playlist, the button reappears but was no longer observed
   - Added removal detection via `MutationObserver` on `document.body`; when button is disconnected, we disconnect observers, re-wait for the button, and re-observe
 
-## [1.0.2] - 2026-01-26
+## [1.0.2] - 2026-01-27
 
 ### Changed
 
@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - YouTube does not update the URL in the mini player, so we no longer update it on the main page
   - Only `popstate` event is dispatched to trigger SPA navigation
 
-## [1.0.1] - 2026-01-26
+## [1.0.1] - 2026-01-27
 
 ### Fixed
 
