@@ -111,17 +111,21 @@ youtube-pip/
 
 ## Scripts
 
-| Command                | Description                                          |
-| ---------------------- | ---------------------------------------------------- |
-| `npm run build`        | Type-check + production build → `dist/userscript.js` |
-| `npm run build:debug`  | Debug build (no minify, header via plugin)           |
-| `npm run type-check`   | `tsc --noEmit`                                       |
-| `npm run lint`         | ESLint                                               |
-| `npm run lint:fix`     | ESLint with `--fix`                                  |
-| `npm run prettier`     | Prettier check                                       |
-| `npm run prettier:fix` | Prettier write                                       |
+| Command                 | Description                                          |
+| ----------------------- | ---------------------------------------------------- |
+| `npm run build`         | Type-check + production build → `dist/userscript.js` |
+| `npm run build:debug`   | Debug build (no minify, header via plugin)           |
+| `npm run type-check`    | `tsc --noEmit`                                       |
+| `npm run lint`          | ESLint                                               |
+| `npm run lint:fix`      | ESLint with `--fix`                                  |
+| `npm run prettier`      | Prettier check                                       |
+| `npm run prettier:fix`  | Prettier write                                       |
+| `npm run version:patch` | Bump version in `package.json` only (no commit/tag)  |
+| `npm run release:tag`   | Create tag `v{VERSION}` from `package.json`, push    |
 
 Userscript `@version` is taken from `package.json` during build.
+
+**Release workflow (squash merge):** Run `version:patch`, add code + CHANGELOG + `package.json` to PR, squash merge. On `main`, run `release:tag` so the tag points at the merge commit.
 
 ## Tech stack
 
