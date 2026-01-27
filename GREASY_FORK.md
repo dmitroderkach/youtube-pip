@@ -51,6 +51,7 @@ Then reload the page. Logs include timestamps and are scoped by module.
 ## 🔗 Links
 
 - **GitHub Repository:** [dmitroderkach/youtube-pip](https://github.com/dmitroderkach/youtube-pip)
+- **Changelog:** [CHANGELOG.md](https://github.com/dmitroderkach/youtube-pip/blob/main/CHANGELOG.md)
 - **Report Issues:** [GitHub Issues](https://github.com/dmitroderkach/youtube-pip/issues)
 - **Source Code:** [View on GitHub](https://github.com/dmitroderkach/youtube-pip)
 
