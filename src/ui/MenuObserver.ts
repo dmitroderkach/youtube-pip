@@ -55,14 +55,18 @@ export class MenuObserver {
           logger.debug(`Menu state changed: expanded = ${isExpanded}`);
 
           if (isExpanded) {
+            // Expand window if needed
             if (currentHeight < DEFAULT_DIMENSIONS.PIP_EXPANDED_HEIGHT) {
               pipWindow.resizeTo(pipWindow.outerWidth, DEFAULT_DIMENSIONS.PIP_EXPANDED_HEIGHT);
               logger.debug('PiP window expanded');
             }
+
+            // Show playlist panel
             if (playListContainer) {
               (playListContainer as HTMLElement).style.display = 'block';
             }
           } else {
+            // Hide playlist panel
             if (playListContainer) {
               (playListContainer as HTMLElement).style.display = 'none';
             }
@@ -71,6 +75,7 @@ export class MenuObserver {
       }
     });
 
+    // Observe only aria-expanded attribute
     this.observer.observe(button, {
       attributes: true,
       attributeFilter: ['aria-expanded'],
