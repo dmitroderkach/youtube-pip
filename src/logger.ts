@@ -103,7 +103,7 @@ export class Logger {
     const template = `%c${ts}%c ${PREFIX_BRAND}%c${PREFIX_SCOPE(this.scope)}%c ${escaped}`;
 
     // Build arguments: template, styles, meta (if provided), global metadata (if exists)
-    const args: [string, string, string, string, string, ...unknown[]] = [
+    const args: [string, ...unknown[]] = [
       template,
       STYLE_TIMESTAMP,
       STYLE_BRAND,
@@ -121,7 +121,7 @@ export class Logger {
       args.push(Logger.globalMetadata);
     }
 
-    fn(...(args as [string, ...unknown[]]));
+    fn(...args);
   }
 
   /**
