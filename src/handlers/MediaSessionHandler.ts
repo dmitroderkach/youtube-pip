@@ -1,6 +1,7 @@
 import { Logger } from '../logger';
 import { MediaSessionMetadata } from '../types/youtube';
 import { PiPManager } from '../core/PiPManager';
+import { AppInitializationError } from '../errors/AppInitializationError';
 import type { Nullable } from '../types/app';
 
 const logger = Logger.getInstance('MediaSessionHandler');
@@ -47,7 +48,7 @@ export class MediaSessionHandler {
       });
       logger.debug('Media session action handler registered');
     } catch (e) {
-      logger.error('Error registering media session action handler:', e);
+      throw new AppInitializationError('Error registering media session action handler', e);
     }
   }
 
@@ -83,7 +84,7 @@ export class MediaSessionHandler {
 
       logger.debug('Media session title sync configured');
     } catch (e) {
-      logger.error('Error setting up title sync:', e);
+      throw new AppInitializationError('Error setting up title sync', e);
     }
   }
 }
