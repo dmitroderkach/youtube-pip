@@ -26,6 +26,31 @@ function getYouTubeVersion(): string {
 }
 
 /**
+ * Get YouTube feature flags/experiments configuration from window.ytcfg
+ */
+function getYouTubeFeatureFlags(): Record<string, unknown> {
+  try {
+    const ytcfg = window.ytcfg;
+    if (!ytcfg?.data_) {
+      return {};
+    }
+
+    const data = ytcfg.data_ as Record<string, unknown>;
+
+    // EXPERIMENT_FLAGS - feature flags location
+    if ('EXPERIMENT_FLAGS' in data && data.EXPERIMENT_FLAGS) {
+      return { experimentFlags: data.EXPERIMENT_FLAGS };
+    }
+
+    return {};
+  } catch {
+    // Silently fail if feature flags detection fails
+  }
+
+  return {};
+}
+
+/**
  * Extract browser name and version from navigator userAgent
  */
 function getBrowserVersion(): string {
@@ -69,12 +94,19 @@ function getBrowserVersion(): string {
 }
 
 /**
- * Get global metadata object with YouTube, script, and browser versions
+ * Get global metadata object with YouTube, script, browser versions, and feature flags
  */
 export function getGlobalMetadata(): Record<string, unknown> {
-  return {
+  const metadata: Record<string, unknown> = {
     youtubeVersion: getYouTubeVersion(),
     scriptVersion: getScriptVersion(),
     browserVersion: getBrowserVersion(),
   };
+
+  const featureFlags = getYouTubeFeatureFlags();
+  if (Object.keys(featureFlags).length > 0) {
+    metadata.youtubeFeatureFlags = featureFlags;
+  }
+
+  return metadata;
 }
