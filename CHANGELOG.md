@@ -16,23 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `scriptVersion`: Script version (injected at build time from `package.json`)
     - `browserVersion`: Browser name and version (parsed from `navigator.userAgent`, e.g., `Chrome/144.0.0.0`)
   - Global metadata is displayed as an object after user-provided metadata in log output
-  - Metadata is set automatically in `main.ts` before application initialization
-
-### Changed
-
-- **VersionDetector**: Simplified version detection logic
-  - YouTube version now extracted only from `window.ytcfg` (removed fallback to `ytd-app.data`)
-  - Browser version parsing: extracts browser name and version from user agent string
-    - Supports Chrome, Edge, Firefox, and Safari detection
-    - Returns formatted string like `Chrome/144.0.0.0` instead of full user agent
-    - Falls back to full user agent string if browser cannot be identified
-
-### Removed
-
-- **Types**: Removed unused TypeScript interfaces
-  - Removed `YouTubeClientVersion` interface (no longer needed)
-  - Removed `YouTubeAppData` interface (no longer needed)
-  - Removed `data` property from `YouTubeAppElement` interface
+  - Metadata is set automatically during application initialization
 
 ## [1.0.6] - 2026-01-28
 
