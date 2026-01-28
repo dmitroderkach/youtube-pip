@@ -3,7 +3,7 @@
  */
 
 body {
-  overflow: hidden !important;
+  overflow: auto !important;
 }
 
 ytd-miniplayer {
