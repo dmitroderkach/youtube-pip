@@ -35,6 +35,7 @@ export class MiniPlayerController {
       ytdApp.fire('yt-action', {
         actionName: 'yt-activate-miniplayer',
         args: [false],
+        returnValue: [undefined],
       });
       logger.debug('Mini player activation event dispatched');
     } catch (e) {
