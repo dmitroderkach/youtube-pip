@@ -1,11 +1,13 @@
 import { Logger } from '../logger';
-import { KEYBOARD } from '../constants';
 import { SELECTORS } from '../selectors';
+import { KEYBOARD } from '../constants';
+import type { YouTubeAppElement } from '../types/youtube';
+import type { Nullable } from '../types/app';
 
 const logger = Logger.getInstance('MiniPlayerController');
 
 /**
- * Controls mini player visibility and state
+ * Controls mini player visibility and state using YouTube native actions
  */
 export class MiniPlayerController {
   /**
@@ -18,10 +20,34 @@ export class MiniPlayerController {
   }
 
   /**
-   * Toggle mini player mode
+   * Activate mini player using YouTube native action
+   */
+  public activateMiniPlayer(): void {
+    logger.debug('Activating mini player via native action');
+
+    const ytdApp = document.querySelector(SELECTORS.YTD_APP) as Nullable<YouTubeAppElement>;
+    if (!ytdApp) {
+      logger.error('ytd-app not found');
+      return;
+    }
+
+    try {
+      ytdApp.fire('yt-action', {
+        actionName: 'yt-activate-miniplayer',
+        args: [false],
+      });
+      logger.debug('Mini player activation event dispatched');
+    } catch (e) {
+      logger.error('Error activating mini player:', e);
+    }
+  }
+
+  /**
+   * Toggle mini player mode using keyboard simulation
+   * Simulates pressing "i" key to toggle between mini player and main player
    * @param forceShow Force show mini player even if already visible
    */
-  public toggle(forceShow: boolean = false): void {
+  public toggleMiniPlayerViaKeyboard(forceShow: boolean = false): void {
     const isVisible = this.isVisible();
 
     if (forceShow && isVisible) {
@@ -29,7 +55,7 @@ export class MiniPlayerController {
       return;
     }
 
-    logger.debug(`Toggling mini player (forceShow: ${forceShow})`);
+    logger.debug(`Toggling mini player via keyboard (forceShow: ${forceShow})`);
 
     const eventParams = {
       key: KEYBOARD.MINIPLAYER_KEY,
@@ -49,24 +75,6 @@ export class MiniPlayerController {
       logger.debug('Mini player toggle events dispatched');
     } catch (e) {
       logger.error('Error toggling mini player:', e);
-    }
-  }
-
-  /**
-   * Show mini player
-   */
-  public show(): void {
-    if (!this.isVisible()) {
-      this.toggle(true);
-    }
-  }
-
-  /**
-   * Hide mini player (toggle if visible)
-   */
-  public hide(): void {
-    if (this.isVisible()) {
-      this.toggle(false);
     }
   }
 }

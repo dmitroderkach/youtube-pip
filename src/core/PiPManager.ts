@@ -96,8 +96,8 @@ export class PiPManager {
     // Save mini player state
     this.wasMiniPlayerActiveBeforePiP = this.miniPlayerController.isVisible();
 
-    // Show mini player
-    this.miniPlayerController.toggle(true);
+    // Show mini player using keyboard toggle (force show even if visible)
+    this.miniPlayerController.toggleMiniPlayerViaKeyboard(true);
 
     // Wait for mini player container
     await DOMUtils.waitForElementSelector(SELECTORS.MINIPLAYER_CONTAINER);
@@ -216,11 +216,13 @@ export class PiPManager {
       ytDraggable.prepend(this.miniPlayerContainer);
     }
 
-    // Show mini player
-    this.miniPlayerController.toggle(true);
+    if (!this.wasMiniPlayerActiveBeforePiP) {
+      // Show mini player using keyboard toggle (force show even if visible)
+      this.miniPlayerController.toggleMiniPlayerViaKeyboard(true);
 
-    // Wait for main player
-    await this.playerManager.waitForMainPlayer();
+      // Wait for main player
+      await this.playerManager.waitForMainPlayer();
+    }
 
     // Remove mini player container
     const miniplayerContainer = document.querySelector(SELECTORS.MINIPLAYER_CONTAINER);
@@ -237,7 +239,7 @@ export class PiPManager {
         let countTries = 0;
         while (countTries < 5) {
           logger.debug(`Attempting to switch to miniplayer mode, attempt ${countTries + 1}`);
-          this.miniPlayerController.toggle(true);
+          this.miniPlayerController.activateMiniPlayer();
 
           const miniplayerContainer = await DOMUtils.waitForElementSelector(
             SELECTORS.MINIPLAYER_HOST,
