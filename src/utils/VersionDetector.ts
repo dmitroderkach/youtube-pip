@@ -39,7 +39,7 @@ function getYouTubeFeatureFlags(): Record<string, unknown> {
 
     // EXPERIMENT_FLAGS - feature flags location
     if ('EXPERIMENT_FLAGS' in data && data.EXPERIMENT_FLAGS) {
-      return { experimentFlags: data.EXPERIMENT_FLAGS };
+      return data.EXPERIMENT_FLAGS as Record<string, unknown>;
     }
 
     return {};
