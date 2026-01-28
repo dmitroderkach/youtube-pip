@@ -1,6 +1,11 @@
 /**
  * CSS styles for PiP window fixes and customizations
  */
+
+body {
+  overflow: hidden !important;
+}
+
 ytd-miniplayer {
   left: 0 !important;
   right: 0 !important;
