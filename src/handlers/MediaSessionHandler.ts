@@ -48,7 +48,6 @@ export class MediaSessionHandler {
       });
       logger.debug('Media session action handler registered');
     } catch (e) {
-      logger.error('Error registering media session action handler:', e);
       throw new AppInitializationError('Error registering media session action handler', e);
     }
   }
