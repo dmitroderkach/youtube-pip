@@ -21,6 +21,8 @@ interface Window {
           clientVersion?: string;
         };
       };
+      EXPERIMENT_FLAGS?: Record<string, unknown>;
+      [key: string]: unknown;
     };
   };
 }
