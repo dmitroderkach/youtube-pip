@@ -84,6 +84,9 @@ function tampermonkeySourceMapOffsetPlugin(offset: number) {
 const isDebug = process.env.BUILD_DEBUG === '1';
 
 export default defineConfig({
+  define: {
+    SCRIPT_VERSION: JSON.stringify(pkg.version),
+  },
   build: {
     sourcemap: 'inline',
     minify: isDebug ? false : 'terser',

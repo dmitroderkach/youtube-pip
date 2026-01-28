@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-01-28
+
+### Added
+
+- **Logger**: Global metadata support for all log messages
+  - Added `setGlobalMetadata()` method to set metadata that appears in all logs
+  - Global metadata includes:
+    - `youtubeVersion`: YouTube client version (detected from `window.ytcfg`)
+    - `scriptVersion`: Script version (injected at build time from `package.json`)
+    - `browserVersion`: Browser name and version (parsed from `navigator.userAgent`, e.g., `Chrome/144.0.0.0`)
+  - Global metadata is displayed as an object after user-provided metadata in log output
+  - Metadata is set automatically in `main.ts` before application initialization
+
+### Changed
+
+- **VersionDetector**: Simplified version detection logic
+  - YouTube version now extracted only from `window.ytcfg` (removed fallback to `ytd-app.data`)
+  - Browser version parsing: extracts browser name and version from user agent string
+    - Supports Chrome, Edge, Firefox, and Safari detection
+    - Returns formatted string like `Chrome/144.0.0.0` instead of full user agent
+    - Falls back to full user agent string if browser cannot be identified
+
+### Removed
+
+- **Types**: Removed unused TypeScript interfaces
+  - Removed `YouTubeClientVersion` interface (no longer needed)
+  - Removed `YouTubeAppData` interface (no longer needed)
+  - Removed `data` property from `YouTubeAppElement` interface
+
 ## [1.0.6] - 2026-01-28
 
 ### Fixed
@@ -101,6 +130,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[1.0.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.0.5...refs/tags/v1.0.6
+[1.1.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.0.6...refs/tags/v1.1.0
 [1.0.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.0.5...refs/tags/v1.0.6
 [1.0.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.0.4...refs/tags/v1.0.5
 [1.0.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.0.3...refs/tags/v1.0.4

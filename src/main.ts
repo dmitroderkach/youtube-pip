@@ -9,7 +9,11 @@ import { ContextMenuHandler } from './ui/ContextMenuHandler';
 import { SeekHandler } from './handlers/SeekHandler';
 import { LikeButtonHandler } from './handlers/LikeButtonHandler';
 import { MediaSessionHandler } from './handlers/MediaSessionHandler';
+import { getGlobalMetadata } from './utils/VersionDetector';
 import type { PiPCleanupCallback } from './types/app';
+
+// Set global metadata before initializing the application
+Logger.setGlobalMetadata(getGlobalMetadata());
 
 const logger = Logger.getInstance('Main');
 
