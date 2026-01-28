@@ -14,4 +14,13 @@ interface DocumentPictureInPicture {
 
 interface Window {
   documentPictureInPicture?: DocumentPictureInPicture;
+  ytcfg?: {
+    data_?: {
+      INNERTUBE_CONTEXT?: {
+        client?: {
+          clientVersion?: string;
+        };
+      };
+    };
+  };
 }

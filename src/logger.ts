@@ -48,6 +48,7 @@ export class Logger {
   private static instances = new Map<string, Logger>();
   private static enabled = false;
   private static storageListenerAdded = false;
+  private static globalMetadata: Record<string, unknown> = {};
 
   private readonly scope: string;
 
@@ -83,6 +84,14 @@ export class Logger {
     }
   }
 
+  /**
+   * Set global metadata that will be included in all log messages.
+   * Should be called before initializing the application.
+   */
+  public static setGlobalMetadata(metadata: Record<string, unknown>): void {
+    Logger.globalMetadata = { ...metadata };
+  }
+
   private styled(
     fn: (template: string, ...rest: unknown[]) => void,
     msgStyle: string,
@@ -92,14 +101,27 @@ export class Logger {
     const ts = formatTimestamp(new Date());
     const escaped = message.replace(/%/g, '%%');
     const template = `%c${ts}%c ${PREFIX_BRAND}%c${PREFIX_SCOPE(this.scope)}%c ${escaped}`;
-    fn(
+
+    // Build arguments: template, styles, meta (if provided), global metadata (if exists)
+    const args: [string, ...unknown[]] = [
       template,
       STYLE_TIMESTAMP,
       STYLE_BRAND,
       STYLE_SCOPE,
       msgStyle,
-      ...(meta !== undefined ? [meta] : [])
-    );
+    ];
+
+    // Add user-provided metadata first
+    if (meta !== undefined) {
+      args.push(meta);
+    }
+
+    // Add global metadata after user metadata (if exists)
+    if (Object.keys(Logger.globalMetadata).length > 0) {
+      args.push(Logger.globalMetadata);
+    }
+
+    fn(...args);
   }
 
   /**

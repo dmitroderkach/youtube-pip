@@ -9,9 +9,22 @@ import { ContextMenuHandler } from './ui/ContextMenuHandler';
 import { SeekHandler } from './handlers/SeekHandler';
 import { LikeButtonHandler } from './handlers/LikeButtonHandler';
 import { MediaSessionHandler } from './handlers/MediaSessionHandler';
+import { getGlobalMetadata } from './utils/VersionDetector';
 import type { PiPCleanupCallback } from './types/app';
 
 const logger = Logger.getInstance('Main');
+
+/**
+ * Initialize the application
+ */
+function initializeApp(): void {
+  Logger.setGlobalMetadata(getGlobalMetadata());
+
+  const app = new YouTubePiPApp();
+  app.initialize().catch((e) => {
+    logger.error('Error initializing application:', e);
+  });
+}
 
 /**
  * Main application class
@@ -97,15 +110,7 @@ class YouTubePiPApp {
 
 // Initialize application when DOM is ready
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', () => {
-    const app = new YouTubePiPApp();
-    app.initialize().catch((e) => {
-      Logger.getInstance('Main').error('Error initializing application:', e);
-    });
-  });
+  document.addEventListener('DOMContentLoaded', initializeApp);
 } else {
-  const app = new YouTubePiPApp();
-  app.initialize().catch((e) => {
-    Logger.getInstance('Main').error('Error initializing application:', e);
-  });
+  initializeApp();
 }
