@@ -64,7 +64,7 @@ Then reload the page. Logs are scoped per module and include timestamps (`YYYY-M
 youtube-pip/
 ├── src/
 │   ├── main.ts              # Entry point, YouTubePiPApp, PiP handler setup
-│   ├── logger.ts            # Scoped logger (dayjs, %c styles, optional metadata)
+│   ├── logger.ts            # Scoped logger (Intl.DateTimeFormat, %c styles, optional metadata)
 │   ├── constants.ts         # Timeouts, retries, dimensions, keyboard, etc.
 │   ├── selectors.ts         # DOM selectors
 │   ├── styles.css           # PiP CSS fixes (mini player, progress bar, etc.)
@@ -133,7 +133,7 @@ Userscript `@version` is taken from `package.json` during build.
 - **Vite** (build, Rollup, Terser)
 - **ESLint** (flat config, typescript-eslint, eslint-config-prettier)
 - **Prettier**
-- **dayjs** (logger timestamps)
+- **Intl API** (native date formatting)
 
 ## Author
 

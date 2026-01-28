@@ -1,7 +1,24 @@
 import { DEBUG_FLAG } from './constants';
-import dayjs from 'dayjs';
 
-const FORMAT_TIMESTAMP = 'YYYY-MM-DD:HH:mm:ss.SSS';
+/**
+ * Format date as YYYY-MM-DD:HH:mm:ss.SSS using Intl.DateTimeFormat
+ */
+const timestampFormatter = new Intl.DateTimeFormat('en-CA', {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
+
+function formatTimestamp(date: Date): string {
+  // Intl.DateTimeFormat outputs: "2026-01-27, 12:34:56"
+  // Add milliseconds manually: "2026-01-27:12:34:56.789"
+  const ms = String(date.getMilliseconds()).padStart(3, '0');
+  return timestampFormatter.format(date).replace(', ', ':') + '.' + ms;
+}
 
 const PREFIX_BRAND = '[YouTube PiP]';
 const PREFIX_SCOPE = (scope: string) => `[${scope}]` as const;
@@ -72,7 +89,7 @@ export class Logger {
     message: string,
     meta?: unknown
   ): void {
-    const ts = dayjs().format(FORMAT_TIMESTAMP);
+    const ts = formatTimestamp(new Date());
     const escaped = message.replace(/%/g, '%%');
     const template = `%c${ts}%c ${PREFIX_BRAND}%c${PREFIX_SCOPE(this.scope)}%c ${escaped}`;
     fn(

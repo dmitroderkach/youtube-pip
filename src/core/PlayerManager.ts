@@ -42,7 +42,7 @@ export class PlayerManager {
   /**
    * Restore playing state if it was playing before
    */
-  public async restorePlayingState(player: Nullable<YouTubePlayer>): Promise<void> {
+  public restorePlayingState(player: Nullable<YouTubePlayer>): void {
     if (!this.wasPlaying || !player) {
       logger.debug('No need to restore playing state');
       return;
