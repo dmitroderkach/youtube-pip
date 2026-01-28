@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-01-28
+
+### Added
+
+- **Custom error classes**: Added error class hierarchy for better error handling
+  - `AppError`: Abstract base class with `cause` property and stack trace capture
+  - `AppInitializationError`: For initialization errors (MediaSessionHandler)
+  - `PiPError`: For PiP-related errors (PiPManager)
+  - All error classes support wrapping original errors via `cause` property
+
+### Changed
+
+- **MediaSessionHandler**: Now throws `AppInitializationError` with original error as cause
+- **PiPManager**: Now throws `PiPError` instead of generic `Error`
+
 ## [1.2.1] - 2026-01-28
 
 ### Fixed
@@ -159,6 +174,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[1.3.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.2.1...refs/tags/v1.3.0
 [1.2.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.2.0...refs/tags/v1.2.1
 [1.2.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.1.2...refs/tags/v1.2.0
 [1.1.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.1.1...refs/tags/v1.1.2

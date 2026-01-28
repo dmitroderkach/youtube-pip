@@ -8,6 +8,7 @@ import { DEFAULT_DIMENSIONS, TIMEOUTS } from '../constants';
 import { SELECTORS } from '../selectors';
 import { MiniPlayerElement, YouTubePlayer } from '../types/youtube';
 import type { Nullable, PiPCleanupCallback, PiPWindowReadyCallback } from '../types/app';
+import { PiPError } from '../errors/PiPError';
 
 const logger = Logger.getInstance('PiPManager');
 
@@ -90,7 +91,7 @@ export class PiPManager {
     // Find mini player element
     this.miniplayer = document.querySelector(SELECTORS.MINIPLAYER) as MiniPlayerElement;
     if (!this.miniplayer) {
-      throw new Error('Mini player element not found');
+      throw new PiPError('Mini player element not found');
     }
 
     // Save mini player state
@@ -112,7 +113,7 @@ export class PiPManager {
     // Request PiP window
     const dpp = window.documentPictureInPicture;
     if (!dpp) {
-      throw new Error('Document Picture-in-Picture API not available');
+      throw new PiPError('Document Picture-in-Picture API not available');
     }
 
     this.pipWindow = await dpp.requestWindow({ width, height });
