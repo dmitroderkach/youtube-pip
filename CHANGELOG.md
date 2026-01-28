@@ -10,13 +10,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Logger**: Global metadata support for all log messages
-  - Added `setGlobalMetadata()` method to set metadata that appears in all logs
+  - Added `setGlobalMetadata()` static method to Logger class
+  - Global metadata is automatically included in all log messages after user-provided metadata
   - Global metadata includes:
     - `youtubeVersion`: YouTube client version (detected from `window.ytcfg`)
     - `scriptVersion`: Script version (injected at build time from `package.json`)
     - `browserVersion`: Browser name and version (parsed from `navigator.userAgent`, e.g., `Chrome/144.0.0.0`)
-  - Global metadata is displayed as an object after user-provided metadata in log output
-  - Metadata is set automatically during application initialization
+  - Browser version parsing supports Chrome, Edge, Firefox, and Safari detection
+  - Falls back to full user agent string if browser cannot be identified
+
+- **VersionDetector**: New utility module for version detection
+  - `getScriptVersion()`: Gets script version from Vite define injection
+  - `getYouTubeVersion()`: Extracts YouTube client version from `window.ytcfg`
+  - `getBrowserVersion()`: Parses browser name and version from user agent string
+  - `getGlobalMetadata()`: Returns all version information as metadata object
+
+- **Type definitions**: Added type definitions for version detection
+  - Added `Window.ytcfg` type definition in `global.d.ts` for YouTube configuration
+  - Added `SCRIPT_VERSION` constant declaration in `vite-env.d.ts`
+
+- **Vite configuration**: Added script version injection
+  - Added `define` configuration to inject `SCRIPT_VERSION` from `package.json` version at build time
 
 ## [1.0.6] - 2026-01-28
 
