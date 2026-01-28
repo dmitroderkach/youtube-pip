@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-01-28
+
+### Fixed
+
+- **PiPManager**: Skip title synchronization when PiP is opened from mini player mode
+  - When PiP opens from mini player, the title is already set correctly by YouTube
+  - Previously, title was being overwritten unnecessarily, causing potential inconsistencies
+  - Now checks `wasMiniPlayerActiveBeforePiP` flag before syncing title on open and on MediaSession updates
+
 ## [1.0.5] - 2026-01-28
 
 ### Fixed
@@ -92,6 +101,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[1.0.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.0.5...refs/tags/v1.0.6
 [1.0.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.0.4...refs/tags/v1.0.5
 [1.0.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.0.3...refs/tags/v1.0.4
 [1.0.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.0.2...refs/tags/v1.0.3

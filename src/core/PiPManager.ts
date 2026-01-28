@@ -126,9 +126,12 @@ export class PiPManager {
     StyleUtils.copyStyles(document, pipDoc);
     StyleUtils.injectCSSFixes(pipDoc);
 
-    // Set window title
-    const title = window.navigator.mediaSession?.metadata?.title || '';
-    this.setWindowsTitle(title);
+    // Set window title only if PiP was not opened from mini player mode
+    // When opened from mini player, title is already set and should not be overwritten
+    if (!this.wasMiniPlayerActiveBeforePiP) {
+      const title = window.navigator.mediaSession?.metadata?.title || '';
+      this.setWindowsTitle(title);
+    }
 
     // Create ytd-app in PiP window
     const ytdApp = document.querySelector(SELECTORS.YTD_APP);
@@ -275,8 +278,12 @@ export class PiPManager {
 
   /**
    * Update window title from media session
+   * Skips update if PiP was opened from mini player mode
    */
   public updateTitle(title: string): void {
-    this.setWindowsTitle(title);
+    // Don't sync title if PiP was opened from mini player mode
+    if (!this.wasMiniPlayerActiveBeforePiP) {
+      this.setWindowsTitle(title);
+    }
   }
 }
