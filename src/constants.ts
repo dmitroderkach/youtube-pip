@@ -47,10 +47,15 @@ export const YT_ACTION_NAMES = {
 } as const;
 
 // YouTube like/dislike action types
-export const YT_ACTIONS = {
+export const YT_LIKE_ACTIONS = {
   LIKE: 'LIKE',
   DISLIKE: 'DISLIKE',
   REMOVE: 'INDIFFERENT',
+} as const;
+
+// YouTube action types (general-purpose, extensible)
+export const YT_ACTIONS = {
+  ...YT_LIKE_ACTIONS,
 } as const;
 
 // YouTube web page types

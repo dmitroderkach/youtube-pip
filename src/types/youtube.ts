@@ -1,5 +1,11 @@
 import type { Nullable } from './app';
-import type { PLAYER_STATES, YT_ACTIONS, WEB_PAGE_TYPES, YT_EVENTS } from '../constants';
+import type {
+  PLAYER_STATES,
+  YT_ACTIONS,
+  YT_LIKE_ACTIONS,
+  WEB_PAGE_TYPES,
+  YT_EVENTS,
+} from '../constants';
 
 /**
  * TypeScript interfaces for YouTube internal types
@@ -121,7 +127,7 @@ export interface LikeEndpointTarget {
 
 /**
  * YouTube action type from YT_ACTIONS constant
- * Currently used for like/dislike actions, extensible for future action types
+ * General-purpose type for all YouTube actions, extensible for future action types
  * Possible values:
  * - LIKE: 'LIKE'
  * - DISLIKE: 'DISLIKE'
@@ -130,11 +136,21 @@ export interface LikeEndpointTarget {
 export type YouTubeActionType = (typeof YT_ACTIONS)[keyof typeof YT_ACTIONS];
 
 /**
+ * Like action type from YT_LIKE_ACTIONS constant
+ * Specific type for like/dislike endpoint actions only
+ * Possible values:
+ * - LIKE: 'LIKE'
+ * - DISLIKE: 'DISLIKE'
+ * - REMOVE: 'INDIFFERENT'
+ */
+export type LikeActionType = (typeof YT_LIKE_ACTIONS)[keyof typeof YT_LIKE_ACTIONS];
+
+/**
  * Like endpoint command
- * Status values from YT_ACTIONS constants
+ * Status values from YT_LIKE_ACTIONS constants
  */
 export interface LikeEndpoint {
-  status: YouTubeActionType;
+  status: LikeActionType;
   target: LikeEndpointTarget;
 }
 

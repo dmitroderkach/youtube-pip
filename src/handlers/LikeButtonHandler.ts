@@ -1,5 +1,5 @@
 import { Logger } from '../logger';
-import { YT_ACTIONS } from '../constants';
+import { YT_LIKE_ACTIONS } from '../constants';
 import { SELECTORS } from '../selectors';
 import { YtActionSender } from '../core/YtActionSender';
 import { PlayerManager } from '../core/PlayerManager';
@@ -64,14 +64,14 @@ export class LikeButtonHandler {
 
         const isPressed = button.getAttribute('aria-pressed') === 'true';
         const actionType = isPressed
-          ? YT_ACTIONS.REMOVE
+          ? YT_LIKE_ACTIONS.REMOVE
           : isLikeButton
-            ? YT_ACTIONS.LIKE
-            : YT_ACTIONS.DISLIKE;
+            ? YT_LIKE_ACTIONS.LIKE
+            : YT_LIKE_ACTIONS.DISLIKE;
 
         logger.log(`${actionType} button clicked (currently pressed: ${isPressed})`);
 
-        this.ytActionSender?.send(actionType);
+        this.ytActionSender?.sendLikeAction(actionType);
       },
       true
     ); // Capture phase

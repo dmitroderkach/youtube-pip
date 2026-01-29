@@ -5,6 +5,44 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-01-29
+
+### Added
+
+- **constants.ts**: Added specific like action constants
+  - Added `YT_LIKE_ACTIONS` with `LIKE`, `DISLIKE`, and `REMOVE` actions specific to like/dislike endpoint
+  - Refactored `YT_ACTIONS` as general-purpose action constants that extends `YT_LIKE_ACTIONS`
+  - Separation allows future expansion with other action types without affecting existing like endpoint type safety
+
+- **types/youtube.ts**: Added specific like action type
+  - Added `LikeActionType` type derived from `YT_LIKE_ACTIONS` constant ('LIKE' | 'DISLIKE' | 'INDIFFERENT')
+  - Ensures `LikeEndpoint.status` remains strictly typed even when `YT_ACTIONS` expands with new action types
+
+### Changed
+
+- **YtActionSender**: Renamed method for clarity and specificity
+  - Renamed `send()` to `sendLikeAction()` to reflect specific purpose for like/dislike actions
+  - Updated parameter type to use `LikeActionType` instead of `YouTubeActionType`
+  - Action map now uses `YT_LIKE_ACTIONS` constants instead of generic `YT_ACTIONS`
+  - Method name now clearly indicates it's specifically for like/dislike operations
+
+- **LikeButtonHandler**: Updated to use specific like action constants
+  - Replaced `YT_ACTIONS` with `YT_LIKE_ACTIONS` for like/dislike/remove actions
+  - Updated to use renamed `sendLikeAction()` method
+  - Ensures only valid like endpoint actions are used
+
+- **LikeEndpoint interface**: Uses specific like action type
+  - `status` property now uses `LikeActionType` instead of general `YouTubeActionType`
+  - Specific type ensures only like/dislike actions are valid, not future unrelated actions
+  - Linked to `YT_LIKE_ACTIONS` constants via type system
+
+### Technical Details
+
+- **Separation of concerns**: Like actions now have dedicated constants and type, separate from general YouTube actions
+- **Future-proof**: Adding new action types to `YT_ACTIONS` won't affect `LikeEndpoint` type safety
+- **Type precision**: Each endpoint can have its own specific action type derived from appropriate constants
+- **Semantic naming**: `sendLikeAction()` clearly indicates method purpose, enabling future methods like `sendSubscribeAction()`, etc.
+
 ## [1.4.0] - 2026-01-29
 
 ### Added
@@ -302,6 +340,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[1.4.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.4.0...refs/tags/v1.4.1
 [1.4.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.3.4...refs/tags/v1.4.0
 [1.3.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.3.3...refs/tags/v1.3.4
 [1.3.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.3.2...refs/tags/v1.3.3

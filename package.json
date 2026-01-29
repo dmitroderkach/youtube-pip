@@ -1,6 +1,6 @@
 {
   "name": "youtube-pip",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Smart Picture-in-Picture mode with all YouTube controls and functions",
   "license": "MIT",
   "type": "module",
