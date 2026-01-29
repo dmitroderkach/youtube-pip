@@ -9,7 +9,6 @@ export const SELECTORS = {
   MOVIE_PLAYER: '#movie_player',
   YTD_APP: 'ytd-app',
   YT_DRAGGABLE: 'yt-draggable',
-  HTML5_VIDEO_PLAYER: '.html5-video-player',
   CONTEXT_MENU: '.ytp-popup.ytp-contextmenu',
   CONTEXT_MENU_CONTAINER: '.ytp-contextmenu',
   MENU_BUTTON: '.yt-spec-button-shape-next[aria-expanded]',
