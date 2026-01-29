@@ -72,7 +72,9 @@ export class PiPManager {
 
       if (this.pipWindow && this.miniplayer) {
         this.pipWindow.addEventListener('pagehide', () => {
-          void this.returnPlayerToMain().catch((e) => logger.error('Unhandled error in returnPlayerToMain:', e));
+          void this.returnPlayerToMain().catch((e) =>
+            logger.error('Unhandled error in returnPlayerToMain:', e)
+          );
         });
         this.navigationHandler.initialize(this.pipWindow);
 
