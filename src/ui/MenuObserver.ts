@@ -1,5 +1,5 @@
 import { Logger } from '../logger';
-import { DEFAULT_DIMENSIONS } from '../constants';
+import { DEFAULT_DIMENSIONS, TIMEOUTS } from '../constants';
 import { SELECTORS } from '../selectors';
 import { DOMUtils } from '../utils/DOMUtils';
 import type { Nullable } from '../types/app';
@@ -35,7 +35,7 @@ export class MenuObserver {
       button = await DOMUtils.waitForElementSelector(
         SELECTORS.MENU_BUTTON,
         pipWindow.document,
-        0,
+        TIMEOUTS.ELEMENT_WAIT_INFINITE,
         pipWindow
       );
     } catch (e) {

@@ -1,5 +1,6 @@
 import { Logger } from '../logger';
 import { SELECTORS } from '../selectors';
+import { YT_EVENTS, YT_ACTION_NAMES } from '../constants';
 import { PlayerManager } from '../core/PlayerManager';
 import type { YouTubeAppElement } from '../types/youtube';
 import type { Nullable } from '../types/app';
@@ -26,7 +27,7 @@ export class MiniPlayerController {
 
   /**
    * Activate mini player using YouTube native action
-   * Uses yt-action with yt-activate-miniplayer-from-watch-action
+   * Uses YT_EVENTS.ACTION with YT_ACTION_NAMES.ACTIVATE_MINIPLAYER
    */
   public activateMiniPlayer(): void {
     logger.debug('Activating mini player via YouTube API');
@@ -38,8 +39,8 @@ export class MiniPlayerController {
     }
 
     try {
-      ytdApp.fire('yt-action', {
-        actionName: 'yt-activate-miniplayer',
+      ytdApp.fire(YT_EVENTS.ACTION, {
+        actionName: YT_ACTION_NAMES.ACTIVATE_MINIPLAYER,
         args: [false],
         optionalAction: false,
         returnValue: [undefined],
@@ -53,8 +54,8 @@ export class MiniPlayerController {
   /**
    * Toggle mini player mode using YouTube native API
    *
-   * If mini player is active, navigates back to full player using yt-navigate.
-   * Otherwise, activates mini player using yt-action with yt-activate-miniplayer-from-watch-action.
+   * If mini player is active, navigates back to full player using YT_EVENTS.NAVIGATE.
+   * Otherwise, activates mini player using YT_EVENTS.ACTION with YT_ACTION_NAMES.ACTIVATE_MINIPLAYER_FROM_WATCH.
    *
    * @returns void
    */
@@ -67,7 +68,7 @@ export class MiniPlayerController {
 
     try {
       if (ytdApp.miniplayerIsActive) {
-        // Return to full player: use yt-navigate with watchEndpoint
+        // Return to full player: use YT_EVENTS.NAVIGATE with watchEndpoint
         logger.debug('Returning to full player via YouTube API');
 
         // Get video ID from player using PlayerManager
@@ -76,17 +77,17 @@ export class MiniPlayerController {
           return;
         }
 
-        ytdApp.fire('yt-navigate', {
+        ytdApp.fire(YT_EVENTS.NAVIGATE, {
           endpoint: {
             watchEndpoint: { videoId },
           },
         });
         logger.debug(`Navigation to full player dispatched for video ${videoId}`);
       } else {
-        // Activate miniplayer: use yt-action with yt-activate-miniplayer-from-watch-action
+        // Activate miniplayer: use YT_EVENTS.ACTION with YT_ACTION_NAMES.ACTIVATE_MINIPLAYER_FROM_WATCH
         logger.debug('Activating miniplayer via YouTube API');
-        ytdApp.fire('yt-action', {
-          actionName: 'yt-activate-miniplayer-from-watch-action',
+        ytdApp.fire(YT_EVENTS.ACTION, {
+          actionName: YT_ACTION_NAMES.ACTIVATE_MINIPLAYER_FROM_WATCH,
           args: null,
           optionalAction: false,
           returnValue: [undefined],

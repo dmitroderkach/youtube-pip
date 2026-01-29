@@ -1,6 +1,6 @@
 import { Logger } from '../logger';
 import { NavigationState } from '../types/youtube';
-import { WEB_PAGE_TYPES, ROOT_VE } from '../constants';
+import { WEB_PAGE_TYPES, ROOT_VE, YT_EVENTS } from '../constants';
 import { SELECTORS } from '../selectors';
 import type { Nullable } from '../types/app';
 
@@ -84,7 +84,7 @@ export class NavigationHandler {
             entryTime: performance.now(),
           };
 
-          logger.log(`SPA navigation via yt-navigate: ${href}`);
+          logger.log(`SPA navigation via ${YT_EVENTS.NAVIGATE}: ${href}`);
 
           // Trigger navigation (no pushState — YouTube does not update URL in mini player)
           window.dispatchEvent(new PopStateEvent('popstate', { state }));
