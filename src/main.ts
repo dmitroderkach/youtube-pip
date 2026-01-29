@@ -73,6 +73,9 @@ class YouTubePiPApp {
       this.seekHandler.cleanup();
       this.likeButtonHandler.cleanup();
       this.contextMenuHandler.stop();
+      this.menuObserver.stop();
+      this.resizeTracker.stop();
+      this.navigationHandler.cleanup();
     };
   }
 
