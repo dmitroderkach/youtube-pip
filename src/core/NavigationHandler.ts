@@ -34,9 +34,7 @@ export class NavigationHandler {
       'click',
       (event: MouseEvent) => {
         // Focus video player
-        const player = this.pipWindow!.document.querySelector<HTMLElement>(
-          SELECTORS.HTML5_VIDEO_PLAYER
-        );
+        const player = this.pipWindow!.document.querySelector<HTMLElement>(SELECTORS.MOVIE_PLAYER);
         if (player) {
           if (typeof player.focus === 'function') {
             player.focus();

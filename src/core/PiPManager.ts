@@ -9,6 +9,7 @@ import { SELECTORS } from '../selectors';
 import { MiniPlayerElement, YouTubePlayer } from '../types/youtube';
 import type { Nullable, PiPCleanupCallback, PiPWindowReadyCallback } from '../types/app';
 import { PiPError } from '../errors/PiPError';
+import { PiPCriticalError } from '../errors/PiPCriticalError';
 
 const logger = Logger.getInstance('PiPManager');
 
@@ -79,6 +80,9 @@ export class PiPManager {
         }
       }
     } catch (error) {
+      if (error instanceof PiPCriticalError) {
+        throw error;
+      }
       throw new PiPError('Error opening PiP', error);
     }
   }
@@ -116,6 +120,16 @@ export class PiPManager {
       throw new PiPError('Document Picture-in-Picture API not available');
     }
 
+    const ytdApp = document.querySelector(SELECTORS.YTD_APP);
+    if (!ytdApp) {
+      throw new PiPError('ytd-app element not found');
+    }
+
+    this.miniPlayerContainer = document.querySelector(SELECTORS.MINIPLAYER_CONTAINER);
+    if (!this.miniPlayerContainer) {
+      throw new PiPError('miniplayer-container element not found');
+    }
+
     this.pipWindow = await dpp.requestWindow({ width, height });
     logger.log('PiP window opened');
 
@@ -135,40 +149,31 @@ export class PiPManager {
     }
 
     // Create ytd-app in PiP window
-    const ytdApp = document.querySelector(SELECTORS.YTD_APP);
-    if (ytdApp && this.pipWindow) {
-      const newApp = pipDoc.createElement('ytd-app');
-      DOMUtils.copyAttributes(ytdApp, newApp);
-      pipDoc.body.appendChild(newApp);
-    }
+    const pipApp = pipDoc.createElement('ytd-app');
+    DOMUtils.copyAttributes(ytdApp, pipApp);
+    pipDoc.body.appendChild(pipApp);
 
     // Move mini player to PiP
-    this.miniPlayerContainer = document.querySelector(SELECTORS.MINIPLAYER_CONTAINER);
     this.placeholder = DOMUtils.createPlaceholder('mini_player_placeholder');
     DOMUtils.insertPlaceholderBefore(this.miniplayer, this.placeholder);
 
-    const pipApp = this.pipWindow.document.querySelector(SELECTORS.YTD_APP);
-    if (pipApp && this.miniplayer) {
-      pipApp.appendChild(this.miniplayer);
-    }
+    pipApp.appendChild(this.miniplayer);
 
     // Move container to draggable
     const ytDraggable = pipDoc.querySelector(SELECTORS.YT_DRAGGABLE);
-    if (ytDraggable && this.miniPlayerContainer) {
-      ytDraggable.prepend(this.miniPlayerContainer);
+    if (!ytDraggable) {
+      throw new PiPCriticalError('yt-draggable element not found');
     }
+    ytDraggable.prepend(this.miniPlayerContainer);
 
     DOMUtils.unwrap(ytDraggable);
 
     // Focus video player
-    const videoPlayer = pipDoc.querySelector<HTMLElement>(SELECTORS.HTML5_VIDEO_PLAYER);
-    if (videoPlayer) {
-      if (typeof videoPlayer.focus === 'function') {
-        videoPlayer.focus();
-      } else {
-        logger.warn('videoPlayer.focus method not found');
-      }
+    const videoPlayer = pipDoc.querySelector<HTMLElement>(SELECTORS.MOVIE_PLAYER);
+    if (!videoPlayer) {
+      throw new PiPCriticalError('movie_player element not found');
     }
+    videoPlayer.focus();
   }
 
   /**
@@ -177,8 +182,12 @@ export class PiPManager {
   private async returnPlayerToMain(): Promise<void> {
     logger.log('Returning player to main window');
 
-    if (!this.placeholder || !this.miniplayer) {
-      logger.warn('Placeholder or miniplayer not found');
+    if (!this.placeholder || !this.miniplayer || !this.miniPlayerContainer) {
+      logger.warn('Placeholder or miniplayer or miniPlayerContainer not found', {
+        placeholder: this.placeholder,
+        miniplayer: this.miniplayer,
+        miniPlayerContainer: this.miniPlayerContainer,
+      });
       return;
     }
 
@@ -192,7 +201,11 @@ export class PiPManager {
       this.onBeforeReturn = null;
     }
 
-    await this.movePlayerToMain();
+    try {
+      await this.movePlayerToMain();
+    } catch (error) {
+      throw new PiPError('Error returning player to main window', error);
+    }
 
     this.pipWindow = null;
   }
@@ -201,7 +214,7 @@ export class PiPManager {
    * Move player back to main window
    */
   private async movePlayerToMain(): Promise<void> {
-    if (!this.placeholder || !this.miniplayer) {
+    if (!this.placeholder || !this.miniplayer || !this.miniPlayerContainer) {
       return;
     }
 
@@ -215,9 +228,10 @@ export class PiPManager {
 
     // Move container back
     const ytDraggable = document.querySelector(SELECTORS.YT_DRAGGABLE);
-    if (ytDraggable && this.miniPlayerContainer) {
-      ytDraggable.prepend(this.miniPlayerContainer);
+    if (!ytDraggable) {
+      throw new PiPCriticalError('yt-draggable element not found');
     }
+    ytDraggable.prepend(this.miniPlayerContainer);
 
     if (!this.wasMiniPlayerActiveBeforePiP) {
       this.miniPlayerController.toggleMiniPlayer();

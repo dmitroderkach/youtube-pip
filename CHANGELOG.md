@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.1] - 2026-01-25
+
+### Added
+
+- **PiPCriticalError**: New error class for unrecoverable PiP failures
+  - Thrown when PiP flow has left the YouTube page in a broken state (e.g. mini player moved but required DOM element missing)
+  - Extends `AppError`; re-thrown in `PiPManager.open()` so callers can distinguish critical failures
+  - Used when `yt-draggable` or `movie_player` is missing after PiP window is opened or during return to main
+
+### Changed
+
+- **PiPManager**: Stricter validation and error handling
+  - **Before opening PiP**: Validate `ytd-app` and `miniplayer-container`; throw `PiPError` if missing (avoids opening PiP then failing)
+  - **After opening PiP**: No conditionals — create `ytd-app`, append mini player; throw `PiPCriticalError` if `yt-draggable` or `movie_player` not found (page would be broken)
+  - **returnPlayerToMain**: Guard now includes `miniPlayerContainer`; wrap `movePlayerToMain()` in try/catch and throw `PiPError` on failure
+  - **movePlayerToMain**: Guard includes `miniPlayerContainer`; throw `PiPCriticalError` if `yt-draggable` not found when restoring
+
+- **NavigationHandler**: Use `SELECTORS.MOVIE_PLAYER` instead of `SELECTORS.HTML5_VIDEO_PLAYER` when focusing player in PiP
+
+### Removed
+
+- **selectors.ts**: Removed `HTML5_VIDEO_PLAYER` (replaced by `MOVIE_PLAYER` where used)
+
 ## [1.5.0] - 2026-01-29
 
 ### Added
@@ -421,6 +444,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[1.5.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.5.0...refs/tags/v1.5.1
+[1.5.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.4.1...refs/tags/v1.5.0
 [1.4.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.4.0...refs/tags/v1.4.1
 [1.4.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.3.4...refs/tags/v1.4.0
 [1.3.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.3.3...refs/tags/v1.3.4
