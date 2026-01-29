@@ -1,5 +1,11 @@
 import type { Nullable } from './app';
-import type { PLAYER_STATES, YT_ACTIONS, YT_LIKE_ACTIONS, WEB_PAGE_TYPES, YT_EVENTS } from '../constants';
+import type {
+  PLAYER_STATES,
+  YT_ACTIONS,
+  YT_LIKE_ACTIONS,
+  WEB_PAGE_TYPES,
+  YT_EVENTS,
+} from '../constants';
 
 /**
  * TypeScript interfaces for YouTube internal types
