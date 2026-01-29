@@ -79,8 +79,7 @@ export class PiPManager {
         }
       }
     } catch (error) {
-      logger.error('Error opening PiP:', error);
-      throw error;
+      throw new PiPError('Error opening PiP', error);
     }
   }
 
