@@ -162,8 +162,12 @@ export class PiPManager {
 
     // Focus video player
     const videoPlayer = pipDoc.querySelector<HTMLElement>(SELECTORS.HTML5_VIDEO_PLAYER);
-    if (videoPlayer && typeof videoPlayer.focus === 'function') {
-      videoPlayer.focus();
+    if (videoPlayer) {
+      if (typeof videoPlayer.focus === 'function') {
+        videoPlayer.focus();
+      } else {
+        logger.warn('videoPlayer.focus method not found');
+      }
     }
   }
 

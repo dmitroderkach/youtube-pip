@@ -30,10 +30,18 @@ export class ResizeTracker {
 
         const player = pipDoc.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
         if (player) {
-          if (typeof player.setInternalSize === 'function') {
-            player.setInternalSize();
-            player.setSize?.();
+          // Check if resize methods are available
+          const hasResizeMethods =
+            typeof player.setInternalSize === 'function' || typeof player.setSize === 'function';
+
+          if (!hasResizeMethods) {
+            logger.warn('Player resize methods (setInternalSize, setSize) not found');
           }
+
+          // Call resize methods if available
+          player.setInternalSize?.();
+          player.setSize?.();
+
           player.dispatchEvent(new Event('resize', { bubbles: true }));
           logger.debug('Player size updated');
         }

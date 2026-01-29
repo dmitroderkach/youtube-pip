@@ -21,6 +21,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Error logging**: Comprehensive logging for type guards and method checks
+  - **Error logs** for critical operations:
+    - `YtActionSender`: Video ID not found (prevents silent like/dislike failures)
+    - `MiniPlayerController`: Video ID not found during navigation
+    - `PlayerManager`: `playVideo` method not found (prevents silent playback restoration failure)
+  - **Warning logs** for optional features:
+    - `NavigationHandler`: Navigation endpoint has no href, player.focus method not found
+    - `PiPManager`: videoPlayer.focus method not found
+    - `ResizeTracker`: player.setInternalSize/setSize methods not found
+  - All method availability checks now have proper error/warning logging
+  - Helps diagnose issues in production by making silent failures visible in console
+
 - **Type system**: Enhanced TypeScript type safety and code quality
   - **Generic types**: `YouTubePlayer` now extends `HTMLElement` for better DOM type compatibility
   - **querySelector**: Replaced all `querySelector() as Type` with generic syntax `querySelector<Type>()`
@@ -30,6 +42,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Affects 8 files: type definitions, handlers, core managers
   - Removed redundant method declarations from `YouTubePlayer` (inherited from `HTMLElement`)
   - Removed unused `Nullable` import from `MiniPlayerController`
+
+- **ResizeTracker**: Simplified resize handling logic
+  - Combined resize method checks into single conditional (reduced nested if/else blocks)
+  - Single warning message if neither resize method is available
+  - Uses optional chaining for clean method calls (`setInternalSize?.()`, `setSize?.()`)
+  - Reduced from 8 lines to 6 lines while maintaining functionality
 
 - **YtActionSender**: Renamed method and simplified implementation
   - Removed redundant `actionMap` object that was just mapping values to themselves

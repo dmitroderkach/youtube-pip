@@ -31,6 +31,7 @@ export class YtActionSender {
     const videoId = this.playerManager.getVideoId(this.pipWindow.document);
 
     if (!videoId) {
+      logger.error('Video ID not found, cannot send like action');
       return;
     }
 

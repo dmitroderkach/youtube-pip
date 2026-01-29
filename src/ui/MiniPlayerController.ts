@@ -73,6 +73,7 @@ export class MiniPlayerController {
         // Get video ID from player using PlayerManager
         const videoId = this.playerManager.getVideoId(document);
         if (!videoId) {
+          logger.error('Video ID not found, cannot navigate to full player');
           return;
         }
 

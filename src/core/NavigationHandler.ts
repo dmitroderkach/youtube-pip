@@ -37,8 +37,12 @@ export class NavigationHandler {
         const player = this.pipWindow!.document.querySelector<HTMLElement>(
           SELECTORS.HTML5_VIDEO_PLAYER
         );
-        if (player && typeof player.focus === 'function') {
-          player.focus();
+        if (player) {
+          if (typeof player.focus === 'function') {
+            player.focus();
+          } else {
+            logger.warn('player.focus method not found');
+          }
         }
 
         const endpoint = (event.target as Element)?.closest<HTMLAnchorElement>(
@@ -53,6 +57,7 @@ export class NavigationHandler {
 
         const href = endpoint.href;
         if (!href) {
+          logger.warn('Navigation endpoint has no href');
           return;
         }
 

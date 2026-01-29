@@ -58,6 +58,8 @@ export class PlayerManager {
       if (typeof player.playVideo === 'function') {
         player.playVideo();
         logger.log('Playback restored after return to main window');
+      } else {
+        logger.error('player.playVideo method not found, cannot restore playback');
       }
     } catch (e) {
       logger.error('Error restoring playback:', e);
