@@ -41,8 +41,6 @@ export class ResizeTracker {
     });
 
     this.observer.observe(targetElement);
-
-    pipWindow.addEventListener('pagehide', () => this.stop(), { once: true });
   }
 
   /**

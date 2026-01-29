@@ -196,7 +196,6 @@ export class PiPManager {
     await this.movePlayerToMain();
 
     this.pipWindow = null;
-    this.navigationHandler.cleanup();
   }
 
   /**
