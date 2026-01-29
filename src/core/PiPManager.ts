@@ -221,7 +221,7 @@ export class PiPManager {
     }
 
     if (!this.wasMiniPlayerActiveBeforePiP) {
-      this.miniPlayerController.toggleMiniPlayer(true);
+      this.miniPlayerController.toggleMiniPlayer();
 
       // Wait for main player
       await this.playerManager.waitForMainPlayer();
