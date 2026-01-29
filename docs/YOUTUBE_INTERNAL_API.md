@@ -56,14 +56,15 @@ This document describes how we interact with YouTube's internal Kevlar framework
 **Purpose**: Main YouTube application element that controls all functionality.
 
 **TypeScript Interface**:
+
 ```typescript
 export interface YouTubeAppElement extends HTMLElement {
   // Event dispatcher - sends events through Kevlar event bus
   fire(eventName: YouTubeEventName, detail?: unknown): void;
-  
+
   // Command dispatcher - executes YouTube commands (like, subscribe, etc)
   resolveCommand?(command: Partial<YouTubeCommand>): void;
-  
+
   // State properties
   miniplayerIsActive: boolean;
 }
@@ -72,6 +73,7 @@ export interface YouTubeAppElement extends HTMLElement {
 **Selector**: `'ytd-app'`
 
 **Usage in Code**:
+
 ```typescript
 // src/core/YtActionSender.ts
 const mainApp = document.querySelector<YouTubeAppElement>(SELECTORS.YTD_APP);
@@ -87,6 +89,7 @@ mainApp.resolveCommand({ likeEndpoint: { ... } });
 **Selector**: `'ytd-miniplayer'`
 
 **Usage in Code**:
+
 ```typescript
 // src/core/PiPManager.ts
 const miniplayer = await DOMUtils.waitForElementSelector<MiniPlayerElement>(
@@ -102,21 +105,22 @@ const miniplayer = await DOMUtils.waitForElementSelector<MiniPlayerElement>(
 **Purpose**: Main video player instance with playback controls.
 
 **TypeScript Interface**:
+
 ```typescript
 export interface YouTubePlayer extends HTMLElement {
   // Player state
   getPlayerState?(): PlayerState;
-  
+
   // Playback controls
   playVideo?(): void;
   pauseVideo?(): void;
   seekTo?(seconds: number, allowSeekAhead: boolean): void;
-  
+
   // Video information
   getDuration?(): number;
   getCurrentTime?(): number;
   getVideoData?: () => VideoData;
-  
+
   // Size management
   setInternalSize?(): void;
   setSize?(): void;
@@ -126,6 +130,7 @@ export interface YouTubePlayer extends HTMLElement {
 **Selector**: `'#movie_player'`
 
 **Usage in Code**:
+
 ```typescript
 // src/core/PlayerManager.ts
 const player = document.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
@@ -149,10 +154,11 @@ fire(eventName: YouTubeEventName, detail?: unknown): void
 #### Event Types
 
 **Defined in `src/constants.ts`**:
+
 ```typescript
 export const YT_EVENTS = {
-  ACTION: 'yt-action',      // Execute YouTube action
-  NAVIGATE: 'yt-navigate',  // Navigate to different page
+  ACTION: 'yt-action', // Execute YouTube action
+  NAVIGATE: 'yt-navigate', // Navigate to different page
 } as const;
 ```
 
@@ -179,6 +185,7 @@ export const YT_EVENTS = {
 #### Action Names
 
 **Defined in `src/constants.ts`**:
+
 ```typescript
 export const YT_ACTION_NAMES = {
   ACTIVATE_MINIPLAYER: 'yt-activate-miniplayer',
@@ -189,10 +196,11 @@ export const YT_ACTION_NAMES = {
 #### Example: Activate Mini Player
 
 **Implementation in `src/ui/MiniPlayerController.ts`**:
+
 ```typescript
 public activateMiniPlayer(): void {
   const ytdApp = document.querySelector<YouTubeAppElement>(SELECTORS.YTD_APP);
-  
+
   ytdApp.fire(YT_EVENTS.ACTION, {
     actionName: YT_ACTION_NAMES.ACTIVATE_MINIPLAYER,
     args: [false],
@@ -203,6 +211,7 @@ public activateMiniPlayer(): void {
 ```
 
 **What happens**:
+
 1. Event dispatched to Kevlar event bus
 2. Kevlar finds action handler for `yt-activate-miniplayer`
 3. Mini player UI is activated
@@ -236,11 +245,12 @@ public activateMiniPlayer(): void {
 #### Example: Navigate to Full Player
 
 **Implementation in `src/ui/MiniPlayerController.ts`**:
+
 ```typescript
 public toggleMiniPlayer(): void {
   const ytdApp = document.querySelector<YouTubeAppElement>(SELECTORS.YTD_APP);
   const videoId = this.playerManager.getVideoId(document);
-  
+
   if (ytdApp.miniplayerIsActive) {
     // Return to full player
     ytdApp.fire(YT_EVENTS.NAVIGATE, {
@@ -253,6 +263,7 @@ public toggleMiniPlayer(): void {
 ```
 
 **What happens**:
+
 1. Event dispatched to Kevlar event bus
 2. Kevlar navigation handler processes endpoint
 3. SPA navigates to watch page
@@ -276,6 +287,7 @@ resolveCommand?(command: Partial<YouTubeCommand>): void
 #### Command Registry Pattern
 
 **Defined in `src/types/youtube.ts`**:
+
 ```typescript
 // Registry of all command types
 export interface YouTubeCommands {
@@ -292,7 +304,7 @@ export interface LikeCommand {
 }
 
 export interface LikeEndpoint {
-  status: LikeActionType;  // 'LIKE' | 'DISLIKE' | 'INDIFFERENT'
+  status: LikeActionType; // 'LIKE' | 'DISLIKE' | 'INDIFFERENT'
   target: {
     videoId: string;
   };
@@ -308,48 +320,52 @@ export interface LikeEndpoint {
 #### Action Types
 
 **Defined in `src/constants.ts`**:
+
 ```typescript
 export const YT_LIKE_ACTIONS = {
-  LIKE: 'LIKE',           // Like video
-  DISLIKE: 'DISLIKE',     // Dislike video
-  REMOVE: 'INDIFFERENT',  // Remove rating
+  LIKE: 'LIKE', // Like video
+  DISLIKE: 'DISLIKE', // Dislike video
+  REMOVE: 'INDIFFERENT', // Remove rating
 } as const;
 ```
 
 #### Example: Send Like Action
 
 **Implementation in `src/core/YtActionSender.ts`**:
+
 ```typescript
 public sendLikeAction(actionType: LikeActionType): void {
   const videoId = this.playerManager.getVideoId(this.pipWindow.document);
   const mainApp = document.querySelector<YouTubeAppElement>(SELECTORS.YTD_APP);
-  
+
   const command: YouTubeCommand = {
     likeEndpoint: {
       status: actionType,  // 'LIKE', 'DISLIKE', or 'INDIFFERENT'
       target: { videoId },
     },
   };
-  
+
   mainApp.resolveCommand(command);
 }
 ```
 
 **What happens**:
+
 1. Command sent to Kevlar command dispatcher
 2. Kevlar validates command structure
 3. Backend API call is made
 4. UI is updated (button state, like count)
 
 **Usage in `src/handlers/LikeButtonHandler.ts`**:
+
 ```typescript
 // Detect button click
 const isPressed = button.getAttribute('aria-pressed') === 'true';
 const actionType = isPressed
-  ? YT_LIKE_ACTIONS.REMOVE      // Remove existing rating
+  ? YT_LIKE_ACTIONS.REMOVE // Remove existing rating
   : isLikeButton
-    ? YT_LIKE_ACTIONS.LIKE      // Add like
-    : YT_LIKE_ACTIONS.DISLIKE;  // Add dislike
+    ? YT_LIKE_ACTIONS.LIKE // Add like
+    : YT_LIKE_ACTIONS.DISLIKE; // Add dislike
 
 this.ytActionSender?.sendLikeAction(actionType);
 ```
@@ -361,18 +377,21 @@ this.ytActionSender?.sendLikeAction(actionType);
 ### 1. Chrome DevTools Inspection
 
 #### Inspecting DOM Elements
+
 ```javascript
 // In browser console:
 const app = document.querySelector('ytd-app');
-console.dir(app);  // See all properties and methods
+console.dir(app); // See all properties and methods
 ```
 
 **Discovered**:
+
 - `fire()` method
 - `resolveCommand()` method
 - `miniplayerIsActive` property
 
 #### Event Monitoring
+
 ```javascript
 // Monitor all events
 monitorEvents(document.querySelector('ytd-app'));
@@ -389,6 +408,7 @@ monitorEvents(document.querySelector('ytd-app'));
 Monitor XHR/Fetch requests when clicking like button:
 
 **Request Payload**:
+
 ```json
 {
   "likeEndpoint": {
@@ -410,15 +430,16 @@ Examining YouTube's minified JavaScript:
 
 ```javascript
 // Found in YouTube source:
-a.prototype.resolveCommand = function(command) {
+a.prototype.resolveCommand = function (command) {
   if (command.likeEndpoint) {
     this.sendLikeCommand(command.likeEndpoint);
   }
   // ... other commands
-}
+};
 ```
 
 **Discovered**:
+
 - Command structure
 - Available commands
 - Expected parameters
@@ -459,7 +480,7 @@ ytdApp.fire('activate-miniplayer', {});
 ```typescript
 public toggleMiniPlayer(): void {
   const ytdApp = document.querySelector<YouTubeAppElement>(SELECTORS.YTD_APP);
-  
+
   if (!ytdApp || typeof ytdApp.fire !== 'function') {
     logger.error('ytd-app fire method not found');
     return;
@@ -469,7 +490,7 @@ public toggleMiniPlayer(): void {
     if (ytdApp.miniplayerIsActive) {
       // Deactivate: Navigate to full watch page
       const videoId = this.playerManager.getVideoId(document);
-      
+
       if (!videoId) {
         logger.error('Video ID not found, cannot navigate to full player');
         return;
@@ -480,7 +501,7 @@ public toggleMiniPlayer(): void {
           watchEndpoint: { videoId },
         },
       });
-      
+
       logger.debug(`Navigation to full player dispatched for video ${videoId}`);
     } else {
       // Activate: Show mini player
@@ -490,7 +511,7 @@ public toggleMiniPlayer(): void {
         optionalAction: false,
         returnValue: [undefined],
       });
-      
+
       logger.debug('Miniplayer activation event dispatched');
     }
   } catch (e) {
@@ -512,13 +533,13 @@ private setupClickHandler(): void {
     const button = (event.target as Element)?.closest<HTMLButtonElement>(
       SELECTORS.BUTTON_SHAPE
     );
-    
+
     if (!button) return;
 
     // Determine action type
     const isPressed = button.getAttribute('aria-pressed') === 'true';
     const isLikeButton = /* ... determine if like or dislike ... */;
-    
+
     const actionType = isPressed
       ? YT_LIKE_ACTIONS.REMOVE
       : isLikeButton
@@ -538,14 +559,14 @@ private setupClickHandler(): void {
 ```typescript
 public sendLikeAction(actionType: LikeActionType): void {
   const videoId = this.playerManager.getVideoId(this.pipWindow.document);
-  
+
   if (!videoId) {
     logger.error('Video ID not found, cannot send like action');
     return;
   }
 
   const mainApp = document.querySelector<YouTubeAppElement>(SELECTORS.YTD_APP);
-  
+
   if (!mainApp || typeof mainApp.resolveCommand !== 'function') {
     logger.error('Failed to find resolveCommand in main window');
     return;
@@ -579,11 +600,11 @@ private setupClickHandler(): void {
     const endpoint = (event.target as Element)?.closest<HTMLAnchorElement>(
       SELECTORS.SIMPLE_ENDPOINT
     );
-    
+
     if (!endpoint) return;
 
     const href = endpoint.href;
-    
+
     if (!href) {
       logger.warn('Navigation endpoint has no href');
       return;
@@ -637,16 +658,19 @@ private setupClickHandler(): void {
 **Risk**: YouTube can change internal API at any time.
 
 **Impact**:
+
 - Methods removed/renamed
 - Event structure changed
 - Command format changed
 
 **Mitigation**:
+
 - Type guards for method availability
 - Comprehensive error logging
 - Graceful degradation
 
 **Example**:
+
 ```typescript
 if (!mainApp || typeof mainApp.resolveCommand !== 'function') {
   logger.error('Failed to find resolveCommand in main window');
@@ -661,11 +685,13 @@ if (!mainApp || typeof mainApp.resolveCommand !== 'function') {
 **Risk**: No official documentation or support.
 
 **Impact**:
+
 - Must reverse-engineer everything
 - No guarantees of stability
 - Behavior can change without notice
 
 **Mitigation**:
+
 - Extensive testing
 - Monitor YouTube updates
 - Community knowledge sharing
@@ -677,15 +703,18 @@ if (!mainApp || typeof mainApp.resolveCommand !== 'function') {
 **Risk**: We don't know all possible values/types.
 
 **Impact**:
+
 - Incomplete TypeScript definitions
 - Runtime errors possible
 
 **Mitigation**:
+
 - Use `Partial<>` for optional fields
 - Type guards everywhere
 - Defensive programming
 
 **Example**:
+
 ```typescript
 export interface YouTubeAppElement extends HTMLElement {
   // Optional - might not exist
@@ -700,10 +729,12 @@ export interface YouTubeAppElement extends HTMLElement {
 **Risk**: API behavior varies across platforms.
 
 **Impact**:
+
 - Desktop vs mobile differences
 - Browser compatibility issues
 
 **Mitigation**:
+
 - Test on multiple platforms
 - Feature detection
 
@@ -714,10 +745,12 @@ export interface YouTubeAppElement extends HTMLElement {
 **Risk**: Using internal APIs can expose security issues.
 
 **Impact**:
+
 - Potential XSS vectors
 - Privacy concerns
 
 **Mitigation**:
+
 - Never modify YouTube's internal objects
 - Read-only access when possible
 - Validate all user input
