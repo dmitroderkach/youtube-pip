@@ -61,11 +61,31 @@ export class PlayerManager {
   /**
    * Get video data from player
    */
-  public getVideoData(player: Nullable<YouTubePlayer>): Nullable<VideoData> {
+  private getVideoData(player: Nullable<YouTubePlayer>): Nullable<VideoData> {
     if (!player || typeof player.getVideoData !== 'function') {
       return null;
     }
     return player.getVideoData() || null;
+  }
+
+  /**
+   * Get video ID from player element in DOM
+   * Logs warning if video ID is not found
+   * @returns Video ID or null if not found
+   */
+  public getVideoId(): Nullable<string> {
+    const player = document.querySelector(SELECTORS.MOVIE_PLAYER) as Nullable<YouTubePlayer>;
+    const videoData = this.getVideoData(player);
+    const videoId = videoData?.video_id;
+
+    if (!videoId) {
+      logger.error('Video ID not found, cannot navigate', {
+        player,
+      });
+      return null;
+    }
+
+    return videoId;
   }
 
   /**
@@ -82,6 +102,24 @@ export class PlayerManager {
       return player;
     } catch (e) {
       logger.error('Error waiting for main player:', e);
+      return null;
+    }
+  }
+
+  /**
+   * Wait for miniplayer to be ready
+   */
+  public async waitForMiniPlayer(): Promise<Nullable<Element>> {
+    try {
+      const miniplayer = await DOMUtils.waitForElementSelector(
+        SELECTORS.MINIPLAYER_HOST,
+        document,
+        TIMEOUTS.ELEMENT_WAIT
+      );
+      logger.debug('Miniplayer is ready');
+      return miniplayer;
+    } catch (e) {
+      logger.error('Error waiting for miniplayer:', e);
       return null;
     }
   }

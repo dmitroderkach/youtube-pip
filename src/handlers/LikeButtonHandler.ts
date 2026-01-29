@@ -2,6 +2,7 @@ import { Logger } from '../logger';
 import { YT_ACTIONS } from '../constants';
 import { SELECTORS } from '../selectors';
 import { YtActionSender } from '../core/YtActionSender';
+import { PlayerManager } from '../core/PlayerManager';
 import type { Nullable } from '../types/app';
 
 const logger = Logger.getInstance('LikeButtonHandler');
@@ -12,13 +13,18 @@ const logger = Logger.getInstance('LikeButtonHandler');
 export class LikeButtonHandler {
   private pipWindow: Nullable<Window> = null;
   private ytActionSender: Nullable<YtActionSender> = null;
+  private playerManager: PlayerManager;
+
+  constructor(playerManager: PlayerManager) {
+    this.playerManager = playerManager;
+  }
 
   /**
    * Initialize like button handler for PiP window
    */
   public initialize(pipWindow: Window): void {
     this.pipWindow = pipWindow;
-    this.ytActionSender = new YtActionSender(pipWindow);
+    this.ytActionSender = new YtActionSender(pipWindow, this.playerManager);
     this.setupClickHandler();
     logger.debug('Like button handler initialized');
   }

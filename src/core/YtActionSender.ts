@@ -1,12 +1,8 @@
 import { Logger } from '../logger';
 import { YT_ACTIONS } from '../constants';
 import { SELECTORS } from '../selectors';
-import {
-  YouTubeCommand,
-  YouTubeAppElement,
-  YouTubePlayer,
-  LikeActionStatusMap,
-} from '../types/youtube';
+import { PlayerManager } from './PlayerManager';
+import { YouTubeCommand, YouTubeAppElement, LikeActionStatusMap } from '../types/youtube';
 import type { Nullable } from '../types/app';
 
 const logger = Logger.getInstance('YtActionSender');
@@ -17,9 +13,11 @@ const logger = Logger.getInstance('YtActionSender');
  */
 export class YtActionSender {
   private readonly pipWindow: Nullable<Window>;
+  private readonly playerManager: PlayerManager;
 
-  constructor(pipWindow: Nullable<Window>) {
+  constructor(pipWindow: Nullable<Window>, playerManager: PlayerManager) {
     this.pipWindow = pipWindow;
+    this.playerManager = playerManager;
   }
 
   /**
@@ -31,19 +29,9 @@ export class YtActionSender {
       return;
     }
 
-    const player = this.pipWindow.document.querySelector(
-      SELECTORS.MOVIE_PLAYER
-    ) as Nullable<YouTubePlayer>;
-    if (!player || typeof player.getVideoData !== 'function') {
-      logger.warn('Player or getVideoData not available');
-      return;
-    }
-
-    const videoData = player.getVideoData();
-    const videoId = videoData?.video_id;
+    const videoId = this.playerManager.getVideoId();
 
     if (!videoId) {
-      logger.warn('Video ID not found');
       return;
     }
 

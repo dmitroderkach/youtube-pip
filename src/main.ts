@@ -42,14 +42,14 @@ class YouTubePiPApp {
   private mediaSessionHandler: MediaSessionHandler;
 
   constructor() {
-    this.miniPlayerController = new MiniPlayerController();
     this.playerManager = new PlayerManager();
+    this.miniPlayerController = new MiniPlayerController(this.playerManager);
     this.navigationHandler = new NavigationHandler();
     this.resizeTracker = new ResizeTracker();
     this.menuObserver = new MenuObserver();
     this.contextMenuHandler = new ContextMenuHandler();
     this.seekHandler = new SeekHandler();
-    this.likeButtonHandler = new LikeButtonHandler();
+    this.likeButtonHandler = new LikeButtonHandler(this.playerManager);
 
     this.pipManager = new PiPManager(
       this.miniPlayerController,
