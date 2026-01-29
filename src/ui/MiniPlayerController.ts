@@ -73,7 +73,7 @@ export class MiniPlayerController {
         logger.debug('Returning to full player via YouTube API');
 
         // Get video ID from player using PlayerManager
-        const videoId = this.playerManager.getVideoId();
+        const videoId = this.playerManager.getVideoId(document);
         if (!videoId) {
           return;
         }

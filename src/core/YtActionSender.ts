@@ -29,7 +29,7 @@ export class YtActionSender {
       return;
     }
 
-    const videoId = this.playerManager.getVideoId();
+    const videoId = this.playerManager.getVideoId(this.pipWindow.document);
 
     if (!videoId) {
       return;

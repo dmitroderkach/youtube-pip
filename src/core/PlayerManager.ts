@@ -73,7 +73,7 @@ export class PlayerManager {
    * Logs warning if video ID is not found
    * @returns Video ID or null if not found
    */
-  public getVideoId(): Nullable<string> {
+  public getVideoId(document: Document): Nullable<string> {
     const player = document.querySelector(SELECTORS.MOVIE_PLAYER) as Nullable<YouTubePlayer>;
     const videoData = this.getVideoData(player);
     const videoId = videoData?.video_id;
