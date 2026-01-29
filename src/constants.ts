@@ -24,13 +24,6 @@ export const DEFAULT_DIMENSIONS = {
   PIP_EXPANDED_HEIGHT: 600,
 } as const;
 
-// Keyboard event codes
-export const KEYBOARD = {
-  MINIPLAYER_KEY: 'i',
-  KEY_CODE: 73,
-  WHICH: 73,
-} as const;
-
 // YouTube player states
 export const PLAYER_STATES = {
   UNSTARTED: -1,

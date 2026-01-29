@@ -1,6 +1,6 @@
 import { Logger } from '../logger';
 import { SELECTORS } from '../selectors';
-import { KEYBOARD } from '../constants';
+import { PlayerManager } from '../core/PlayerManager';
 import type { YouTubeAppElement } from '../types/youtube';
 import type { Nullable } from '../types/app';
 
@@ -10,6 +10,11 @@ const logger = Logger.getInstance('MiniPlayerController');
  * Controls mini player visibility and state using YouTube native actions
  */
 export class MiniPlayerController {
+  private playerManager: PlayerManager;
+
+  constructor(playerManager: PlayerManager) {
+    this.playerManager = playerManager;
+  }
   /**
    * Check if mini player is currently visible
    */
@@ -21,9 +26,10 @@ export class MiniPlayerController {
 
   /**
    * Activate mini player using YouTube native action
+   * Uses yt-action with yt-activate-miniplayer-from-watch-action
    */
   public activateMiniPlayer(): void {
-    logger.debug('Activating mini player via native action');
+    logger.debug('Activating mini player via YouTube API');
 
     const ytdApp = document.querySelector(SELECTORS.YTD_APP) as Nullable<YouTubeAppElement>;
     if (!ytdApp) {
@@ -44,36 +50,49 @@ export class MiniPlayerController {
   }
 
   /**
-   * Toggle mini player mode using keyboard simulation
-   * Simulates pressing "i" key to toggle between mini player and main player
-   * @param forceShow Force show mini player even if already visible
+   * Toggle mini player mode using YouTube native API
+   *
+   * If mini player is visible or forceHide is true, navigates back to full player using yt-navigate.
+   * Otherwise, activates mini player using yt-action with yt-activate-miniplayer-from-watch-action.
+   *
+   * @param forceHide - If true, forces return to full player even if mini player is not visible
+   * @returns void
    */
-  public toggleMiniPlayerViaKeyboard(forceShow: boolean = false): void {
+  public toggleMiniPlayer(forceHide: boolean = false): void {
     const isVisible = this.isVisible();
 
-    if (forceShow && isVisible) {
-      logger.debug('Mini player already visible, skipping toggle');
+    const ytdApp = document.querySelector(SELECTORS.YTD_APP) as Nullable<YouTubeAppElement>;
+    if (!ytdApp) {
+      logger.error('ytd-app not found');
       return;
     }
 
-    logger.debug(`Toggling mini player via keyboard (forceShow: ${forceShow})`);
-
-    const eventParams = {
-      key: KEYBOARD.MINIPLAYER_KEY,
-      code: `Key${KEYBOARD.MINIPLAYER_KEY.toUpperCase()}`,
-      keyCode: KEYBOARD.KEY_CODE,
-      which: KEYBOARD.WHICH,
-      bubbles: true,
-      cancelable: true,
-      composed: true,
-    };
-
-    const target = document.querySelector(SELECTORS.MOVIE_PLAYER) || document;
-
     try {
-      target.dispatchEvent(new KeyboardEvent('keydown', eventParams));
-      target.dispatchEvent(new KeyboardEvent('keyup', eventParams));
-      logger.debug('Mini player toggle events dispatched');
+      if (isVisible || forceHide) {
+        // Return to full player: use yt-navigate with watchEndpoint
+        logger.debug('Returning to full player via YouTube API');
+
+        // Get video ID from player using PlayerManager
+        const videoId = this.playerManager.getVideoId(document);
+        if (!videoId) {
+          return;
+        }
+
+        ytdApp.fire('yt-navigate', {
+          endpoint: {
+            watchEndpoint: { videoId },
+          },
+        });
+        logger.debug(`Navigation to full player dispatched for video ${videoId}`);
+      } else {
+        // Activate miniplayer: use yt-action with yt-activate-miniplayer-from-watch-action
+        logger.debug('Activating miniplayer via YouTube API');
+        ytdApp.fire('yt-action', {
+          actionName: 'yt-activate-miniplayer-from-watch-action',
+          returnValue: [],
+        });
+        logger.debug('Miniplayer activation event dispatched');
+      }
     } catch (e) {
       logger.error('Error toggling mini player:', e);
     }

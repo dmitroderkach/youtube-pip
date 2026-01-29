@@ -4,7 +4,7 @@ import { StyleUtils } from '../utils/StyleUtils';
 import { MiniPlayerController } from '../ui/MiniPlayerController';
 import { PlayerManager } from './PlayerManager';
 import { NavigationHandler } from './NavigationHandler';
-import { DEFAULT_DIMENSIONS, TIMEOUTS } from '../constants';
+import { DEFAULT_DIMENSIONS } from '../constants';
 import { SELECTORS } from '../selectors';
 import { MiniPlayerElement, YouTubePlayer } from '../types/youtube';
 import type { Nullable, PiPCleanupCallback, PiPWindowReadyCallback } from '../types/app';
@@ -97,12 +97,13 @@ export class PiPManager {
     // Save mini player state
     this.wasMiniPlayerActiveBeforePiP = this.miniPlayerController.isVisible();
 
-    // Show mini player using keyboard toggle (force show even if visible)
-    this.miniPlayerController.toggleMiniPlayerViaKeyboard(true);
+    if (!this.wasMiniPlayerActiveBeforePiP) {
+      this.miniPlayerController.toggleMiniPlayer();
 
-    // Wait for mini player container
-    await DOMUtils.waitForElementSelector(SELECTORS.MINIPLAYER_CONTAINER);
-    logger.debug('Mini player container ready');
+      // Wait for mini player container
+      await DOMUtils.waitForElementSelector(SELECTORS.MINIPLAYER_CONTAINER);
+      logger.debug('Mini player container ready');
+    }
 
     // Get dimensions
     const width = this.miniplayer.offsetWidth || DEFAULT_DIMENSIONS.PIP_WIDTH;
@@ -221,8 +222,7 @@ export class PiPManager {
     }
 
     if (!this.wasMiniPlayerActiveBeforePiP) {
-      // Show mini player using keyboard toggle (force show even if visible)
-      this.miniPlayerController.toggleMiniPlayerViaKeyboard(true);
+      this.miniPlayerController.toggleMiniPlayer(true);
 
       // Wait for main player
       await this.playerManager.waitForMainPlayer();
@@ -235,32 +235,11 @@ export class PiPManager {
     }
 
     // Restore playback state
-    setTimeout(async () => {
-      await this.playerManager.restorePlayingState(player);
-
-      // Restore mini player if it was active before
+    setTimeout(() => {
+      this.playerManager.restorePlayingState(player);
       if (this.wasMiniPlayerActiveBeforePiP) {
-        let countTries = 0;
-        while (countTries < 5) {
-          logger.debug(`Attempting to switch to miniplayer mode, attempt ${countTries + 1}`);
-          this.miniPlayerController.activateMiniPlayer();
-
-          const miniplayerContainer = await DOMUtils.waitForElementSelector(
-            SELECTORS.MINIPLAYER_HOST,
-            document,
-            TIMEOUTS.MENU_RETRY_DELAY
-          ).catch(() => null);
-
-          if (miniplayerContainer) {
-            logger.debug('Miniplayer mode restored');
-            break;
-          }
-
-          countTries++;
-          if (countTries === 5) {
-            logger.error('Failed to switch to miniplayer mode after all attempts');
-          }
-        }
+        this.miniPlayerController.activateMiniPlayer();
+        void this.playerManager.waitForMiniPlayer();
       }
     });
   }

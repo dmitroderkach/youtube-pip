@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-01-29
+
+### Changed
+
+- **MiniPlayerController**: Replaced keyboard simulation with YouTube native API
+  - Uses `yt-action` with `yt-activate-miniplayer-from-watch-action` to activate mini player
+  - Uses `yt-navigate` with `watchEndpoint` to return to full player
+  - Renamed `toggleMiniPlayerViaKeyboard()` to `toggleMiniPlayer()`
+  - Added `PlayerManager` as required dependency
+
+- **PlayerManager**: Added `getVideoId()` method and made `getVideoData()` private
+  - New `getVideoId()` method retrieves player from DOM and extracts video ID with error logging
+  - Centralizes video ID extraction logic for code reuse
+
+- **YtActionSender**: Added `PlayerManager` dependency and refactored to use `getVideoId()`
+  - Replaced manual player query and data extraction with `PlayerManager.getVideoId()`
+  - Removed `YouTubePlayer` import (no longer needed)
+  - Simplified error handling (logging now handled in `PlayerManager`)
+
+- **LikeButtonHandler**: Added `PlayerManager` dependency
+
+- **PiPManager**: Updated to use new `toggleMiniPlayer()` API
+  - Simplified mini player restoration logic
+
+### Removed
+
+- **constants.ts**: Removed `KEYBOARD` constants (no longer needed after switching to native API)
+
 ## [1.3.0] - 2026-01-28
 
 ### Added
@@ -174,6 +202,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[1.3.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.3.0...refs/tags/v1.3.1
 [1.3.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.2.1...refs/tags/v1.3.0
 [1.2.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.2.0...refs/tags/v1.2.1
 [1.2.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.1.2...refs/tags/v1.2.0
