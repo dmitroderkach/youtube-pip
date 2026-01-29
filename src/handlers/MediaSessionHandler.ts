@@ -63,7 +63,7 @@ export class MediaSessionHandler {
     try {
       const prototype = Object.getPrototypeOf(navigator.mediaSession);
       const desc = Object.getOwnPropertyDescriptor(prototype, 'metadata');
-      
+
       if (!this.isValidPropertyDescriptor(desc)) {
         logger.warn('Could not get original metadata descriptor');
         return;
