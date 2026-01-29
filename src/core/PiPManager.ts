@@ -88,7 +88,7 @@ export class PiPManager {
    */
   private async movePlayerToPIP(): Promise<void> {
     // Find mini player element
-    this.miniplayer = document.querySelector(SELECTORS.MINIPLAYER) as MiniPlayerElement;
+    this.miniplayer = document.querySelector<MiniPlayerElement>(SELECTORS.MINIPLAYER);
     if (!this.miniplayer) {
       throw new PiPError('Mini player element not found');
     }
@@ -161,13 +161,13 @@ export class PiPManager {
     DOMUtils.unwrap(ytDraggable);
 
     // Focus video player
-    const videoPlayer = pipDoc.querySelector(SELECTORS.HTML5_VIDEO_PLAYER);
-    if (
-      videoPlayer &&
-      'focus' in videoPlayer &&
-      typeof (videoPlayer as HTMLElement).focus === 'function'
-    ) {
-      (videoPlayer as HTMLElement).focus();
+    const videoPlayer = pipDoc.querySelector<HTMLElement>(SELECTORS.HTML5_VIDEO_PLAYER);
+    if (videoPlayer) {
+      if (typeof videoPlayer.focus === 'function') {
+        videoPlayer.focus();
+      } else {
+        logger.warn('videoPlayer.focus method not found');
+      }
     }
   }
 
@@ -206,7 +206,7 @@ export class PiPManager {
     }
 
     // Get player and save state
-    const player = this.miniplayer.querySelector(SELECTORS.MOVIE_PLAYER) as Nullable<YouTubePlayer>;
+    const player = this.miniplayer.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
     this.playerManager.savePlayingState(player);
 
     // Move mini player back

@@ -20,6 +20,11 @@ export class PlayerManager {
    */
   public getPlayerState(player: Nullable<YouTubePlayer>): PlayerState {
     if (!player) {
+      logger.error('Player not found');
+      return PLAYER_STATES.UNSTARTED;
+    }
+    if (typeof player.getPlayerState !== 'function') {
+      logger.error('getPlayerState method not found');
       return PLAYER_STATES.UNSTARTED;
     }
     return player.getPlayerState();
@@ -53,6 +58,8 @@ export class PlayerManager {
       if (typeof player.playVideo === 'function') {
         player.playVideo();
         logger.log('Playback restored after return to main window');
+      } else {
+        logger.error('player.playVideo method not found, cannot restore playback');
       }
     } catch (e) {
       logger.error('Error restoring playback:', e);
@@ -75,7 +82,7 @@ export class PlayerManager {
    * @returns Video ID or null if not found
    */
   public getVideoId(document: Document): Nullable<string> {
-    const player = document.querySelector(SELECTORS.MOVIE_PLAYER) as Nullable<YouTubePlayer>;
+    const player = document.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
     const videoData = this.getVideoData(player);
     const videoId = videoData?.video_id;
 

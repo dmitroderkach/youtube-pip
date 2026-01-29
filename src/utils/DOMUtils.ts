@@ -105,15 +105,15 @@ export class DOMUtils {
    * @param targetWindow When timeout is 0, disconnect observer on this window's pagehide (e.g. PiP window)
    * @returns Promise that resolves with the found element
    */
-  public static waitForElementSelector(
+  public static waitForElementSelector<T extends Element>(
     selector: string,
     parent: DocumentOrElement = document,
     timeout: number = TIMEOUTS.ELEMENT_WAIT,
     targetWindow?: Window | null
-  ): Promise<Element> {
+  ): Promise<T> {
     return new Promise((resolve, reject) => {
       // Check if element already exists
-      const existing = parent.querySelector(selector);
+      const existing = parent.querySelector<T>(selector);
       if (existing) {
         logger.debug(`Element found immediately: ${selector}`);
         return resolve(existing);
@@ -123,7 +123,7 @@ export class DOMUtils {
 
       // Create observer to watch for element
       const observer = new MutationObserver((_, obs) => {
-        const element = parent.querySelector(selector);
+        const element = parent.querySelector<T>(selector);
         if (element) {
           logger.debug(`Element appeared: ${selector}`);
           obs.disconnect();

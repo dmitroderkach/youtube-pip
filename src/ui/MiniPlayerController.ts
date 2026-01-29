@@ -3,7 +3,6 @@ import { SELECTORS } from '../selectors';
 import { YT_EVENTS, YT_ACTION_NAMES } from '../constants';
 import { PlayerManager } from '../core/PlayerManager';
 import type { YouTubeAppElement } from '../types/youtube';
-import type { Nullable } from '../types/app';
 
 const logger = Logger.getInstance('MiniPlayerController');
 
@@ -32,9 +31,9 @@ export class MiniPlayerController {
   public activateMiniPlayer(): void {
     logger.debug('Activating mini player via YouTube API');
 
-    const ytdApp = document.querySelector(SELECTORS.YTD_APP) as Nullable<YouTubeAppElement>;
-    if (!ytdApp) {
-      logger.error('ytd-app not found');
+    const ytdApp = document.querySelector<YouTubeAppElement>(SELECTORS.YTD_APP);
+    if (!ytdApp || typeof ytdApp.fire !== 'function') {
+      logger.error('ytd-app fire method not found');
       return;
     }
 
@@ -60,9 +59,9 @@ export class MiniPlayerController {
    * @returns void
    */
   public toggleMiniPlayer(): void {
-    const ytdApp = document.querySelector(SELECTORS.YTD_APP) as Nullable<YouTubeAppElement>;
-    if (!ytdApp) {
-      logger.error('ytd-app not found');
+    const ytdApp = document.querySelector<YouTubeAppElement>(SELECTORS.YTD_APP);
+    if (!ytdApp || typeof ytdApp.fire !== 'function') {
+      logger.error('ytd-app fire method not found');
       return;
     }
 
@@ -74,6 +73,7 @@ export class MiniPlayerController {
         // Get video ID from player using PlayerManager
         const videoId = this.playerManager.getVideoId(document);
         if (!videoId) {
+          logger.error('Video ID not found, cannot navigate to full player');
           return;
         }
 

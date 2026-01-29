@@ -40,7 +40,9 @@ export class LikeButtonHandler {
     this.pipWindow.document.addEventListener(
       'click',
       (event: MouseEvent) => {
-        const toggleButton = (event.target as Element)?.closest(SELECTORS.LIKE_BUTTON);
+        const toggleButton = (event.target as Element)?.closest<HTMLButtonElement>(
+          SELECTORS.LIKE_BUTTON
+        );
         if (!toggleButton) {
           return;
         }
@@ -57,7 +59,9 @@ export class LikeButtonHandler {
           return;
         }
 
-        const button = (event.target as Element)?.closest(SELECTORS.BUTTON_SHAPE);
+        const button = (event.target as Element)?.closest<HTMLButtonElement>(
+          SELECTORS.BUTTON_SHAPE
+        );
         if (!button) {
           return;
         }

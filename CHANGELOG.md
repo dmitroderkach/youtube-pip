@@ -5,6 +5,87 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-01-29
+
+### Added
+
+- **types/app.ts**: New utility type for cleaner async/sync unions
+  - Added `MaybePromise<T>` helper type for values that can be synchronous or asynchronous
+  - Simplifies complex union types like `T | Promise<T>` throughout the codebase
+  - Improves code readability and reusability
+
+- **types/global.d.ts**: Extended Media Session API types
+  - Added `ExtendedMediaSessionAction` type for Chrome-specific actions
+  - Extended `MediaSession` interface to properly type `setActionHandler` with `enterpictureinpicture` action
+  - Eliminates need for type assertions when working with Chrome-specific Media Session features
+
+### Changed
+
+- **Error logging**: Comprehensive logging for type guards and method checks
+  - **Error logs** for critical operations:
+    - `YtActionSender`: Video ID not found (prevents silent like/dislike failures)
+    - `MiniPlayerController`: Video ID not found during navigation
+    - `PlayerManager`: `playVideo` method not found (prevents silent playback restoration failure)
+  - **Warning logs** for optional features:
+    - `NavigationHandler`: Navigation endpoint has no href, player.focus method not found
+    - `PiPManager`: videoPlayer.focus method not found
+    - `ResizeTracker`: player.setInternalSize/setSize methods not found
+  - All method availability checks now have proper error/warning logging
+  - Helps diagnose issues in production by making silent failures visible in console
+
+- **Type system**: Enhanced TypeScript type safety and code quality
+  - **Generic types**: `YouTubePlayer` now extends `HTMLElement` for better DOM type compatibility
+  - **querySelector**: Replaced all `querySelector() as Type` with generic syntax `querySelector<Type>()`
+  - **Helper types**: Added `MaybePromise<T>` utility type for cleaner async/sync union types
+  - **Type guards**: Replaced non-null assertions (`!`) with proper type guard function in MediaSessionHandler
+  - **Global types**: Extended `MediaSession` interface to support Chrome-specific `enterpictureinpicture` action
+  - Affects 8 files: type definitions, handlers, core managers
+  - Removed redundant method declarations from `YouTubePlayer` (inherited from `HTMLElement`)
+  - Removed unused `Nullable` import from `MiniPlayerController`
+
+- **ResizeTracker**: Simplified resize handling logic
+  - Combined resize method checks into single conditional (reduced nested if/else blocks)
+  - Single warning message if neither resize method is available
+  - Uses optional chaining for clean method calls (`setInternalSize?.()`, `setSize?.()`)
+  - Reduced from 8 lines to 6 lines while maintaining functionality
+
+- **YtActionSender**: Renamed method and simplified implementation
+  - Removed redundant `actionMap` object that was just mapping values to themselves
+  - Removed `LikeActionStatusMap` type (no longer needed)
+  - Directly pass `actionType` to command object for cleaner, more maintainable code
+  - Reduces bundle size and eliminates unnecessary abstraction layer
+
+- **YouTubeCommand interface**: Improved extensibility pattern
+  - Introduced `YouTubeCommands` registry interface for centralized command type management
+  - `YouTubeCommand` now derived as union type from registry: `YouTubeCommands[keyof YouTubeCommands]`
+  - Changed `LikeCommand` from type alias to interface for consistency
+  - Adding new command types now only requires updating the registry - automatic type propagation
+  - Prevents empty objects from being accepted as valid commands (type safety improvement)
+
+- **MediaSessionHandler**: Improved type safety without assertions
+  - Replaced non-null assertions (`desc.get!`, `desc.set!`) with proper type guard function
+  - Added `isValidPropertyDescriptor()` type guard that narrows PropertyDescriptor type
+  - Removed Chrome-specific action type assertion - now properly typed via `ExtendedMediaSessionAction`
+  - More explicit type checking improves maintainability and IDE support
+
+- **PiPWindowReadyCallback**: Simplified with MaybePromise helper
+  - Changed from `() => void | PiPCleanupCallback | Promise<void | PiPCleanupCallback>`
+  - To cleaner: `() => MaybePromise<void | PiPCleanupCallback>`
+  - Improves readability while maintaining identical runtime behavior
+
+- **PiPCleanupCallback**: Simplified with MaybePromise helper
+  - Changed from `() => void | Promise<void>` to `() => MaybePromise<void>`
+  - More concise and consistent with other async callback types
+
+### Technical Details
+
+- **Type-safe generics**: Leveraging TypeScript's generic constraints for DOM operations
+- **Zero type assertions**: Eliminated unnecessary `as` casts through proper interface extensions
+- **Type guards over assertions**: Replaced non-null assertions with explicit type guard functions
+- **Command Registry Pattern**: Extensible design for adding new YouTube command types
+- **Helper type utilities**: Reusable `MaybePromise<T>` pattern for async/sync flexibility
+- **Bundle impact**: +0.23 KB raw, +0.10 KB gzip (minimal impact from type improvements)
+
 ## [1.4.1] - 2026-01-29
 
 ### Added
