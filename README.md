@@ -2,6 +2,10 @@
 
 Smart Picture-in-Picture mode for YouTube with full playback controls, SPA navigation, like/dislike, seek, and context menu support. Runs as a Tampermonkey userscript.
 
+## 📚 Documentation
+
+- **[YouTube Internal API Usage](docs/YOUTUBE_INTERNAL_API.md)** - Comprehensive guide on how we interact with YouTube's Kevlar framework
+
 ## Disclaimer
 
 This project is **not affiliated with, endorsed by, or officially connected to** Google LLC or YouTube. It is an independent, third-party userscript. Use at your own risk. YouTube’s site structure and APIs may change at any time, which can cause this script to break or behave unexpectedly.
