@@ -125,4 +125,6 @@ export type MiniPlayerElement = HTMLElement;
 export interface YouTubeAppElement extends HTMLElement {
   resolveCommand?(command: YouTubeCommand): void;
   fire(eventName: string, detail?: unknown): void;
+
+  miniplayerIsActive: boolean;
 }

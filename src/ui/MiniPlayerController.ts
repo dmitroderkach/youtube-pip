@@ -41,6 +41,7 @@ export class MiniPlayerController {
       ytdApp.fire('yt-action', {
         actionName: 'yt-activate-miniplayer',
         args: [false],
+        optionalAction: false,
         returnValue: [undefined],
       });
       logger.debug('Mini player activation event dispatched');
@@ -52,15 +53,12 @@ export class MiniPlayerController {
   /**
    * Toggle mini player mode using YouTube native API
    *
-   * If mini player is visible or forceHide is true, navigates back to full player using yt-navigate.
+   * If mini player is active, navigates back to full player using yt-navigate.
    * Otherwise, activates mini player using yt-action with yt-activate-miniplayer-from-watch-action.
    *
-   * @param forceHide - If true, forces return to full player even if mini player is not visible
    * @returns void
    */
-  public toggleMiniPlayer(forceHide: boolean = false): void {
-    const isVisible = this.isVisible();
-
+  public toggleMiniPlayer(): void {
     const ytdApp = document.querySelector(SELECTORS.YTD_APP) as Nullable<YouTubeAppElement>;
     if (!ytdApp) {
       logger.error('ytd-app not found');
@@ -68,7 +66,7 @@ export class MiniPlayerController {
     }
 
     try {
-      if (isVisible || forceHide) {
+      if (ytdApp.miniplayerIsActive) {
         // Return to full player: use yt-navigate with watchEndpoint
         logger.debug('Returning to full player via YouTube API');
 
@@ -89,7 +87,9 @@ export class MiniPlayerController {
         logger.debug('Activating miniplayer via YouTube API');
         ytdApp.fire('yt-action', {
           actionName: 'yt-activate-miniplayer-from-watch-action',
-          returnValue: [],
+          args: null,
+          optionalAction: false,
+          returnValue: [undefined],
         });
         logger.debug('Miniplayer activation event dispatched');
       }

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.3] - 2026-01-29
+
+### Fixed
+
+- **MiniPlayerController**: Fixed YouTube native action event format
+  - Added `optionalAction: false` property to both `yt-activate-miniplayer` and `yt-activate-miniplayer-from-watch-action` events
+  - Changed `args: null` for `yt-activate-miniplayer-from-watch-action` (was empty array)
+  - Standardized `returnValue: [undefined]` for both actions (was `returnValue: []` for one)
+  - Ensures events match YouTube's expected format and prevents potential errors
+
 ## [1.3.2] - 2026-01-29
 
 ### Fixed
@@ -212,6 +222,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[1.3.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.3.2...refs/tags/v1.3.3
 [1.3.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.3.1...refs/tags/v1.3.2
 [1.3.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.3.0...refs/tags/v1.3.1
 [1.3.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.2.1...refs/tags/v1.3.0
