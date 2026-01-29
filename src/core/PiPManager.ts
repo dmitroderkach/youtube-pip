@@ -71,7 +71,11 @@ export class PiPManager {
       await this.movePlayerToPIP();
 
       if (this.pipWindow && this.miniplayer) {
-        this.pipWindow.addEventListener('pagehide', () => this.returnPlayerToMain());
+        this.pipWindow.addEventListener('pagehide', () => {
+          void this.returnPlayerToMain().catch((e) =>
+            logger.error('Unhandled error in returnPlayerToMain:', e)
+          );
+        });
         this.navigationHandler.initialize(this.pipWindow);
 
         const result = await this.onWindowReady(this.pipWindow, this.miniplayer);
@@ -204,7 +208,7 @@ export class PiPManager {
     try {
       await this.movePlayerToMain();
     } catch (error) {
-      throw new PiPError('Error returning player to main window', error);
+      logger.error('Error returning player to main window:', error);
     }
 
     this.pipWindow = null;

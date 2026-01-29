@@ -5,7 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.5.1] - 2026-01-25
+## [1.5.2] - 2026-01-29
+
+### Fixed
+
+- **PiPManager**: `pagehide` listener now attaches `.catch()` to `returnPlayerToMain()` so any unhandled rejection (e.g. from future code changes) is logged instead of becoming an unhandled promise rejection.
+
+## [1.5.1] - 2026-01-29
 
 ### Added
 
@@ -444,6 +450,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[1.5.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.5.1...refs/tags/v1.5.2
 [1.5.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.5.0...refs/tags/v1.5.1
 [1.5.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.4.1...refs/tags/v1.5.0
 [1.4.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.4.0...refs/tags/v1.4.1

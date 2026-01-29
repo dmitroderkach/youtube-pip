@@ -867,5 +867,4 @@ If you discover new YouTube internal APIs or behaviors:
 ---
 
 **Last Updated**: 2026-01-29  
-**Project Version**: 1.5.0  
 **Maintainer**: @dmitroderkach
