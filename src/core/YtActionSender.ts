@@ -2,7 +2,12 @@ import { Logger } from '../logger';
 import { YT_ACTIONS } from '../constants';
 import { SELECTORS } from '../selectors';
 import { PlayerManager } from './PlayerManager';
-import { YouTubeCommand, YouTubeAppElement, LikeActionStatusMap } from '../types/youtube';
+import {
+  YouTubeCommand,
+  YouTubeAppElement,
+  LikeActionStatusMap,
+  YouTubeActionType,
+} from '../types/youtube';
 import type { Nullable } from '../types/app';
 
 const logger = Logger.getInstance('YtActionSender');
@@ -24,7 +29,7 @@ export class YtActionSender {
    * Send YouTube action (LIKE / DISLIKE / REMOVE) for the current PiP video.
    * Resolves video ID from PiP player and invokes main window resolveCommand.
    */
-  public send(actionType: string): void {
+  public send(actionType: YouTubeActionType): void {
     if (!this.pipWindow) {
       return;
     }
@@ -42,9 +47,9 @@ export class YtActionSender {
     }
 
     const actionMap: LikeActionStatusMap = {
-      [YT_ACTIONS.LIKE]: 'LIKE',
-      [YT_ACTIONS.DISLIKE]: 'DISLIKE',
-      [YT_ACTIONS.REMOVE]: 'INDIFFERENT',
+      [YT_ACTIONS.LIKE]: YT_ACTIONS.LIKE,
+      [YT_ACTIONS.DISLIKE]: YT_ACTIONS.DISLIKE,
+      [YT_ACTIONS.REMOVE]: YT_ACTIONS.REMOVE,
     };
 
     const command: YouTubeCommand = {

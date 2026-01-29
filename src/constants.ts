@@ -34,7 +34,19 @@ export const PLAYER_STATES = {
   CUED: 5,
 } as const;
 
-// YouTube action types
+// YouTube event names
+export const YT_EVENTS = {
+  ACTION: 'yt-action',
+  NAVIGATE: 'yt-navigate',
+} as const;
+
+// YouTube action names
+export const YT_ACTION_NAMES = {
+  ACTIVATE_MINIPLAYER: 'yt-activate-miniplayer',
+  ACTIVATE_MINIPLAYER_FROM_WATCH: 'yt-activate-miniplayer-from-watch-action',
+} as const;
+
+// YouTube like/dislike action types
 export const YT_ACTIONS = {
   LIKE: 'LIKE',
   DISLIKE: 'DISLIKE',
@@ -48,3 +60,12 @@ export const WEB_PAGE_TYPES = {
 
 // YouTube root VE
 export const ROOT_VE = 3832;
+
+// Mouse button codes (MouseEvent.button)
+export const MOUSE_BUTTONS = {
+  PRIMARY: 0, // Left button
+  AUXILIARY: 1, // Middle button (wheel)
+  SECONDARY: 2, // Right button
+  FOURTH: 3, // Browser back
+  FIFTH: 4, // Browser forward
+} as const;

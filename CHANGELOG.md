@@ -5,6 +5,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-01-29
+
+### Added
+
+- **constants.ts**: Added YouTube event and action name constants
+  - Added `YT_EVENTS` with `ACTION` ('yt-action') and `NAVIGATE` ('yt-navigate') event names
+  - Added `YT_ACTION_NAMES` with `ACTIVATE_MINIPLAYER` and `ACTIVATE_MINIPLAYER_FROM_WATCH` action names
+  - Added `MOUSE_BUTTONS` with all standard mouse button codes (PRIMARY, AUXILIARY, SECONDARY, FOURTH, FIFTH)
+  - Centralized all YouTube API string literals and browser event constants in one place
+
+- **types/youtube.ts**: Added strict TypeScript types derived from constants
+  - `PlayerState` type from `PLAYER_STATES` constant (-1 | 0 | 1 | 2 | 3 | 5)
+  - `YouTubeActionType` type from `YT_ACTIONS` constant ('LIKE' | 'DISLIKE' | 'INDIFFERENT')
+  - `WebPageType` type from `WEB_PAGE_TYPES` constant ('WEB_PAGE_TYPE_WATCH')
+  - `YouTubeEventName` type from `YT_EVENTS` constant ('yt-action' | 'yt-navigate')
+  - All types include comprehensive documentation with possible values
+
+### Changed
+
+- **MiniPlayerController**: Replaced all inline strings with constants
+  - Replaced `'yt-action'` with `YT_EVENTS.ACTION`
+  - Replaced `'yt-navigate'` with `YT_EVENTS.NAVIGATE`
+  - Replaced `'yt-activate-miniplayer'` with `YT_ACTION_NAMES.ACTIVATE_MINIPLAYER`
+  - Replaced `'yt-activate-miniplayer-from-watch-action'` with `YT_ACTION_NAMES.ACTIVATE_MINIPLAYER_FROM_WATCH`
+  - Updated code comments to reference constants instead of string literals
+
+- **YtActionSender**: Improved type safety and consistency
+  - Updated `send()` parameter type from `string` to strict `YouTubeActionType` union type
+  - Action map now uses `YT_ACTIONS` constants for values instead of hardcoded strings ('LIKE', 'DISLIKE', 'INDIFFERENT')
+  - Ensures compile-time type checking for YouTube actions
+
+- **PlayerManager**: Enhanced type safety for player state
+  - `getPlayerState()` now returns `PlayerState` type instead of generic `number`
+  - Added JSDoc comment explaining return value comes from `PLAYER_STATES`
+
+- **YouTubePlayer interface**: Updated to use strict type
+  - `getPlayerState()` returns `PlayerState` instead of `number`
+
+- **YouTubeAppElement interface**: Type-safe event dispatching
+  - `fire()` method now accepts `YouTubeEventName` instead of generic `string`
+  - Prevents invalid event names at compile time
+
+- **WebCommandMetadata interface**: Type-safe page type
+  - `webPageType` property now uses `WebPageType` instead of `string`
+  - Added JSDoc clarifying values come from `WEB_PAGE_TYPES` constant
+
+- **LikeEndpoint interface**: Type-safe action status
+  - `status` property now uses `YouTubeActionType` instead of inline union
+  - General-purpose type extensible for future action types beyond like/dislike
+  - Linked to `YT_ACTIONS` constants via type system
+
+- **NavigationHandler**: Replaced hardcoded string with constant
+  - Log message now uses `YT_EVENTS.NAVIGATE` instead of `'yt-navigate'` string literal
+
+- **MenuObserver**: Replaced magic number with semantic constant
+  - Replaced `0` with `TIMEOUTS.ELEMENT_WAIT_INFINITE` for infinite timeout
+
+- **ContextMenuHandler**: Replaced magic numbers with semantic constants
+  - Replaced `0` with `TIMEOUTS.ELEMENT_WAIT_INFINITE` for infinite timeout
+  - Replaced `2` with `MOUSE_BUTTONS.SECONDARY` for right mouse button
+
+### Technical Details
+
+- **Type safety**: TypeScript now catches invalid values at compile time (invalid event names, player states, actions)
+- **IDE support**: Autocomplete now provides suggestions for all constant values with inline documentation
+- **Single source of truth**: All values defined once in `constants.ts`, referenced everywhere via imports
+- **Maintainability**: Changing a constant automatically updates all usages; no risk of typos
+- **Type derivation pattern**: Uses `(typeof CONSTANT)[keyof typeof CONSTANT]` for automatic type inference from constants
+- **Zero runtime cost**: Types are compile-time only; constants are tree-shaken if unused
+
 ## [1.3.4] - 2026-01-29
 
 ### Changed
@@ -232,6 +302,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[1.4.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.3.4...refs/tags/v1.4.0
 [1.3.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.3.3...refs/tags/v1.3.4
 [1.3.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.3.2...refs/tags/v1.3.3
 [1.3.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.3.1...refs/tags/v1.3.2

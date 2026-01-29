@@ -1,14 +1,27 @@
 import type { Nullable } from './app';
+import type { PLAYER_STATES, YT_ACTIONS, WEB_PAGE_TYPES, YT_EVENTS } from '../constants';
 
 /**
  * TypeScript interfaces for YouTube internal types
  */
 
 /**
+ * YouTube player state values from PLAYER_STATES constant
+ * Possible values:
+ * - UNSTARTED: -1
+ * - ENDED: 0
+ * - PLAYING: 1
+ * - PAUSED: 2
+ * - BUFFERING: 3
+ * - CUED: 5
+ */
+export type PlayerState = (typeof PLAYER_STATES)[keyof typeof PLAYER_STATES];
+
+/**
  * YouTube player interface
  */
 export interface YouTubePlayer {
-  getPlayerState(): number;
+  getPlayerState(): PlayerState;
   playVideo(): void;
   pauseVideo(): void;
   seekTo(seconds: number, allowSeekAhead: boolean): void;
@@ -43,11 +56,19 @@ export interface WatchEndpoint {
 }
 
 /**
+ * Web page type from WEB_PAGE_TYPES constant
+ * Possible values:
+ * - WATCH: 'WEB_PAGE_TYPE_WATCH'
+ */
+export type WebPageType = (typeof WEB_PAGE_TYPES)[keyof typeof WEB_PAGE_TYPES];
+
+/**
  * Web command metadata
+ * webPageType values from WEB_PAGE_TYPES constant
  */
 export interface WebCommandMetadata {
   url: string;
-  webPageType: string;
+  webPageType: WebPageType;
   rootVe: number;
 }
 
@@ -99,10 +120,21 @@ export interface LikeEndpointTarget {
 }
 
 /**
+ * YouTube action type from YT_ACTIONS constant
+ * Currently used for like/dislike actions, extensible for future action types
+ * Possible values:
+ * - LIKE: 'LIKE'
+ * - DISLIKE: 'DISLIKE'
+ * - REMOVE: 'INDIFFERENT'
+ */
+export type YouTubeActionType = (typeof YT_ACTIONS)[keyof typeof YT_ACTIONS];
+
+/**
  * Like endpoint command
+ * Status values from YT_ACTIONS constants
  */
 export interface LikeEndpoint {
-  status: 'LIKE' | 'DISLIKE' | 'INDIFFERENT';
+  status: YouTubeActionType;
   target: LikeEndpointTarget;
 }
 
@@ -120,11 +152,19 @@ export interface YouTubeCommand {
 export type MiniPlayerElement = HTMLElement;
 
 /**
+ * YouTube event name type from YT_EVENTS constant
+ * Possible values:
+ * - ACTION: 'yt-action'
+ * - NAVIGATE: 'yt-navigate'
+ */
+export type YouTubeEventName = (typeof YT_EVENTS)[keyof typeof YT_EVENTS];
+
+/**
  * YouTube app element interface
  */
 export interface YouTubeAppElement extends HTMLElement {
   resolveCommand?(command: YouTubeCommand): void;
-  fire(eventName: string, detail?: unknown): void;
+  fire(eventName: YouTubeEventName, detail?: unknown): void;
 
   miniplayerIsActive: boolean;
 }

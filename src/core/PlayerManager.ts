@@ -1,5 +1,5 @@
 import { Logger } from '../logger';
-import { YouTubePlayer, VideoData } from '../types/youtube';
+import { YouTubePlayer, VideoData, PlayerState } from '../types/youtube';
 import { PLAYER_STATES } from '../constants';
 import { DOMUtils } from '../utils/DOMUtils';
 import { TIMEOUTS } from '../constants';
@@ -16,8 +16,9 @@ export class PlayerManager {
 
   /**
    * Get player state (playing/paused)
+   * Returns one of PLAYER_STATES values
    */
-  public getPlayerState(player: Nullable<YouTubePlayer>): number {
+  public getPlayerState(player: Nullable<YouTubePlayer>): PlayerState {
     if (!player) {
       return PLAYER_STATES.UNSTARTED;
     }

@@ -1,4 +1,5 @@
 import { Logger } from '../logger';
+import { TIMEOUTS, MOUSE_BUTTONS } from '../constants';
 import { DOMUtils } from '../utils/DOMUtils';
 import { SELECTORS } from '../selectors';
 import type { Nullable } from '../types/app';
@@ -26,7 +27,7 @@ export class ContextMenuHandler {
       this.contextMenu = await DOMUtils.waitForElementSelector(
         SELECTORS.CONTEXT_MENU,
         document,
-        0,
+        TIMEOUTS.ELEMENT_WAIT_INFINITE,
         pipWindow
       );
 
@@ -129,7 +130,7 @@ export class ContextMenuHandler {
       view: window,
       clientX: 0,
       clientY: 0,
-      button: 2, // Right mouse button
+      button: MOUSE_BUTTONS.SECONDARY,
     });
 
     mainApp.dispatchEvent(event);
