@@ -31,15 +31,10 @@ function getYouTubeVersion(): string {
 function getYouTubeFeatureFlags(): Record<string, unknown> {
   try {
     const ytcfg = window.ytcfg;
-    if (!ytcfg?.data_) {
-      return {};
-    }
-
-    const data = ytcfg.data_ as Record<string, unknown>;
 
     // EXPERIMENT_FLAGS - feature flags location
-    if ('EXPERIMENT_FLAGS' in data && data.EXPERIMENT_FLAGS) {
-      return data.EXPERIMENT_FLAGS as Record<string, unknown>;
+    if (ytcfg?.data_?.EXPERIMENT_FLAGS) {
+      return ytcfg.data_.EXPERIMENT_FLAGS;
     }
 
     return {};

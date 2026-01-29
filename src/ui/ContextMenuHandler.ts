@@ -12,7 +12,7 @@ const logger = Logger.getInstance('ContextMenuHandler');
 export class ContextMenuHandler {
   private visibilityObserver: Nullable<MutationObserver> = null;
   private pipWindow: Nullable<Window> = null;
-  private contextMenu: Nullable<Element> = null;
+  private contextMenu: Nullable<HTMLElement> = null;
   private contextMenuPlaceholder: Nullable<Comment> = null;
 
   /**
@@ -24,7 +24,7 @@ export class ContextMenuHandler {
 
     // Wait for context menu to appear
     try {
-      this.contextMenu = await DOMUtils.waitForElementSelector(
+      this.contextMenu = await DOMUtils.waitForElementSelector<HTMLElement>(
         SELECTORS.CONTEXT_MENU,
         document,
         TIMEOUTS.ELEMENT_WAIT_INFINITE,
@@ -53,7 +53,7 @@ export class ContextMenuHandler {
         return;
       }
 
-      const isVisible = (this.contextMenu as HTMLElement).style.display !== 'none';
+      const isVisible = this.contextMenu.style.display !== 'none';
       const isInMainWindow = this.contextMenu.parentNode !== this.pipWindow.document.body;
 
       if (isVisible && isInMainWindow) {
@@ -79,7 +79,7 @@ export class ContextMenuHandler {
     });
 
     // Move menu immediately if already visible
-    if ((this.contextMenu as HTMLElement).style.display !== 'none') {
+    if (this.contextMenu.style.display !== 'none') {
       if (this.contextMenuPlaceholder) {
         DOMUtils.insertPlaceholderBefore(this.contextMenu, this.contextMenuPlaceholder);
       }
@@ -98,15 +98,15 @@ export class ContextMenuHandler {
     }
 
     const handleEvent = (e: MouseEvent) => {
-      const menuInPip = this.pipWindow!.document.querySelector(SELECTORS.CONTEXT_MENU);
+      const menuInPip = this.pipWindow!.document.querySelector<HTMLElement>(SELECTORS.CONTEXT_MENU);
 
       if (
         menuInPip &&
-        (menuInPip as HTMLElement).style.display !== 'none' &&
+        menuInPip.style.display !== 'none' &&
         !(e.target as Element)?.closest(SELECTORS.CONTEXT_MENU_CONTAINER)
       ) {
         e.stopPropagation();
-        (menuInPip as HTMLElement).style.display = 'none';
+        menuInPip.style.display = 'none';
         logger.debug('Context menu dismissed');
       }
     };

@@ -28,7 +28,7 @@ export class ResizeTracker {
         const width = entry.contentRect.width;
         logger.debug(`New size: ${width}px`);
 
-        const player = pipDoc.querySelector(SELECTORS.MOVIE_PLAYER) as Nullable<YouTubePlayer>;
+        const player = pipDoc.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
         if (player) {
           if (typeof player.setInternalSize === 'function') {
             player.setInternalSize();

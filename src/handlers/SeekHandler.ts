@@ -35,8 +35,19 @@ export class SeekHandler {
         const progressBar = (e.target as Element)?.closest(SELECTORS.PROGRESS_BAR);
         if (!progressBar) return;
 
-        const player = pipDoc.querySelector(SELECTORS.MOVIE_PLAYER) as Nullable<YouTubePlayer>;
-        if (!player) return;
+        const player = pipDoc.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
+        if (!player) {
+          logger.error('player not found');
+          return;
+        }
+        if (typeof player.getDuration !== 'function') {
+          logger.error('player.getDuration method not found');
+          return;
+        }
+        if (typeof player.seekTo !== 'function') {
+          logger.error('player.seekTo method not found');
+          return;
+        }
 
         logger.debug('Progress bar clicked, initiating seek');
 
@@ -47,10 +58,10 @@ export class SeekHandler {
           const rect = progressBar.getBoundingClientRect();
           const x = event.clientX - rect.left;
           const percent = Math.max(0, Math.min(1, x / rect.width));
-          const duration = player.getDuration();
+          const duration = player.getDuration?.();
           if (duration) {
             const seekTime = percent * duration;
-            player.seekTo(seekTime, true);
+            player.seekTo?.(seekTime, true);
             logger.debug(`Seeking to ${seekTime.toFixed(2)}s (${(percent * 100).toFixed(1)}%)`);
           }
         };

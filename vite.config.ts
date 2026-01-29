@@ -1,5 +1,5 @@
 import { defineConfig } from 'vite';
-import type { OutputAsset, OutputChunk } from 'rollup';
+import type { OutputBundle } from 'rollup';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
@@ -54,8 +54,8 @@ function userscriptHeaderDebugPlugin() {
   return {
     name: 'userscript-header-debug',
     enforce: 'post' as const,
-    generateBundle(_, bundle) {
-      const items = Object.values(bundle) as (OutputChunk | OutputAsset)[];
+    generateBundle(_, bundle: OutputBundle) {
+      const items = Object.values(bundle);
       for (const item of items) {
         if (item.type !== 'chunk' || item.fileName !== 'userscript.js') continue;
         const chunk = item;
@@ -70,8 +70,8 @@ function tampermonkeySourceMapOffsetPlugin(offset: number) {
   return {
     name: 'tampermonkey-sourcemap-offset',
     enforce: 'post' as const,
-    generateBundle(_, bundle) {
-      const items = Object.values(bundle) as (OutputChunk | OutputAsset)[];
+    generateBundle(_, bundle: OutputBundle) {
+      const items = Object.values(bundle);
       for (const item of items) {
         if (item.type !== 'chunk' || item.fileName !== 'userscript.js') continue;
         const chunk = item;

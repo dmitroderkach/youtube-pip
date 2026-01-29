@@ -40,7 +40,7 @@ export class MediaSessionHandler {
 
     try {
       // 'enterpictureinpicture' is a Chrome-specific Media Session action
-      navigator.mediaSession.setActionHandler('enterpictureinpicture' as MediaSessionAction, () => {
+      navigator.mediaSession.setActionHandler('enterpictureinpicture', () => {
         logger.log('Media session enterpictureinpicture action triggered');
         this.pipManager.open().catch((e) => {
           logger.error('Error opening PiP from media session:', e);
@@ -63,15 +63,16 @@ export class MediaSessionHandler {
     try {
       const prototype = Object.getPrototypeOf(navigator.mediaSession);
       const desc = Object.getOwnPropertyDescriptor(prototype, 'metadata');
-      if (!desc || !desc.get || !desc.set) {
+      
+      if (!this.isValidPropertyDescriptor(desc)) {
         logger.warn('Could not get original metadata descriptor');
         return;
       }
 
       Object.defineProperty(navigator.mediaSession, 'metadata', {
-        get: () => desc.get!.call(navigator.mediaSession),
+        get: () => desc.get.call(navigator.mediaSession),
         set: (value: Nullable<MediaSessionMetadata>) => {
-          desc.set!.call(navigator.mediaSession, value);
+          desc.set.call(navigator.mediaSession, value);
 
           // Sync title if available
           if (value && value.title) {
@@ -86,5 +87,14 @@ export class MediaSessionHandler {
     } catch (e) {
       throw new AppInitializationError('Error setting up title sync', e);
     }
+  }
+
+  /**
+   * Type guard for PropertyDescriptor with required get/set methods
+   */
+  private isValidPropertyDescriptor(
+    desc: PropertyDescriptor | undefined
+  ): desc is Required<Pick<PropertyDescriptor, 'get' | 'set'>> & PropertyDescriptor {
+    return desc !== undefined && typeof desc.get === 'function' && typeof desc.set === 'function';
   }
 }

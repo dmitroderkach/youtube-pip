@@ -1,13 +1,7 @@
 import { Logger } from '../logger';
-import { YT_LIKE_ACTIONS } from '../constants';
 import { SELECTORS } from '../selectors';
 import { PlayerManager } from './PlayerManager';
-import {
-  YouTubeCommand,
-  YouTubeAppElement,
-  LikeActionStatusMap,
-  LikeActionType,
-} from '../types/youtube';
+import { YouTubeCommand, YouTubeAppElement, LikeActionType } from '../types/youtube';
 import type { Nullable } from '../types/app';
 
 const logger = Logger.getInstance('YtActionSender');
@@ -40,21 +34,15 @@ export class YtActionSender {
       return;
     }
 
-    const mainApp = document.querySelector(SELECTORS.YTD_APP) as Nullable<YouTubeAppElement>;
+    const mainApp = document.querySelector<YouTubeAppElement>(SELECTORS.YTD_APP);
     if (!mainApp || typeof mainApp.resolveCommand !== 'function') {
       logger.error('Failed to find resolveCommand in main window');
       return;
     }
 
-    const actionMap: LikeActionStatusMap = {
-      [YT_LIKE_ACTIONS.LIKE]: YT_LIKE_ACTIONS.LIKE,
-      [YT_LIKE_ACTIONS.DISLIKE]: YT_LIKE_ACTIONS.DISLIKE,
-      [YT_LIKE_ACTIONS.REMOVE]: YT_LIKE_ACTIONS.REMOVE,
-    };
-
     const command: YouTubeCommand = {
       likeEndpoint: {
-        status: actionMap[actionType],
+        status: actionType,
         target: { videoId },
       },
     };

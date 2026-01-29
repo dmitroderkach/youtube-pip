@@ -49,7 +49,9 @@ export class MenuObserver {
       for (const mutation of mutations) {
         if (mutation.attributeName === 'aria-expanded') {
           const isExpanded = button.getAttribute('aria-expanded') === 'true';
-          const playListContainer = pipWindow.document.querySelector(SELECTORS.PLAYLIST_PANEL);
+          const playListContainer = pipWindow.document.querySelector<HTMLElement>(
+            SELECTORS.PLAYLIST_PANEL
+          );
           const currentHeight = pipWindow.outerHeight;
 
           logger.debug(`Menu state changed: expanded = ${isExpanded}`);
@@ -63,12 +65,12 @@ export class MenuObserver {
 
             // Show playlist panel
             if (playListContainer) {
-              (playListContainer as HTMLElement).style.display = 'block';
+              playListContainer.style.display = 'block';
             }
           } else {
             // Hide playlist panel
             if (playListContainer) {
-              (playListContainer as HTMLElement).style.display = 'none';
+              playListContainer.style.display = 'none';
             }
           }
         }

@@ -12,6 +12,21 @@ interface DocumentPictureInPicture {
   requestWindow(options?: DocumentPictureInPictureOptions): Promise<Window>;
 }
 
+/**
+ * Extended Media Session actions including Chrome-specific ones
+ */
+type ExtendedMediaSessionAction = MediaSessionAction | 'enterpictureinpicture';
+
+/**
+ * Extend MediaSession to support Chrome-specific actions
+ */
+interface MediaSession {
+  setActionHandler(
+    action: ExtendedMediaSessionAction,
+    handler: MediaSessionActionHandler | null
+  ): void;
+}
+
 interface Window {
   documentPictureInPicture?: DocumentPictureInPicture;
   ytcfg?: {

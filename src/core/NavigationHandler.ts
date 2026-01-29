@@ -34,20 +34,24 @@ export class NavigationHandler {
       'click',
       (event: MouseEvent) => {
         // Focus video player
-        const player = this.pipWindow!.document.querySelector(SELECTORS.HTML5_VIDEO_PLAYER);
-        if (player && 'focus' in player && typeof (player as HTMLElement).focus === 'function') {
-          (player as HTMLElement).focus();
+        const player = this.pipWindow!.document.querySelector<HTMLElement>(
+          SELECTORS.HTML5_VIDEO_PLAYER
+        );
+        if (player && typeof player.focus === 'function') {
+          player.focus();
         }
 
-        const endpoint = (event.target as Element)?.closest(SELECTORS.SIMPLE_ENDPOINT);
-        const button = (event.target as Element)?.closest(SELECTORS.BUTTON);
+        const endpoint = (event.target as Element)?.closest<HTMLAnchorElement>(
+          SELECTORS.SIMPLE_ENDPOINT
+        );
+        const button = (event.target as Element)?.closest<HTMLButtonElement>(SELECTORS.BUTTON);
 
         // Skip button clicks (handled by LikeButtonHandler)
         if (button || !endpoint) {
           return;
         }
 
-        const href = (endpoint as HTMLAnchorElement).href;
+        const href = endpoint.href;
         if (!href) {
           return;
         }

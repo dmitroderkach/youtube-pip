@@ -26,19 +26,16 @@ export type PlayerState = (typeof PLAYER_STATES)[keyof typeof PLAYER_STATES];
 /**
  * YouTube player interface
  */
-export interface YouTubePlayer {
-  getPlayerState(): PlayerState;
-  playVideo(): void;
-  pauseVideo(): void;
-  seekTo(seconds: number, allowSeekAhead: boolean): void;
-  getDuration(): number;
-  getCurrentTime(): number;
+export interface YouTubePlayer extends HTMLElement {
+  getPlayerState?(): PlayerState;
+  playVideo?(): void;
+  pauseVideo?(): void;
+  seekTo?(seconds: number, allowSeekAhead: boolean): void;
+  getDuration?(): number;
+  getCurrentTime?(): number;
   setInternalSize?(): void;
   setSize?(): void;
-  getVideoData?(): VideoData;
-  addEventListener(type: string, listener: EventListener): void;
-  dispatchEvent(event: Event): boolean;
-  focus?(): void;
+  getVideoData?: () => VideoData;
 }
 
 /**
@@ -154,15 +151,27 @@ export interface LikeEndpoint {
   target: LikeEndpointTarget;
 }
 
-/** Map from action key to LikeEndpoint status */
-export type LikeActionStatusMap = Record<string, LikeEndpoint['status']>;
-
 /**
- * YouTube command for like/dislike actions
+ * Like command structure
  */
-export interface YouTubeCommand {
+export interface LikeCommand {
   likeEndpoint: LikeEndpoint;
 }
+
+/**
+ * Registry of all YouTube command types
+ * Add new command types here, and they automatically become part of YouTubeCommand
+ */
+export interface YouTubeCommands {
+  like: LikeCommand;
+  // Future commands - just add here:
+}
+
+/**
+ * Union of all YouTube command types
+ * Automatically derived from YouTubeCommands registry
+ */
+export type YouTubeCommand = YouTubeCommands[keyof YouTubeCommands];
 
 /** Mini player element (ytd-miniplayer). Type alias for future YouTube-specific props. */
 export type MiniPlayerElement = HTMLElement;
@@ -180,7 +189,7 @@ export type YouTubeEventName = (typeof YT_EVENTS)[keyof typeof YT_EVENTS];
  */
 export interface YouTubeAppElement extends HTMLElement {
   resolveCommand?(command: YouTubeCommand): void;
-  fire(eventName: YouTubeEventName, detail?: unknown): void;
+  fire?(eventName: YouTubeEventName, detail?: unknown): void;
 
   miniplayerIsActive: boolean;
 }
