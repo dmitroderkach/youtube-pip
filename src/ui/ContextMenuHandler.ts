@@ -36,7 +36,7 @@ export class ContextMenuHandler {
     const doc = this.pipWindow.document;
     const item = (e.target as Element)?.closest('.ytp-menuitem');
     if (!item?.parentElement) {
-      logger.warn('Copy click: not a menu item or no parent', { item });
+      logger.debug('Copy click: not a menu item or no parent', { item });
       return;
     }
 
