@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.4] - 2026-01-30
+
+### Added
+
+- **Dynamic embed dimensions**: "Copy embed code" in PiP now uses current player size
+  - `PlayerManager.getPlayerSizeFromDocument(doc)` — returns `player.getPlayerSize()` (width/height) or `null`
+  - Embed iframe `width`/`height` taken from player when available; fallback 400×225
+  - `PlayerSize` interface and `getPlayerSize?()` in `YouTubePlayer` (types/youtube.ts)
+
+### Changed
+
+- **ContextMenuHandler**: `getCopyPayload` now accepts a single params object (`videoId`, `playlistId`, `currentTime`, `title`, `copyType`, `embedSize`) instead of six separate arguments
+
 ## [1.6.3] - 2026-01-30
 
 ### Changed
