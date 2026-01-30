@@ -68,18 +68,29 @@ Then reload the page. Logs are scoped per module and include timestamps (`YYYY-M
 youtube-pip/
 ├── src/
 │   ├── main.ts              # Entry point, YouTubePiPApp, PiP handler setup
-│   ├── logger.ts            # Scoped logger (Intl.DateTimeFormat, %c styles, optional metadata)
-│   ├── constants.ts         # Timeouts, retries, dimensions, keyboard, etc.
+│   ├── logger.ts            # Scoped logger (Intl.DateTimeFormat, %c styles, global metadata)
 │   ├── selectors.ts         # DOM selectors
 │   ├── styles.css           # PiP CSS fixes (mini player, progress bar, etc.)
 │   ├── styles.ts            # Re-exports styles.css as CSS_FIXES (?raw)
 │   ├── vite-env.d.ts        # Vite client types, *.css?raw module declaration
 │   │
+│   ├── constants/           # Application constants (barrel export via index.ts)
+│   │   ├── index.ts         # Re-exports all constants
+│   │   ├── app.ts           # DEBUG_FLAG, TIMEOUTS, RETRY_LIMITS, DEFAULT_DIMENSIONS
+│   │   ├── youtube.ts       # PLAYER_STATES, YT_EVENTS, YT_ACTION_NAMES, YT_LIKE_ACTIONS, etc.
+│   │   └── ui.ts            # COPY_MENU_INDICES, MOUSE_BUTTONS
+│   │
 │   ├── core/                # PiP lifecycle and YouTube integration
 │   │   ├── PiPManager.ts    # Document PiP window, move player main ↔ PiP
-│   │   ├── PlayerManager.ts # Save/restore playback state
+│   │   ├── PlayerManager.ts # Player state, video data, playback time
 │   │   ├── NavigationHandler.ts  # SPA navigation in PiP (yt-navigate)
 │   │   └── YtActionSender.ts     # Like/dislike/remove → main app
+│   │
+│   ├── errors/              # Custom error classes
+│   │   ├── AppError.ts      # Base error class
+│   │   ├── AppInitializationError.ts  # App init failures
+│   │   ├── PiPError.ts      # Recoverable PiP errors
+│   │   └── PiPCriticalError.ts  # Unrecoverable PiP errors (broken page state)
 │   │
 │   ├── handlers/
 │   │   ├── MediaSessionHandler.ts  # enterpictureinpicture, title sync
@@ -87,27 +98,35 @@ youtube-pip/
 │   │   └── LikeButtonHandler.ts    # Like/dislike in PiP
 │   │
 │   ├── ui/
-│   │   ├── MiniPlayerController.ts # Toggle mini player (KeyI)
+│   │   ├── MiniPlayerController.ts # Toggle mini player via yt-action
 │   │   ├── MenuObserver.ts         # Menu expand/collapse, PiP height
 │   │   ├── ResizeTracker.ts        # ResizeObserver → player size updates
-│   │   └── ContextMenuHandler.ts   # Move context menu main ↔ PiP
+│   │   └── ContextMenuHandler.ts   # Context menu main ↔ PiP, copy menu support
 │   │
 │   ├── utils/
-│   │   ├── DOMUtils.ts      # Placeholders, waitForElement, copyAttributes, unwrap
-│   │   └── StyleUtils.ts    # copyStyles, injectCSSFixes
+│   │   ├── DOMUtils.ts      # Placeholders, waitForElement, copyAttributes, copyViaTextarea
+│   │   ├── StyleUtils.ts    # copyStyles, injectCSSFixes
+│   │   └── VersionDetector.ts  # Script/YouTube/browser version detection
 │   │
 │   └── types/
-│       ├── app.ts           # Nullable, PiPCleanupCallback, etc.
-│       ├── youtube.ts       # YouTubePlayer, VideoData, NavigationState, …
-│       └── global.d.ts      # Document PiP, ResizeObserver types
+│       ├── app.ts           # Nullable, MaybePromise, CopyType, PiPCleanupCallback, etc.
+│       ├── youtube.ts       # YouTubePlayer, VideoData, NavigationState, YouTubeAppElement
+│       └── global.d.ts      # Document PiP, extended MediaSession types
+│
+├── docs/
+│   └── YOUTUBE_INTERNAL_API.md  # Kevlar API documentation
 │
 ├── dist/
 │   └── userscript.js        # Built userscript (IIFE, inline source map)
 │
-├── vite.config.ts           # Build config, userscript header, source map offset
+├── scripts/
+│   └── release-tag.js       # Create and push git tag from package.json version
+│
+├── vite.config.ts           # Build config, userscript header, SCRIPT_VERSION injection
 ├── eslint.config.js         # ESLint flat + TypeScript + Prettier
 ├── tsconfig.json
 ├── package.json
+├── CHANGELOG.md
 ├── .prettierrc / .prettierignore
 ├── .gitignore
 └── LICENSE
