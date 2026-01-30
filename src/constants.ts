@@ -66,6 +66,13 @@ export const WEB_PAGE_TYPES = {
 // YouTube root VE
 export const ROOT_VE = 3832;
 
+// Player context menu copy-item indices (.ytp-panel-menu .ytp-menuitem)
+export const COPY_MENU_INDICES = {
+  VIDEO_URL: 2,
+  URL_AT_TIME: 3,
+  EMBED: 4,
+} as const;
+
 // Mouse button codes (MouseEvent.button)
 export const MOUSE_BUTTONS = {
   PRIMARY: 0, // Left button

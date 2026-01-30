@@ -5,6 +5,13 @@
 /** T | null */
 export type Nullable<T> = T | null;
 
+/** Copy menu action: video URL, URL at current time, or embed code */
+export enum CopyType {
+  VIDEO_URL = 'video_url',
+  URL_AT_TIME = 'url_at_time',
+  EMBED = 'embed',
+}
+
 /** T | Promise<T> - for values that can be sync or async */
 export type MaybePromise<T> = T | Promise<T>;
 

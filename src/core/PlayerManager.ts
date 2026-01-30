@@ -97,6 +97,30 @@ export class PlayerManager {
   }
 
   /**
+   * Get video data (video_id, title, list) from player in document.
+   * Used for copy menu (URL, embed) in PiP. list (playlist ID) is optional.
+   */
+  public getVideoDataFromDocument(doc: Document): Nullable<VideoData> {
+    const player = doc.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
+    return this.getVideoData(player);
+  }
+
+  /**
+   * Get current playback time in seconds from document.
+   * Uses player.getCurrentTime() (returns e.g. 1.460367). Returns 0 when unavailable.
+   */
+  public getCurrentTimeFromDocument(doc: Document): number {
+    const player = doc.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
+    if (player && typeof player.getCurrentTime === 'function') {
+      const t = player.getCurrentTime();
+      if (typeof t === 'number' && !Number.isNaN(t)) {
+        return Math.floor(t);
+      }
+    }
+    return 0;
+  }
+
+  /**
    * Wait for main player to be ready
    */
   public async waitForMainPlayer(): Promise<Nullable<Element>> {

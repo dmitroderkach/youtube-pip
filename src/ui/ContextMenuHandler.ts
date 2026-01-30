@@ -1,19 +1,80 @@
 import { Logger } from '../logger';
-import { TIMEOUTS, MOUSE_BUTTONS } from '../constants';
+import { TIMEOUTS, MOUSE_BUTTONS, COPY_MENU_INDICES } from '../constants';
 import { DOMUtils } from '../utils/DOMUtils';
 import { SELECTORS } from '../selectors';
-import type { Nullable } from '../types/app';
+import { PlayerManager } from '../core/PlayerManager';
+import { CopyType, type Nullable } from '../types/app';
 
 const logger = Logger.getInstance('ContextMenuHandler');
 
 /**
- * Handles context menu movement between windows
+ * Handles context menu movement between windows and copy commands in PiP.
+ * YouTube uses a hidden textarea in the main window for copy; when the menu
+ * is moved to the PiP popup that link breaks. We intercept copy menu clicks
+ * and copy via a temporary textarea in the PiP document.
  */
 export class ContextMenuHandler {
   private visibilityObserver: Nullable<MutationObserver> = null;
   private pipWindow: Nullable<Window> = null;
   private contextMenu: Nullable<HTMLElement> = null;
   private contextMenuPlaceholder: Nullable<Comment> = null;
+  private readonly playerManager: PlayerManager;
+
+  constructor(playerManager: PlayerManager) {
+    this.playerManager = playerManager;
+  }
+
+  /**
+   * Capture-phase click handler for copy menu items.
+   * Defined as arrow function to preserve `this` binding.
+   */
+  private handleCopyClick = (e: MouseEvent): void => {
+    if (!this.pipWindow) {
+      return;
+    }
+
+    const doc = this.pipWindow.document;
+    const item = (e.target as Element)?.closest('.ytp-menuitem');
+    if (!item?.parentElement) {
+      logger.warn('Copy click: not a menu item or no parent', { item });
+      return;
+    }
+
+    const items = doc.querySelectorAll(SELECTORS.PANEL_MENU_ITEMS);
+    const index = Array.prototype.indexOf.call(items, item);
+    if (index === -1) {
+      logger.warn('Copy click: menu item index not found');
+      return;
+    }
+
+    const copyType = this.getCopyTypeForIndex(index);
+    if (!copyType) {
+      logger.debug('Copy click: not a copy action', { index });
+      return;
+    }
+
+    const videoData = this.playerManager.getVideoDataFromDocument(doc);
+    const videoId = videoData?.video_id;
+    if (!videoId) {
+      logger.warn('Video ID not found, cannot copy');
+      return;
+    }
+
+    const playlistId = videoData?.list ?? null;
+    const currentTime = this.playerManager.getCurrentTimeFromDocument(doc);
+    const title = videoData?.title ?? '';
+
+    const text = this.getCopyPayload(videoId, playlistId, currentTime, title, copyType);
+    if (!text) {
+      logger.warn('Copy click: empty payload', { copyType });
+      return;
+    }
+
+    const ok = DOMUtils.copyViaTextarea(doc, text);
+    if (ok) {
+      logger.debug(`Copied ${copyType} to clipboard`);
+    }
+  };
 
   /**
    * Initialize context menu handler
@@ -35,6 +96,7 @@ export class ContextMenuHandler {
 
       this.startMonitoring();
       this.setupDismissalHandler();
+      this.setupCopyHandler();
     } catch (e) {
       logger.warn('Error initializing context menu handler:', e);
     }
@@ -116,6 +178,51 @@ export class ContextMenuHandler {
   }
 
   /**
+   * Setup capture-phase click handler for copy menu items in PiP.
+   * Copies via temporary textarea since main-window textarea is disconnected.
+   */
+  private setupCopyHandler(): void {
+    if (!this.pipWindow) {
+      return;
+    }
+
+    this.pipWindow.document.addEventListener('click', this.handleCopyClick, true);
+  }
+
+  private getCopyTypeForIndex(index: number): CopyType | null {
+    if (index === COPY_MENU_INDICES.VIDEO_URL) return CopyType.VIDEO_URL;
+    if (index === COPY_MENU_INDICES.URL_AT_TIME) return CopyType.URL_AT_TIME;
+    if (index === COPY_MENU_INDICES.EMBED) return CopyType.EMBED;
+    return null;
+  }
+
+  private getCopyPayload(
+    videoId: string,
+    playlistId: Nullable<string>,
+    currentTime: number,
+    title: string,
+    copyType: CopyType
+  ): string {
+    const base = `https://youtu.be/${videoId}`;
+    const listPart = playlistId ? `?list=${playlistId}` : '';
+    const tPart = currentTime > 0 ? (listPart ? `&t=${currentTime}s` : `?t=${currentTime}s`) : '';
+
+    switch (copyType) {
+      case CopyType.VIDEO_URL:
+        return listPart ? `${base}${listPart}` : base;
+      case CopyType.URL_AT_TIME:
+        return `${base}${listPart}${tPart}`;
+      case CopyType.EMBED: {
+        const src = `https://www.youtube.com/embed/${videoId}${playlistId ? `?list=${playlistId}` : ''}`;
+        const safeTitle = title.replace(/"/g, '&quot;');
+        return `<iframe width="400" height="225" src="${src}" title="${safeTitle}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>`;
+      }
+      default:
+        return '';
+    }
+  }
+
+  /**
    * Simulate context menu event in main window
    */
   private simulateMainContextMenu(): void {
@@ -144,6 +251,10 @@ export class ContextMenuHandler {
     if (this.visibilityObserver) {
       this.visibilityObserver.disconnect();
       this.visibilityObserver = null;
+    }
+
+    if (this.pipWindow) {
+      this.pipWindow.document.removeEventListener('click', this.handleCopyClick, true);
     }
 
     // Return menu to main window if still in PiP

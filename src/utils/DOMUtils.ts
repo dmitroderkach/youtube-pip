@@ -69,6 +69,28 @@ export class DOMUtils {
   }
 
   /**
+   * Copy text to clipboard via temporary textarea and execCommand('copy').
+   * Use when Clipboard API is unavailable or copy must run in a specific document (e.g. PiP).
+   * @returns true if execCommand('copy') succeeded
+   */
+  public static copyViaTextarea(doc: Document, text: string): boolean {
+    const el = doc.createElement('textarea');
+    el.value = text;
+    el.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;';
+    doc.body.appendChild(el);
+    el.focus();
+    el.select();
+    let ok = false;
+    try {
+      ok = doc.execCommand('copy');
+    } catch {
+      /* ignore */
+    }
+    el.remove();
+    return ok;
+  }
+
+  /**
    * Unwrap element by moving all children to parent and removing wrapper
    */
   public static unwrap(wrapper: Nullable<Element>): void {

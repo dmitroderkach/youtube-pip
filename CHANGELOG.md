@@ -5,6 +5,41 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-01-30
+
+### Added
+
+- **ContextMenuHandler**: Copy menu support in PiP window
+  - Intercepts clicks on copy menu items (Copy video URL, Copy URL at current time, Copy embed code)
+  - Uses temporary textarea + `execCommand('copy')` since YouTube's hidden textarea in main window is disconnected
+  - `handleCopyClick` defined as arrow function property for proper `this` binding
+  - Logging for all early-return paths (warn/debug)
+
+- **PlayerManager**: New methods for copy menu support
+  - `getVideoDataFromDocument(doc)`: Returns `VideoData` (video_id, title, list) from player
+  - `getCurrentTimeFromDocument(doc)`: Returns current playback time via `player.getCurrentTime()`
+
+- **DOMUtils**: `copyViaTextarea(doc, text)` static method for clipboard operations in specific document context
+
+- **constants.ts**: `COPY_MENU_INDICES` — menu item indices for copy actions (VIDEO_URL: 2, URL_AT_TIME: 3, EMBED: 4)
+
+- **selectors.ts**: `PANEL_MENU_ITEMS` selector for `.ytp-panel-menu .ytp-menuitem`
+
+- **types/app.ts**: `CopyType` enum (`VIDEO_URL`, `URL_AT_TIME`, `EMBED`)
+
+- **types/youtube.ts**: `list` field added to `VideoData` interface for playlist ID
+
+### Changed
+
+- **ContextMenuHandler**: Now requires `PlayerManager` in constructor for video data access
+- **main.ts**: Passes `playerManager` to `ContextMenuHandler` constructor
+
+### Copy output format
+
+- **Video URL**: `https://youtu.be/{videoId}` or `https://youtu.be/{videoId}?list={playlistId}`
+- **URL at time**: `https://youtu.be/{videoId}?t={seconds}` or `https://youtu.be/{videoId}?list={playlistId}&t={seconds}`
+- **Embed**: `<iframe width="400" height="225" src="https://www.youtube.com/embed/{videoId}?list={playlistId}" title="..." ...></iframe>`
+
 ## [1.5.2] - 2026-01-29
 
 ### Fixed
@@ -450,6 +485,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[1.6.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.5.2...refs/tags/v1.6.0
 [1.5.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.5.1...refs/tags/v1.5.2
 [1.5.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.5.0...refs/tags/v1.5.1
 [1.5.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.4.1...refs/tags/v1.5.0

@@ -47,7 +47,7 @@ class YouTubePiPApp {
     this.navigationHandler = new NavigationHandler();
     this.resizeTracker = new ResizeTracker();
     this.menuObserver = new MenuObserver();
-    this.contextMenuHandler = new ContextMenuHandler();
+    this.contextMenuHandler = new ContextMenuHandler(this.playerManager);
     this.seekHandler = new SeekHandler();
     this.likeButtonHandler = new LikeButtonHandler(this.playerManager);
 

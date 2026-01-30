@@ -45,6 +45,7 @@ export interface VideoData {
   video_id: string;
   author?: string;
   title?: string;
+  list?: string;
 }
 
 /**
