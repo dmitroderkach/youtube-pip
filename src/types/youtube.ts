@@ -23,6 +23,11 @@ import type {
  */
 export type PlayerState = (typeof PLAYER_STATES)[keyof typeof PLAYER_STATES];
 
+export interface PlayerSize {
+  width: number;
+  height: number;
+}
+
 /**
  * YouTube player interface
  */
@@ -37,6 +42,7 @@ export interface YouTubePlayer extends HTMLElement {
   setSize?(): void;
   getVideoData?(): VideoData;
   getDebugText?(fullDebugInfo?: boolean): string;
+  getPlayerSize?(): PlayerSize;
 }
 
 /**

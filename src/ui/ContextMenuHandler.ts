@@ -73,7 +73,16 @@ export class ContextMenuHandler {
         const playlistId = videoData?.list ?? null;
         const currentTime = this.playerManager.getCurrentTimeFromDocument(doc);
         const title = videoData?.title ?? '';
-        text = this.getCopyPayload(videoId, playlistId, currentTime, title, copyType);
+        const embedSize =
+          copyType === CopyType.EMBED ? this.playerManager.getPlayerSizeFromDocument(doc) : null;
+        text = this.getCopyPayload({
+          videoId,
+          playlistId,
+          currentTime,
+          title,
+          copyType,
+          embedSize,
+        });
         if (!text) {
           logger.warn('Copy click: empty payload', { copyType });
           return;
@@ -209,13 +218,15 @@ export class ContextMenuHandler {
     return null;
   }
 
-  private getCopyPayload(
-    videoId: string,
-    playlistId: Nullable<string>,
-    currentTime: number,
-    title: string,
-    copyType: CopyType
-  ): string {
+  private getCopyPayload(params: {
+    videoId: string;
+    playlistId: Nullable<string>;
+    currentTime: number;
+    title: string;
+    copyType: CopyType;
+    embedSize?: Nullable<{ width: number; height: number }>;
+  }): string {
+    const { videoId, playlistId, currentTime, title, copyType, embedSize } = params;
     const base = `https://youtu.be/${videoId}`;
     const listPart = playlistId ? `?list=${playlistId}` : '';
     const tPart = currentTime > 0 ? (listPart ? `&t=${currentTime}s` : `?t=${currentTime}s`) : '';
@@ -226,9 +237,11 @@ export class ContextMenuHandler {
       case CopyType.URL_AT_TIME:
         return `${base}${listPart}${tPart}`;
       case CopyType.EMBED: {
+        const w = embedSize?.width ?? 400;
+        const h = embedSize?.height ?? 225;
         const src = `https://www.youtube.com/embed/${videoId}${playlistId ? `?list=${playlistId}` : ''}`;
         const safeTitle = title.replace(/"/g, '&quot;');
-        return `<iframe width="400" height="225" src="${src}" title="${safeTitle}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>`;
+        return `<iframe width="${w}" height="${h}" src="${src}" title="${safeTitle}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>`;
       }
       default:
         return '';

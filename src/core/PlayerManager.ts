@@ -1,5 +1,5 @@
 import { Logger } from '../logger';
-import { YouTubePlayer, VideoData, PlayerState } from '../types/youtube';
+import { YouTubePlayer, VideoData, PlayerState, PlayerSize } from '../types/youtube';
 import { PLAYER_STATES } from '../constants';
 import { DOMUtils } from '../utils/DOMUtils';
 import { TIMEOUTS } from '../constants';
@@ -118,6 +118,19 @@ export class PlayerManager {
       }
     }
     return 0;
+  }
+
+  /**
+   * Get player size (width, height) from document.
+   * Uses player.getPlayerSize() when available. Used for dynamic embed dimensions.
+   */
+  public getPlayerSizeFromDocument(doc: Document): Nullable<PlayerSize> {
+    const player = doc.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
+    if (!player || typeof player.getPlayerSize !== 'function') {
+      return null;
+    }
+    const size = player.getPlayerSize();
+    return size;
   }
 
   /**
