@@ -7,6 +7,7 @@ export const COPY_MENU_INDICES = {
   VIDEO_URL: 2,
   URL_AT_TIME: 3,
   EMBED: 4,
+  DEBUG_INFO: 5,
 } as const;
 
 /** Mouse button codes (MouseEvent.button) */

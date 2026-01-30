@@ -35,7 +35,8 @@ export interface YouTubePlayer extends HTMLElement {
   getCurrentTime?(): number;
   setInternalSize?(): void;
   setSize?(): void;
-  getVideoData?: () => VideoData;
+  getVideoData?(): VideoData;
+  getDebugText?(fullDebugInfo?: boolean): string;
 }
 
 /**

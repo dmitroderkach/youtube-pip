@@ -121,6 +121,19 @@ export class PlayerManager {
   }
 
   /**
+   * Get debug information string from player (e.g. for "Copy debug information").
+   * Uses player.getDebugText() when available.
+   */
+  public getDebugInfoFromDocument(doc: Document): Nullable<string> {
+    const player = doc.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
+    if (!player || typeof player.getDebugText !== 'function') {
+      return null;
+    }
+    const text = player.getDebugText(true);
+    return typeof text === 'string' && text.length > 0 ? text : null;
+  }
+
+  /**
    * Wait for main player to be ready
    */
   public async waitForMainPlayer(): Promise<Nullable<Element>> {

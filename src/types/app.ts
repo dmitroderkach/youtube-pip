@@ -5,11 +5,12 @@
 /** T | null */
 export type Nullable<T> = T | null;
 
-/** Copy menu action: video URL, URL at current time, or embed code */
+/** Copy menu action: video URL, URL at current time, embed code, or debug info */
 export enum CopyType {
   VIDEO_URL = 'video_url',
   URL_AT_TIME = 'url_at_time',
   EMBED = 'embed',
+  DEBUG_INFO = 'debug_info',
 }
 
 /** T | Promise<T> - for values that can be sync or async */

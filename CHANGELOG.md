@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.2] - 2026-01-30
+
+### Added
+
+- **Copy debug information** in PiP context menu
+  - New copy menu item: "Copy debug information" (index 5)
+  - Uses `player.getDebugText()` from YouTube player API; copies the same debug payload as on the main page
+  - `PlayerManager.getDebugInfoFromDocument(doc)` returns debug string or `null`
+  - `COPY_MENU_INDICES.DEBUG_INFO`, `CopyType.DEBUG_INFO` added
+
 ## [1.6.1] - 2026-01-30
 
 ### Changed
