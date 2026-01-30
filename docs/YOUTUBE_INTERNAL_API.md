@@ -272,6 +272,61 @@ public toggleMiniPlayer(): void {
 
 ---
 
+### 3. Offline video (download / remove): `yt-offline-video-endpoint`
+
+Use `yt-action` with `actionName: 'yt-offline-video-endpoint'` to trigger offline video download or remove a video from offline storage.
+
+#### Download video
+
+```javascript
+const ytdApp = document.querySelector('ytd-app');
+ytdApp.fire('yt-action', {
+  actionName: 'yt-offline-video-endpoint',
+  args: [
+    {
+      offlineVideoEndpoint: {
+        videoId: 'o_1aF54DO60',
+        action: 'ACTION_ADD',
+        actionParams: {
+          formatType: 'SD',
+          settingsAction: 'DOWNLOAD_QUALITY_SETTINGS_ACTION_ALREADY_SAVED',
+        },
+      },
+    },
+  ],
+  optionalAction: true,
+  returnValue: [undefined],
+});
+```
+
+- **videoId** — Video ID.
+- **action** — `"ACTION_ADD"` to download.
+- **actionParams.formatType** — Quality, e.g. `"SD"`.
+- **actionParams.settingsAction** — `"DOWNLOAD_QUALITY_SETTINGS_ACTION_ALREADY_SAVED"` (use saved quality settings).
+
+#### Remove video from offline
+
+```javascript
+const ytdApp = document.querySelector('ytd-app');
+ytdApp.fire('yt-action', {
+  actionName: 'yt-offline-video-endpoint',
+  args: [
+    {
+      offlineVideoEndpoint: {
+        videoId: 'o_1aF54DO60',
+        action: 'ACTION_REMOVE',
+      },
+    },
+  ],
+  optionalAction: true,
+  returnValue: [undefined],
+});
+```
+
+- **action** — `"ACTION_REMOVE"` to remove the offline copy.
+
+---
+
 ## Kevlar Command System
 
 ### Command Dispatcher: `ytdApp.resolveCommand()`
@@ -369,6 +424,23 @@ const actionType = isPressed
 
 this.ytActionSender?.sendLikeAction(actionType);
 ```
+
+---
+
+### Add to playlist dialog: `addToPlaylistServiceEndpoint`
+
+To open the "Save video to…" (Add to playlist) dialog, call `resolveCommand` with **addToPlaylistServiceEndpoint** and **videoId**:
+
+```javascript
+const ytdApp = document.querySelector('ytd-app');
+ytdApp.resolveCommand({
+  addToPlaylistServiceEndpoint: {
+    videoId: 'dqKpx51vKLc',
+  },
+});
+```
+
+Building the object: only `addToPlaylistServiceEndpoint.videoId` is required — the video ID for which to open the dialog. YouTube fetches the rest (playlist list, endpoints, etc.) itself.
 
 ---
 
