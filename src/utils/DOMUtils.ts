@@ -76,8 +76,7 @@ export class DOMUtils {
   public static copyViaTextarea(doc: Document, text: string): boolean {
     const el = doc.createElement('textarea');
     el.value = text;
-    el.style.cssText =
-      'position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;';
+    el.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none;';
     doc.body.appendChild(el);
     el.focus();
     el.select();
