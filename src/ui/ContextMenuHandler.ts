@@ -53,21 +53,33 @@ export class ContextMenuHandler {
       return;
     }
 
-    const videoData = this.playerManager.getVideoDataFromDocument(doc);
-    const videoId = videoData?.video_id;
-    if (!videoId) {
-      logger.warn('Video ID not found, cannot copy');
-      return;
-    }
-
-    const playlistId = videoData?.list ?? null;
-    const currentTime = this.playerManager.getCurrentTimeFromDocument(doc);
-    const title = videoData?.title ?? '';
-
-    const text = this.getCopyPayload(videoId, playlistId, currentTime, title, copyType);
-    if (!text) {
-      logger.warn('Copy click: empty payload', { copyType });
-      return;
+    let text: string;
+    switch (copyType) {
+      case CopyType.DEBUG_INFO: {
+        text = this.playerManager.getDebugInfoFromDocument(doc) ?? '';
+        if (!text) {
+          logger.warn('Debug info not available, cannot copy');
+          return;
+        }
+        break;
+      }
+      default: {
+        const videoData = this.playerManager.getVideoDataFromDocument(doc);
+        const videoId = videoData?.video_id;
+        if (!videoId) {
+          logger.warn('Video ID not found, cannot copy');
+          return;
+        }
+        const playlistId = videoData?.list ?? null;
+        const currentTime = this.playerManager.getCurrentTimeFromDocument(doc);
+        const title = videoData?.title ?? '';
+        text = this.getCopyPayload(videoId, playlistId, currentTime, title, copyType);
+        if (!text) {
+          logger.warn('Copy click: empty payload', { copyType });
+          return;
+        }
+        break;
+      }
     }
 
     const ok = DOMUtils.copyViaTextarea(doc, text);
@@ -193,6 +205,7 @@ export class ContextMenuHandler {
     if (index === COPY_MENU_INDICES.VIDEO_URL) return CopyType.VIDEO_URL;
     if (index === COPY_MENU_INDICES.URL_AT_TIME) return CopyType.URL_AT_TIME;
     if (index === COPY_MENU_INDICES.EMBED) return CopyType.EMBED;
+    if (index === COPY_MENU_INDICES.DEBUG_INFO) return CopyType.DEBUG_INFO;
     return null;
   }
 
