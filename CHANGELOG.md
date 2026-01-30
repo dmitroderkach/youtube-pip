@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.1] - 2026-01-30
+
+### Changed
+
+- **Project structure**: Constants split into separate files for better organization
+  - `src/constants/` folder with barrel export via `index.ts`
+  - `app.ts` — application-level constants (DEBUG_FLAG, TIMEOUTS, RETRY_LIMITS, DEFAULT_DIMENSIONS)
+  - `youtube.ts` — YouTube API constants (PLAYER_STATES, YT_EVENTS, YT_ACTION_NAMES, YT_LIKE_ACTIONS, etc.)
+  - `ui.ts` — UI-related constants (COPY_MENU_INDICES, MOUSE_BUTTONS)
+  - All existing imports `from '../constants'` continue to work via barrel export
+
+- **README**: Updated project structure section to reflect current codebase organization
+  - Added `constants/` folder structure
+  - Added `errors/` folder with error classes
+  - Added `docs/` and `scripts/` folders
+  - Updated descriptions for modules with new functionality
+
 ## [1.6.0] - 2026-01-30
 
 ### Added
@@ -485,6 +502,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[1.6.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.0...refs/tags/v1.6.1
 [1.6.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.5.2...refs/tags/v1.6.0
 [1.5.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.5.1...refs/tags/v1.5.2
 [1.5.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.5.0...refs/tags/v1.5.1
