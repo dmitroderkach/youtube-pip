@@ -20,6 +20,7 @@ export const SELECTORS = {
   SIMPLE_ENDPOINT: '.yt-simple-endpoint',
   BUTTON: 'button',
   STYLESHEETS: 'style, link[rel="stylesheet"]',
+  NOTIFICATION_TOPBAR_BUTTON_RENDERER: 'ytd-notification-topbar-button-renderer',
 } as const;
 
 export type Selector = (typeof SELECTORS)[keyof typeof SELECTORS];

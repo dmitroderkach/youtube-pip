@@ -7,7 +7,11 @@ import { PlayerManager } from './PlayerManager';
 import { NavigationHandler } from './NavigationHandler';
 import { DEFAULT_DIMENSIONS, TIMEOUTS } from '../constants';
 import { SELECTORS } from '../selectors';
-import { MiniPlayerElement, YouTubePlayer } from '../types/youtube';
+import {
+  MiniPlayerElement,
+  NotificationTopbarButtonRenderer,
+  YouTubePlayer,
+} from '../types/youtube';
 import type { Nullable, PiPCleanupCallback, PiPWindowReadyCallback } from '../types/app';
 import { PiPError } from '../errors/PiPError';
 import { PiPCriticalError } from '../errors/PiPCriticalError';
@@ -285,8 +289,16 @@ export class PiPManager {
    * Set window titles
    */
   private setWindowsTitle(title: string): void {
-    const newTitle = `${title} - YouTube`;
     if (this.pipWindow) {
+      const notifyRenderer = document.querySelector<NotificationTopbarButtonRenderer>(
+        SELECTORS.NOTIFICATION_TOPBAR_BUTTON_RENDERER
+      );
+      let countNotif = '';
+      if (notifyRenderer?.showNotificationCount) {
+        countNotif = `(${notifyRenderer.showNotificationCount}) `;
+      }
+
+      const newTitle = `${countNotif}${title} - YouTube`;
       document.title = newTitle;
       this.pipWindow.document.title = newTitle;
       logger.debug(`Title synced from MediaSession: ${title}`);
