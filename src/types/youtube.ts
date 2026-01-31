@@ -46,6 +46,13 @@ export interface YouTubePlayer extends HTMLElement {
 }
 
 /**
+ * Notification topbar button renderer (shows notification count)
+ */
+export interface NotificationTopbarButtonRenderer extends HTMLElement {
+  showNotificationCount?: number;
+}
+
+/**
  * Video data returned by player
  */
 export interface VideoData {

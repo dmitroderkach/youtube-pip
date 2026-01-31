@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.6] - 2026-01-31
+
+### Added
+
+- **PiPManager**: Notification count in window title — PiP and main window titles now show `(N) ` prefix when notifications exist
+  - Uses `ytd-notification-topbar-button-renderer` → `showNotificationCount`
+  - `SELECTORS.NOTIFICATION_TOPBAR_BUTTON_RENDERER` in selectors.ts
+  - `NotificationTopbarButtonRenderer` interface in types/youtube.ts
+
 ## [1.6.5] - 2026-01-31
 
 ### Added
@@ -546,6 +555,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[1.6.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.5...refs/tags/v1.6.6
 [1.6.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.4...refs/tags/v1.6.5
 [1.6.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.3...refs/tags/v1.6.4
 [1.6.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.2...refs/tags/v1.6.3
