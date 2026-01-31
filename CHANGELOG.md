@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.5] - 2026-01-31
+
+### Added
+
+- **PiPManager**: Phantom window detection — after 500ms, if PiP window was closed without pagehide, triggers cleanup
+  - `TIMEOUTS.PHANTOM_WINDOW_CHECK` (500ms) — delay before phantom window check
+  - Handles cases where pagehide event is lost (tab suspended, etc.)
+
+### Changed
+
+- **PiPManager**: Critical section for open/close — `AsyncLock` serializes concurrent open/close to prevent races
+- **PiPManager**: `close` extracted as arrow function, uses `asyncLock.withLock()` for returnPlayerToMain
+- **PiPManager**: pagehide listener attached immediately after `requestWindow` (before DOM setup)
+- **PiPManager**: `movePlayerToMain` — restore playback state now awaited (Promise + setTimeout for next event loop iteration)
+
 ## [1.6.4] - 2026-01-30
 
 ### Added
@@ -531,6 +546,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[1.6.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.4...refs/tags/v1.6.5
 [1.6.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.3...refs/tags/v1.6.4
 [1.6.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.2...refs/tags/v1.6.3
 [1.6.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.1...refs/tags/v1.6.2

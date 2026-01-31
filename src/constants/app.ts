@@ -10,6 +10,7 @@ export const TIMEOUTS = {
   ELEMENT_WAIT: 5000,
   ELEMENT_WAIT_INFINITE: 0,
   MENU_RETRY_DELAY: 100,
+  PHANTOM_WINDOW_CHECK: 500,
 } as const;
 
 /** Retry counts */

@@ -1,10 +1,11 @@
 import { Logger } from '../logger';
 import { DOMUtils } from '../utils/DOMUtils';
 import { StyleUtils } from '../utils/StyleUtils';
+import { AsyncLock } from '../utils/AsyncLock';
 import { MiniPlayerController } from '../ui/MiniPlayerController';
 import { PlayerManager } from './PlayerManager';
 import { NavigationHandler } from './NavigationHandler';
-import { DEFAULT_DIMENSIONS } from '../constants';
+import { DEFAULT_DIMENSIONS, TIMEOUTS } from '../constants';
 import { SELECTORS } from '../selectors';
 import { MiniPlayerElement, YouTubePlayer } from '../types/youtube';
 import type { Nullable, PiPCleanupCallback, PiPWindowReadyCallback } from '../types/app';
@@ -30,6 +31,14 @@ export class PiPManager {
   private onWindowReady: PiPWindowReadyCallback;
   private onBeforeReturn: Nullable<PiPCleanupCallback> = null;
 
+  private readonly asyncLock = new AsyncLock();
+
+  private close = (): void => {
+    void this.asyncLock
+      .withLock(() => this.returnPlayerToMain())
+      .catch((e) => logger.error('Unhandled error in returnPlayerToMain:', e));
+  };
+
   constructor(
     miniPlayerController: MiniPlayerController,
     playerManager: PlayerManager,
@@ -46,7 +55,7 @@ export class PiPManager {
    * Check if PiP window is open
    */
   public isOpen(): boolean {
-    return this.pipWindow !== null && !this.pipWindow.closed;
+    return this.pipWindow !== null;
   }
 
   /**
@@ -58,37 +67,35 @@ export class PiPManager {
 
   /**
    * Open Picture-in-Picture window
+   * Critical section: concurrent calls are serialized to prevent race conditions
    */
-  public async open(): Promise<void> {
-    if (this.isOpen()) {
-      logger.warn('PiP window already open');
-      return;
-    }
+  public open(): Promise<void> {
+    return this.asyncLock.withLock(async () => {
+      if (this.isOpen()) {
+        logger.warn('PiP window already open');
+        return;
+      }
 
-    logger.log('Opening PiP window');
+      logger.log('Opening PiP window');
 
-    try {
-      await this.movePlayerToPIP();
+      try {
+        await this.movePlayerToPIP();
 
-      if (this.pipWindow && this.miniplayer) {
-        this.pipWindow.addEventListener('pagehide', () => {
-          void this.returnPlayerToMain().catch((e) =>
-            logger.error('Unhandled error in returnPlayerToMain:', e)
-          );
-        });
-        this.navigationHandler.initialize(this.pipWindow);
+        if (this.pipWindow && this.miniplayer) {
+          this.navigationHandler.initialize(this.pipWindow);
 
-        const result = await this.onWindowReady(this.pipWindow, this.miniplayer);
-        if (typeof result === 'function') {
-          this.onBeforeReturn = result;
+          const result = await this.onWindowReady(this.pipWindow, this.miniplayer);
+          if (typeof result === 'function') {
+            this.onBeforeReturn = result;
+          }
         }
+      } catch (error) {
+        if (error instanceof PiPCriticalError) {
+          throw error;
+        }
+        throw new PiPError('Error opening PiP', error);
       }
-    } catch (error) {
-      if (error instanceof PiPCriticalError) {
-        throw error;
-      }
-      throw new PiPError('Error opening PiP', error);
-    }
+    });
   }
 
   /**
@@ -135,6 +142,17 @@ export class PiPManager {
     }
 
     this.pipWindow = await dpp.requestWindow({ width, height });
+    setTimeout(() => {
+      void this.asyncLock.withLock(async () => {
+        if (this.pipWindow?.closed) {
+          logger.warn('phantom window detected, closing');
+          this.pipWindow = null;
+          this.close();
+          return;
+        }
+      });
+    }, TIMEOUTS.PHANTOM_WINDOW_CHECK);
+    this.pipWindow.addEventListener('pagehide', this.close);
     logger.log('PiP window opened');
 
     const pipDoc = this.pipWindow.document;
@@ -251,12 +269,15 @@ export class PiPManager {
     }
 
     // Restore playback state
-    setTimeout(() => {
-      this.playerManager.restorePlayingState(player);
-      if (this.wasMiniPlayerActiveBeforePiP) {
-        this.miniPlayerController.activateMiniPlayer();
-        void this.playerManager.waitForMiniPlayer();
-      }
+    await new Promise<void>((resolve) => {
+      setTimeout(async () => {
+        this.playerManager.restorePlayingState(player);
+        if (this.wasMiniPlayerActiveBeforePiP) {
+          this.miniPlayerController.activateMiniPlayer();
+          await this.playerManager.waitForMiniPlayer().catch(() => {});
+        }
+        resolve();
+      });
     });
   }
 
