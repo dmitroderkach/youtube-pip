@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.7] - 2026-02-01
+
+### Added
+
+- **Types for `fire()` detail** — type-safe event details for `ytd-app.fire()`, similar to `resolveCommand`
+  - `YouTubeActionEventDetail` — for yt-action (actionName, args, optionalAction, returnValue)
+  - `YouTubeNavigateEventDetail` — for yt-navigate (endpoint, entryTime)
+  - `YouTubeFireDetails` registry — extensible mapping event name → detail type
+  - `YouTubeFireDetail<E>` — indexed by event name
+  - `fire?<E>(eventName: E, detail?: YouTubeFireDetail<E>)` — generic overload
+
+### Changed
+
+- **types/youtube.ts**: `NavigationEndpoint.commandMetadata`, `NavigationState.entryTime` — made optional
+
 ## [1.6.6] - 2026-01-31
 
 ### Added
@@ -555,6 +570,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[1.6.7]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.6...refs/tags/v1.6.7
 [1.6.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.5...refs/tags/v1.6.6
 [1.6.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.4...refs/tags/v1.6.5
 [1.6.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.3...refs/tags/v1.6.4

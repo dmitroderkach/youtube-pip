@@ -2,6 +2,7 @@ import type { Nullable } from './app';
 import type {
   PLAYER_STATES,
   YT_ACTIONS,
+  YT_ACTION_NAMES,
   YT_LIKE_ACTIONS,
   WEB_PAGE_TYPES,
   YT_EVENTS,
@@ -101,7 +102,7 @@ export interface CommandMetadata {
  * Navigation endpoint
  */
 export interface NavigationEndpoint {
-  commandMetadata: CommandMetadata;
+  commandMetadata?: CommandMetadata;
   watchEndpoint: WatchEndpoint;
 }
 
@@ -110,7 +111,7 @@ export interface NavigationEndpoint {
  */
 export interface NavigationState {
   endpoint: NavigationEndpoint;
-  entryTime: number;
+  entryTime?: number;
 }
 
 /**
@@ -199,12 +200,43 @@ export type MiniPlayerElement = HTMLElement;
  */
 export type YouTubeEventName = (typeof YT_EVENTS)[keyof typeof YT_EVENTS];
 
+/** Action name for yt-action events */
+export type YouTubeActionName = (typeof YT_ACTION_NAMES)[keyof typeof YT_ACTION_NAMES];
+
+/** Detail for yt-action event */
+export interface YouTubeActionEventDetail {
+  actionName: YouTubeActionName;
+  args: Nullable<unknown[]>;
+  optionalAction: boolean;
+  returnValue: unknown[];
+}
+
+/** Detail for yt-navigate event (navigate to watch) */
+export type YouTubeNavigateEventDetail = NavigationState;
+
+/**
+ * Registry of fire event details by event name.
+ * Keys must match YT_EVENTS values. Add new event types here.
+ */
+export interface YouTubeFireDetails {
+  [YT_EVENTS.ACTION]: YouTubeActionEventDetail;
+  [YT_EVENTS.NAVIGATE]: YouTubeNavigateEventDetail;
+  // Future events — add here:
+}
+
+/**
+ * Event detail for fire() — indexed by event name.
+ */
+export type YouTubeFireDetail<E extends YouTubeEventName> = E extends keyof YouTubeFireDetails
+  ? YouTubeFireDetails[E]
+  : never;
+
 /**
  * YouTube app element interface
  */
 export interface YouTubeAppElement extends HTMLElement {
   resolveCommand?(command: YouTubeCommand): void;
-  fire?(eventName: YouTubeEventName, detail?: unknown): void;
+  fire?<E extends YouTubeEventName>(eventName: E, detail?: YouTubeFireDetail<E>): void;
 
   miniplayerIsActive: boolean;
 }
