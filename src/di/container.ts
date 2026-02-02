@@ -68,7 +68,15 @@ export class Container {
         throw new AppRuntimeError(`${this.tokenName(token)} must be decorated with @injectable()`);
       }
       const paramTokens = getParamMetadata(Ctor) ?? [];
-      const args = paramTokens.map((t) => this.get(t, resolutionStack));
+      const paramCount = (Ctor as { length: number }).length;
+      for (let i = 0; i < paramCount; i++) {
+        if (paramTokens[i] === undefined) {
+          throw new AppRuntimeError(
+            `${this.tokenName(token)}: constructor parameter at index ${i} must be decorated with @inject(token)`
+          );
+        }
+      }
+      const args = paramTokens.map((t) => this.get(t as ServiceId, resolutionStack));
 
       const instance = new (Ctor as new (...args: unknown[]) => T)(...args);
 
