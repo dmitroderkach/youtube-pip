@@ -647,6 +647,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.0.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.0...refs/tags/v2.0.1
 [2.0.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.7...refs/tags/v2.0.0
 [1.6.7]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.6...refs/tags/v1.6.7
 [1.6.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.5...refs/tags/v1.6.6
