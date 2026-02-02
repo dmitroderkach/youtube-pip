@@ -1,5 +1,6 @@
 import { Logger } from '../logger';
 import { TIMEOUTS } from '../constants';
+import { AppRuntimeError } from '../errors/AppRuntimeError';
 import type { DocumentOrElement, Nullable } from '../types/app';
 
 const logger = Logger.getInstance('DOMUtils');
@@ -156,7 +157,7 @@ export class DOMUtils {
       // Observe the parent for changes
       const target = parent === document ? document.body : parent;
       if (!target) {
-        reject(new Error(`Target element not found for selector: ${selector}`));
+        reject(new AppRuntimeError(`Target element not found for selector: ${selector}`));
         return;
       }
 
@@ -169,7 +170,7 @@ export class DOMUtils {
       if (timeout > 0) {
         setTimeout(() => {
           observer.disconnect();
-          reject(new Error(`Timeout: ${selector} not found`));
+          reject(new AppRuntimeError(`Timeout: ${selector} not found`));
         }, timeout);
       }
 
@@ -179,7 +180,7 @@ export class DOMUtils {
           'pagehide',
           () => {
             observer.disconnect();
-            reject(new Error('Wait aborted: target window closed'));
+            reject(new AppRuntimeError('Wait aborted: target window closed'));
           },
           { once: true }
         );

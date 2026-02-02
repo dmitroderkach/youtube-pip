@@ -67,7 +67,7 @@ Then reload the page. Logs are scoped per module and include timestamps (`YYYY-M
 ```
 youtube-pip/
 ├── src/
-│   ├── main.ts              # Entry point, YouTubePiPApp, PiP handler setup
+│   ├── main.ts              # Entry point, DI container setup, MediaSessionHandler init
 │   ├── logger.ts            # Scoped logger (Intl.DateTimeFormat, %c styles, global metadata)
 │   ├── selectors.ts         # DOM selectors
 │   ├── styles.css           # PiP CSS fixes (mini player, progress bar, etc.)
@@ -80,8 +80,17 @@ youtube-pip/
 │   │   ├── youtube.ts       # PLAYER_STATES, YT_EVENTS, YT_ACTION_NAMES, YT_LIKE_ACTIONS, etc.
 │   │   └── ui.ts            # COPY_MENU_INDICES, MOUSE_BUTTONS
 │   │
+│   ├── di/                  # Dependency injection (no external libs)
+│   │   ├── container.ts     # Container, bind, get
+│   │   ├── container-config.ts  # createContainer(), bindings
+│   │   ├── decorators.ts    # @injectable, @inject
+│   │   ├── metadata.ts      # Param metadata for injection
+│   │   ├── tokens.ts        # TYPES symbols
+│   │   └── index.ts         # Barrel export
+│   │
 │   ├── core/                # PiP lifecycle and YouTube integration
 │   │   ├── PiPManager.ts    # Document PiP window, move player main ↔ PiP
+│   │   ├── PiPWindowHandlers.ts  # PiP window init, handlers setup + cleanup
 │   │   ├── PlayerManager.ts # Player state, video data, playback time
 │   │   ├── NavigationHandler.ts  # SPA navigation in PiP (yt-navigate)
 │   │   └── YtActionSender.ts     # Like/dislike/remove → main app

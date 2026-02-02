@@ -1,22 +1,26 @@
-import { Logger } from '../logger';
-import { SELECTORS } from '../selectors';
 import { PlayerManager } from './PlayerManager';
-import { YouTubeCommand, YouTubeAppElement, LikeActionType } from '../types/youtube';
-import type { Nullable } from '../types/app';
-
-const logger = Logger.getInstance('YtActionSender');
+import { YtdAppProvider } from './YtdAppProvider';
+import { PipWindowProvider } from './PipWindowProvider';
+import { YouTubeCommand, LikeActionType } from '../types/youtube';
+import type { Logger } from '../logger';
+import { LoggerFactory } from '../logger';
+import { inject, injectable } from '../di';
 
 /**
  * Sends YouTube like/dislike/remove commands to main window ytd-app.
  * Used by LikeButtonHandler when user clicks like/dislike in PiP.
  */
+@injectable()
 export class YtActionSender {
-  private readonly pipWindow: Nullable<Window>;
-  private readonly playerManager: PlayerManager;
+  private readonly logger: Logger;
 
-  constructor(pipWindow: Nullable<Window>, playerManager: PlayerManager) {
-    this.pipWindow = pipWindow;
-    this.playerManager = playerManager;
+  constructor(
+    @inject(LoggerFactory) loggerFactory: LoggerFactory,
+    @inject(PlayerManager) private readonly playerManager: PlayerManager,
+    @inject(YtdAppProvider) private readonly ytdAppProvider: YtdAppProvider,
+    @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider
+  ) {
+    this.logger = loggerFactory.create('YtActionSender');
   }
 
   /**
@@ -24,20 +28,21 @@ export class YtActionSender {
    * Resolves video ID from PiP player and invokes main window resolveCommand.
    */
   public sendLikeAction(actionType: LikeActionType): void {
-    if (!this.pipWindow) {
+    const pipWindow = this.pipWindowProvider.getWindow();
+    if (!pipWindow) {
       return;
     }
 
-    const videoId = this.playerManager.getVideoId(this.pipWindow.document);
+    const videoId = this.playerManager.getVideoId();
 
     if (!videoId) {
-      logger.error('Video ID not found, cannot send like action');
+      this.logger.error('Video ID not found, cannot send like action');
       return;
     }
 
-    const mainApp = document.querySelector<YouTubeAppElement>(SELECTORS.YTD_APP);
-    if (!mainApp || typeof mainApp.resolveCommand !== 'function') {
-      logger.error('Failed to find resolveCommand in main window');
+    const mainApp = this.ytdAppProvider.getApp();
+    if (typeof mainApp.resolveCommand !== 'function') {
+      this.logger.error('Failed to find resolveCommand in main window');
       return;
     }
 
@@ -50,9 +55,9 @@ export class YtActionSender {
 
     try {
       mainApp.resolveCommand(command);
-      logger.log(`Sent ${actionType} for video ${videoId}`);
+      this.logger.log(`Sent ${actionType} for video ${videoId}`);
     } catch (e) {
-      logger.error('Error sending YouTube action:', e);
+      this.logger.error('Error sending YouTube action:', e);
     }
   }
 }

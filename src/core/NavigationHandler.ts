@@ -1,24 +1,37 @@
-import { Logger } from '../logger';
 import { NavigationState } from '../types/youtube';
 import { WEB_PAGE_TYPES, ROOT_VE, YT_EVENTS } from '../constants';
 import { SELECTORS } from '../selectors';
 import type { Nullable } from '../types/app';
 
-const logger = Logger.getInstance('NavigationHandler');
+import type { Logger } from '../logger';
+import { LoggerFactory } from '../logger';
+import { PlayerManager } from './PlayerManager';
+import { PipWindowProvider } from './PipWindowProvider';
+import { inject, injectable } from '../di';
 
 /**
  * Handles SPA navigation in PiP window
  */
+@injectable()
 export class NavigationHandler {
+  private readonly logger: Logger;
   private pipWindow: Nullable<Window> = null;
+
+  constructor(
+    @inject(LoggerFactory) loggerFactory: LoggerFactory,
+    @inject(PlayerManager) private readonly playerManager: PlayerManager,
+    @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider
+  ) {
+    this.logger = loggerFactory.create('NavigationHandler');
+  }
 
   /**
    * Initialize navigation handler for PiP window
    */
-  public initialize(pipWindow: Window): void {
-    this.pipWindow = pipWindow;
+  public initialize(): void {
+    this.pipWindow = this.pipWindowProvider.getWindow();
     this.setupClickHandler();
-    logger.debug('Navigation handler initialized');
+    this.logger.debug('Navigation handler initialized');
   }
 
   /**
@@ -26,21 +39,20 @@ export class NavigationHandler {
    */
   private setupClickHandler(): void {
     if (!this.pipWindow) {
-      logger.error('PiP window not available for navigation handler');
+      this.logger.error('PiP window not available for navigation handler');
       return;
     }
 
+    const playerManager = this.playerManager;
     this.pipWindow.document.addEventListener(
       'click',
       (event: MouseEvent) => {
         // Focus video player
-        const player = this.pipWindow!.document.querySelector<HTMLElement>(SELECTORS.MOVIE_PLAYER);
-        if (player) {
-          if (typeof player.focus === 'function') {
-            player.focus();
-          } else {
-            logger.warn('player.focus method not found');
-          }
+        const player = playerManager.getPlayer();
+        if (typeof player.focus === 'function') {
+          player.focus();
+        } else {
+          this.logger.warn('player.focus method not found');
         }
 
         const endpoint = (event.target as Element)?.closest<HTMLAnchorElement>(
@@ -55,11 +67,11 @@ export class NavigationHandler {
 
         const href = endpoint.href;
         if (!href) {
-          logger.warn('Navigation endpoint has no href');
+          this.logger.warn('Navigation endpoint has no href');
           return;
         }
 
-        logger.log('Navigation click detected');
+        this.logger.log('Navigation click detected');
 
         try {
           const url = new URL(href);
@@ -91,12 +103,12 @@ export class NavigationHandler {
             entryTime: performance.now(),
           };
 
-          logger.log(`SPA navigation via ${YT_EVENTS.NAVIGATE}: ${href}`);
+          this.logger.log(`SPA navigation via ${YT_EVENTS.NAVIGATE}: ${href}`);
 
           // Trigger navigation (no pushState — YouTube does not update URL in mini player)
           window.dispatchEvent(new PopStateEvent('popstate', { state }));
         } catch (e) {
-          logger.error('Error handling navigation:', e);
+          this.logger.error('Error handling navigation:', e);
         }
       },
       true
@@ -108,6 +120,6 @@ export class NavigationHandler {
    */
   public cleanup(): void {
     this.pipWindow = null;
-    logger.debug('Navigation handler cleaned up');
+    this.logger.debug('Navigation handler cleaned up');
   }
 }

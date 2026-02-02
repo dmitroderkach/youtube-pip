@@ -1,30 +1,61 @@
-import { Logger } from '../logger';
 import { YouTubePlayer, VideoData, PlayerState, PlayerSize } from '../types/youtube';
 import { PLAYER_STATES } from '../constants';
 import { DOMUtils } from '../utils/DOMUtils';
 import { TIMEOUTS } from '../constants';
 import { SELECTORS } from '../selectors';
 import type { Nullable } from '../types/app';
-
-const logger = Logger.getInstance('PlayerManager');
+import type { Logger } from '../logger';
+import { AppInitializationError } from '../errors/AppInitializationError';
+import { LoggerFactory } from '../logger';
+import { inject, injectable } from '../di';
 
 /**
- * Manages player state and operations
+ * Manages player state and operations.
+ * Holds a reference to the player DOM element, initialized at app startup.
+ * The reference persists when the player moves between main window and PiP.
  */
+@injectable()
 export class PlayerManager {
+  private readonly logger: Logger;
+  private player: Nullable<YouTubePlayer> = null;
   private wasPlaying: boolean = false;
+
+  constructor(@inject(LoggerFactory) loggerFactory: LoggerFactory) {
+    this.logger = loggerFactory.create('PlayerManager');
+  }
+
+  /**
+   * Initialize player reference from main document. Call at app startup.
+   * Waits for movie_player to appear (e.g. on watch page).
+   * @throws Error if movie_player element not found
+   */
+  public async initialize(): Promise<void> {
+    try {
+      const element = await DOMUtils.waitForElementSelector<YouTubePlayer>(
+        SELECTORS.MOVIE_PLAYER,
+        document,
+        TIMEOUTS.ELEMENT_WAIT
+      );
+      this.player = element;
+      this.logger.debug('Player initialized');
+    } catch (cause) {
+      throw new AppInitializationError(`${SELECTORS.MOVIE_PLAYER} element not found`, cause);
+    }
+  }
+
+  /**
+   * Get the player element. Always defined after initialize().
+   */
+  public getPlayer(): YouTubePlayer {
+    return this.player!;
+  }
 
   /**
    * Get player state (playing/paused)
-   * Returns one of PLAYER_STATES values
    */
-  public getPlayerState(player: Nullable<YouTubePlayer>): PlayerState {
-    if (!player) {
-      logger.error('Player not found');
-      return PLAYER_STATES.UNSTARTED;
-    }
+  public getPlayerState(player: YouTubePlayer): PlayerState {
     if (typeof player.getPlayerState !== 'function') {
-      logger.error('getPlayerState method not found');
+      this.logger.error('getPlayerState method not found');
       return PLAYER_STATES.UNSTARTED;
     }
     return player.getPlayerState();
@@ -33,63 +64,55 @@ export class PlayerManager {
   /**
    * Check if player is currently playing
    */
-  public isPlaying(player: Nullable<YouTubePlayer>): boolean {
+  public isPlaying(player: YouTubePlayer): boolean {
     return this.getPlayerState(player) === PLAYER_STATES.PLAYING;
   }
 
   /**
    * Save current playing state
    */
-  public savePlayingState(player: Nullable<YouTubePlayer>): void {
+  public savePlayingState(player: YouTubePlayer): void {
     this.wasPlaying = this.isPlaying(player);
-    logger.debug(`Player state saved: wasPlaying = ${this.wasPlaying}`);
+    this.logger.debug(`Player state saved: wasPlaying = ${this.wasPlaying}`);
   }
 
   /**
    * Restore playing state if it was playing before
    */
-  public restorePlayingState(player: Nullable<YouTubePlayer>): void {
-    if (!this.wasPlaying || !player) {
-      logger.debug('No need to restore playing state');
+  public restorePlayingState(player: YouTubePlayer): void {
+    if (!this.wasPlaying) {
+      this.logger.debug('No need to restore playing state');
       return;
     }
 
     try {
       if (typeof player.playVideo === 'function') {
         player.playVideo();
-        logger.log('Playback restored after return to main window');
+        this.logger.log('Playback restored after return to main window');
       } else {
-        logger.error('player.playVideo method not found, cannot restore playback');
+        this.logger.error('player.playVideo method not found, cannot restore playback');
       }
     } catch (e) {
-      logger.error('Error restoring playback:', e);
+      this.logger.error('Error restoring playback:', e);
     }
   }
 
-  /**
-   * Get video data from player
-   */
-  private getVideoData(player: Nullable<YouTubePlayer>): Nullable<VideoData> {
-    if (!player || typeof player.getVideoData !== 'function') {
+  private getVideoDataFromPlayer(player: YouTubePlayer): Nullable<VideoData> {
+    if (typeof player.getVideoData !== 'function') {
       return null;
     }
     return player.getVideoData() || null;
   }
 
   /**
-   * Get video ID from player element in DOM
-   * Logs warning if video ID is not found
-   * @returns Video ID or null if not found
+   * Get video ID from player
    */
-  public getVideoId(document: Document): Nullable<string> {
-    const player = document.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
-    const videoData = this.getVideoData(player);
+  public getVideoId(): Nullable<string> {
+    const videoData = this.getVideoDataFromPlayer(this.getPlayer());
     const videoId = videoData?.video_id;
 
     if (!videoId) {
-      logger.error('Video ID not found, cannot navigate', {
-        player,
-      });
+      this.logger.error('Video ID not found, cannot navigate', { player: this.getPlayer() });
       return null;
     }
 
@@ -97,49 +120,44 @@ export class PlayerManager {
   }
 
   /**
-   * Get video data (video_id, title, list) from player in document.
-   * Used for copy menu (URL, embed) in PiP. list (playlist ID) is optional.
+   * Get video data (video_id, title, list) from player.
    */
-  public getVideoDataFromDocument(doc: Document): Nullable<VideoData> {
-    const player = doc.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
-    return this.getVideoData(player);
+  public getVideoData(): Nullable<VideoData> {
+    return this.getVideoDataFromPlayer(this.getPlayer());
   }
 
   /**
-   * Get current playback time in seconds from document.
-   * Uses player.getCurrentTime() (returns e.g. 1.460367). Returns 0 when unavailable.
+   * Get current playback time in seconds.
    */
-  public getCurrentTimeFromDocument(doc: Document): number {
-    const player = doc.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
-    if (player && typeof player.getCurrentTime === 'function') {
-      const t = player.getCurrentTime();
-      if (typeof t === 'number' && !Number.isNaN(t)) {
-        return Math.floor(t);
-      }
+  public getCurrentTime(): number {
+    const player = this.getPlayer();
+    if (typeof player.getCurrentTime !== 'function') {
+      return 0;
+    }
+    const t = player.getCurrentTime();
+    if (typeof t === 'number' && !Number.isNaN(t)) {
+      return Math.floor(t);
     }
     return 0;
   }
 
   /**
-   * Get player size (width, height) from document.
-   * Uses player.getPlayerSize() when available. Used for dynamic embed dimensions.
+   * Get player size (width, height).
    */
-  public getPlayerSizeFromDocument(doc: Document): Nullable<PlayerSize> {
-    const player = doc.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
-    if (!player || typeof player.getPlayerSize !== 'function') {
+  public getPlayerSize(): Nullable<PlayerSize> {
+    const player = this.getPlayer();
+    if (typeof player.getPlayerSize !== 'function') {
       return null;
     }
-    const size = player.getPlayerSize();
-    return size;
+    return player.getPlayerSize();
   }
 
   /**
-   * Get debug information string from player (e.g. for "Copy debug information").
-   * Uses player.getDebugText() when available.
+   * Get debug information string from player.
    */
-  public getDebugInfoFromDocument(doc: Document): Nullable<string> {
-    const player = doc.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
-    if (!player || typeof player.getDebugText !== 'function') {
+  public getDebugInfo(): Nullable<string> {
+    const player = this.getPlayer();
+    if (typeof player.getDebugText !== 'function') {
       return null;
     }
     const text = player.getDebugText(true);
@@ -156,10 +174,11 @@ export class PlayerManager {
         document,
         TIMEOUTS.ELEMENT_WAIT
       );
-      logger.debug('Main player is ready');
+      this.player = player as YouTubePlayer;
+      this.logger.debug('Main player is ready');
       return player;
     } catch (e) {
-      logger.error('Error waiting for main player:', e);
+      this.logger.error('Error waiting for main player:', e);
       return null;
     }
   }
@@ -174,10 +193,10 @@ export class PlayerManager {
         document,
         TIMEOUTS.ELEMENT_WAIT
       );
-      logger.debug('Miniplayer is ready');
+      this.logger.debug('Miniplayer is ready');
       return miniplayer;
     } catch (e) {
-      logger.error('Error waiting for miniplayer:', e);
+      this.logger.error('Error waiting for miniplayer:', e);
       return null;
     }
   }
@@ -187,6 +206,6 @@ export class PlayerManager {
    */
   public resetState(): void {
     this.wasPlaying = false;
-    logger.debug('Player state reset');
+    this.logger.debug('Player state reset');
   }
 }

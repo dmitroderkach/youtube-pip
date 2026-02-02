@@ -1,38 +1,30 @@
-import { Logger } from '../logger';
+import type { Logger } from '../logger';
+import { LoggerFactory } from '../logger';
 import { DOMUtils } from '../utils/DOMUtils';
 import { StyleUtils } from '../utils/StyleUtils';
 import { AsyncLock } from '../utils/AsyncLock';
 import { MiniPlayerController } from '../ui/MiniPlayerController';
 import { PlayerManager } from './PlayerManager';
-import { NavigationHandler } from './NavigationHandler';
+import { YtdAppProvider } from './YtdAppProvider';
+import { PipWindowProvider } from './PipWindowProvider';
 import { DEFAULT_DIMENSIONS, TIMEOUTS } from '../constants';
 import { SELECTORS } from '../selectors';
-import {
-  MiniPlayerElement,
-  NotificationTopbarButtonRenderer,
-  YouTubePlayer,
-} from '../types/youtube';
-import type { Nullable, PiPCleanupCallback, PiPWindowReadyCallback } from '../types/app';
+import type { Nullable, PiPCleanupCallback } from '../types/app';
 import { PiPError } from '../errors/PiPError';
 import { PiPCriticalError } from '../errors/PiPCriticalError';
-
-const logger = Logger.getInstance('PiPManager');
+import { PiPWindowHandlers } from './PiPWindowHandlers';
+import { inject, injectable } from '../di';
 
 /**
  * Manages Picture-in-Picture window lifecycle
  */
+@injectable()
 export class PiPManager {
-  private pipWindow: Nullable<Window> = null;
-  private miniplayer: Nullable<MiniPlayerElement> = null;
+  private readonly logger: Logger;
   private miniPlayerContainer: Nullable<Element> = null;
   private placeholder: Nullable<Comment> = null;
   private wasMiniPlayerActiveBeforePiP: boolean = false;
 
-  private miniPlayerController: MiniPlayerController;
-  private playerManager: PlayerManager;
-  private navigationHandler: NavigationHandler;
-
-  private onWindowReady: PiPWindowReadyCallback;
   private onBeforeReturn: Nullable<PiPCleanupCallback> = null;
 
   private readonly asyncLock = new AsyncLock();
@@ -40,33 +32,32 @@ export class PiPManager {
   private close = (): void => {
     void this.asyncLock
       .withLock(() => this.returnPlayerToMain())
-      .catch((e) => logger.error('Unhandled error in returnPlayerToMain:', e));
+      .catch((e) => this.logger.error('Unhandled error in returnPlayerToMain:', e));
   };
 
   constructor(
-    miniPlayerController: MiniPlayerController,
-    playerManager: PlayerManager,
-    navigationHandler: NavigationHandler,
-    onWindowReady: PiPWindowReadyCallback
+    @inject(LoggerFactory) loggerFactory: LoggerFactory,
+    @inject(MiniPlayerController) private readonly miniPlayerController: MiniPlayerController,
+    @inject(PlayerManager) private readonly playerManager: PlayerManager,
+    @inject(YtdAppProvider) private readonly ytdAppProvider: YtdAppProvider,
+    @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider,
+    @inject(PiPWindowHandlers) private readonly pipWindowHandlers: PiPWindowHandlers
   ) {
-    this.miniPlayerController = miniPlayerController;
-    this.playerManager = playerManager;
-    this.navigationHandler = navigationHandler;
-    this.onWindowReady = onWindowReady;
+    this.logger = loggerFactory.create('PiPManager');
   }
 
   /**
    * Check if PiP window is open
    */
   public isOpen(): boolean {
-    return this.pipWindow !== null;
+    return this.pipWindowProvider.getWindow() !== null;
   }
 
   /**
    * Get PiP window instance
    */
   public getWindow(): Nullable<Window> {
-    return this.pipWindow;
+    return this.pipWindowProvider.getWindow();
   }
 
   /**
@@ -76,19 +67,20 @@ export class PiPManager {
   public open(): Promise<void> {
     return this.asyncLock.withLock(async () => {
       if (this.isOpen()) {
-        logger.warn('PiP window already open');
+        this.logger.warn('PiP window already open');
         return;
       }
 
-      logger.log('Opening PiP window');
+      this.logger.log('Opening PiP window');
 
       try {
         await this.movePlayerToPIP();
 
-        if (this.pipWindow && this.miniplayer) {
-          this.navigationHandler.initialize(this.pipWindow);
-
-          const result = await this.onWindowReady(this.pipWindow, this.miniplayer);
+        const pipWindow = this.pipWindowProvider.getWindow();
+        if (pipWindow) {
+          const result = await this.pipWindowHandlers.initialize(
+            this.miniPlayerController.getMiniplayer()
+          );
           if (typeof result === 'function') {
             this.onBeforeReturn = result;
           }
@@ -106,11 +98,7 @@ export class PiPManager {
    * Move player to PiP window
    */
   private async movePlayerToPIP(): Promise<void> {
-    // Find mini player element
-    this.miniplayer = document.querySelector<MiniPlayerElement>(SELECTORS.MINIPLAYER);
-    if (!this.miniplayer) {
-      throw new PiPError('Mini player element not found');
-    }
+    const miniplayer = this.miniPlayerController.getMiniplayer();
 
     // Save mini player state
     this.wasMiniPlayerActiveBeforePiP = this.miniPlayerController.isVisible();
@@ -120,14 +108,14 @@ export class PiPManager {
 
       // Wait for mini player container
       await DOMUtils.waitForElementSelector(SELECTORS.MINIPLAYER_CONTAINER);
-      logger.debug('Mini player container ready');
+      this.logger.debug('Mini player container ready');
     }
 
     // Get dimensions
-    const width = this.miniplayer.offsetWidth || DEFAULT_DIMENSIONS.PIP_WIDTH;
-    const height = this.miniplayer.offsetHeight || DEFAULT_DIMENSIONS.PIP_HEIGHT;
+    const width = miniplayer.offsetWidth || DEFAULT_DIMENSIONS.PIP_WIDTH;
+    const height = miniplayer.offsetHeight || DEFAULT_DIMENSIONS.PIP_HEIGHT;
 
-    logger.debug(`Requesting PiP window: ${width}x${height}`);
+    this.logger.debug(`Requesting PiP window: ${width}x${height}`);
 
     // Request PiP window
     const dpp = window.documentPictureInPicture;
@@ -135,31 +123,31 @@ export class PiPManager {
       throw new PiPError('Document Picture-in-Picture API not available');
     }
 
-    const ytdApp = document.querySelector(SELECTORS.YTD_APP);
-    if (!ytdApp) {
-      throw new PiPError('ytd-app element not found');
-    }
+    const ytdApp = this.ytdAppProvider.getApp();
 
     this.miniPlayerContainer = document.querySelector(SELECTORS.MINIPLAYER_CONTAINER);
     if (!this.miniPlayerContainer) {
       throw new PiPError('miniplayer-container element not found');
     }
 
-    this.pipWindow = await dpp.requestWindow({ width, height });
+    const pipWindow = await dpp.requestWindow({ width, height });
+    this.pipWindowProvider.setWindow(pipWindow);
+
     setTimeout(() => {
       void this.asyncLock.withLock(async () => {
-        if (this.pipWindow?.closed) {
-          logger.warn('phantom window detected, closing');
-          this.pipWindow = null;
+        const win = this.pipWindowProvider.getWindow();
+        if (win?.closed) {
+          this.logger.warn('phantom window detected, closing');
+          this.pipWindowProvider.setWindow(null);
           this.close();
           return;
         }
       });
     }, TIMEOUTS.PHANTOM_WINDOW_CHECK);
-    this.pipWindow.addEventListener('pagehide', this.close);
-    logger.log('PiP window opened');
+    pipWindow.addEventListener('pagehide', this.close);
+    this.logger.log('PiP window opened');
 
-    const pipDoc = this.pipWindow.document;
+    const pipDoc = pipWindow.document;
 
     // Copy attributes and styles
     DOMUtils.copyAttributes(document.documentElement, pipDoc.documentElement);
@@ -181,9 +169,9 @@ export class PiPManager {
 
     // Move mini player to PiP
     this.placeholder = DOMUtils.createPlaceholder('mini_player_placeholder');
-    DOMUtils.insertPlaceholderBefore(this.miniplayer, this.placeholder);
+    DOMUtils.insertPlaceholderBefore(miniplayer, this.placeholder);
 
-    pipApp.appendChild(this.miniplayer);
+    pipApp.appendChild(miniplayer);
 
     // Move container to draggable
     const ytDraggable = pipDoc.querySelector(SELECTORS.YT_DRAGGABLE);
@@ -195,23 +183,18 @@ export class PiPManager {
     DOMUtils.unwrap(ytDraggable);
 
     // Focus video player
-    const videoPlayer = pipDoc.querySelector<HTMLElement>(SELECTORS.MOVIE_PLAYER);
-    if (!videoPlayer) {
-      throw new PiPCriticalError('movie_player element not found');
-    }
-    videoPlayer.focus();
+    this.playerManager.getPlayer().focus();
   }
 
   /**
    * Return player to main window
    */
   private async returnPlayerToMain(): Promise<void> {
-    logger.log('Returning player to main window');
+    this.logger.log('Returning player to main window');
 
-    if (!this.placeholder || !this.miniplayer || !this.miniPlayerContainer) {
-      logger.warn('Placeholder or miniplayer or miniPlayerContainer not found', {
+    if (!this.placeholder || !this.miniPlayerContainer) {
+      this.logger.warn('Placeholder or miniPlayerContainer not found', {
         placeholder: this.placeholder,
-        miniplayer: this.miniplayer,
         miniPlayerContainer: this.miniPlayerContainer,
       });
       return;
@@ -222,7 +205,7 @@ export class PiPManager {
       try {
         await this.onBeforeReturn();
       } catch (e) {
-        logger.error('Error in onBeforeReturn:', e);
+        this.logger.error('Error in onBeforeReturn:', e);
       }
       this.onBeforeReturn = null;
     }
@@ -230,26 +213,27 @@ export class PiPManager {
     try {
       await this.movePlayerToMain();
     } catch (error) {
-      logger.error('Error returning player to main window:', error);
+      this.logger.error('Error returning player to main window:', error);
     }
 
-    this.pipWindow = null;
+    this.pipWindowProvider.setWindow(null);
   }
 
   /**
    * Move player back to main window
    */
   private async movePlayerToMain(): Promise<void> {
-    if (!this.placeholder || !this.miniplayer || !this.miniPlayerContainer) {
+    const miniplayer = this.miniPlayerController.getMiniplayer();
+    if (!this.placeholder || !this.miniPlayerContainer) {
       return;
     }
 
     // Get player and save state
-    const player = this.miniplayer.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
+    const player = this.playerManager.getPlayer();
     this.playerManager.savePlayingState(player);
 
     // Move mini player back
-    DOMUtils.restoreElementFromPlaceholder(this.miniplayer, this.placeholder);
+    DOMUtils.restoreElementFromPlaceholder(miniplayer, this.placeholder);
     this.placeholder = null;
 
     // Move container back
@@ -289,10 +273,9 @@ export class PiPManager {
    * Set window titles
    */
   private setWindowsTitle(title: string): void {
-    if (this.pipWindow) {
-      const notifyRenderer = document.querySelector<NotificationTopbarButtonRenderer>(
-        SELECTORS.NOTIFICATION_TOPBAR_BUTTON_RENDERER
-      );
+    const pipWindow = this.pipWindowProvider.getWindow();
+    if (pipWindow) {
+      const notifyRenderer = this.ytdAppProvider.getNotifyRenderer();
       let countNotif = '';
       if (notifyRenderer?.showNotificationCount) {
         countNotif = `(${notifyRenderer.showNotificationCount}) `;
@@ -300,8 +283,8 @@ export class PiPManager {
 
       const newTitle = `${countNotif}${title} - YouTube`;
       document.title = newTitle;
-      this.pipWindow.document.title = newTitle;
-      logger.debug(`Title synced from MediaSession: ${title}`);
+      pipWindow.document.title = newTitle;
+      this.logger.debug(`Title synced from MediaSession: ${title}`);
     }
   }
 

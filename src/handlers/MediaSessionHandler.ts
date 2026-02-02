@@ -1,19 +1,23 @@
-import { Logger } from '../logger';
 import { MediaSessionMetadata } from '../types/youtube';
 import { PiPManager } from '../core/PiPManager';
 import { AppInitializationError } from '../errors/AppInitializationError';
 import type { Nullable } from '../types/app';
-
-const logger = Logger.getInstance('MediaSessionHandler');
+import type { Logger } from '../logger';
+import { LoggerFactory } from '../logger';
+import { inject, injectable } from '../di';
 
 /**
  * Handles Media Session API integration
  */
+@injectable()
 export class MediaSessionHandler {
-  private pipManager: PiPManager;
+  private readonly logger: Logger;
 
-  constructor(pipManager: PiPManager) {
-    this.pipManager = pipManager;
+  constructor(
+    @inject(LoggerFactory) loggerFactory: LoggerFactory,
+    @inject(PiPManager) private readonly pipManager: PiPManager
+  ) {
+    this.logger = loggerFactory.create('MediaSessionHandler');
   }
 
   /**
@@ -21,13 +25,13 @@ export class MediaSessionHandler {
    */
   public initialize(): void {
     if (!('mediaSession' in navigator)) {
-      logger.warn('Media Session API not available');
+      this.logger.warn('Media Session API not available');
       return;
     }
 
     this.registerActionHandler();
     this.setupTitleSync();
-    logger.debug('Media session handler initialized');
+    this.logger.debug('Media session handler initialized');
   }
 
   /**
@@ -41,12 +45,12 @@ export class MediaSessionHandler {
     try {
       // 'enterpictureinpicture' is a Chrome-specific Media Session action
       navigator.mediaSession.setActionHandler('enterpictureinpicture', () => {
-        logger.log('Media session enterpictureinpicture action triggered');
+        this.logger.log('Media session enterpictureinpicture action triggered');
         this.pipManager.open().catch((e) => {
-          logger.error('Error opening PiP from media session:', e);
+          this.logger.error('Error opening PiP from media session:', e);
         });
       });
-      logger.debug('Media session action handler registered');
+      this.logger.debug('Media session action handler registered');
     } catch (e) {
       throw new AppInitializationError('Error registering media session action handler', e);
     }
@@ -65,7 +69,7 @@ export class MediaSessionHandler {
       const desc = Object.getOwnPropertyDescriptor(prototype, 'metadata');
 
       if (!this.isValidPropertyDescriptor(desc)) {
-        logger.warn('Could not get original metadata descriptor');
+        this.logger.warn('Could not get original metadata descriptor');
         return;
       }
 
@@ -83,7 +87,7 @@ export class MediaSessionHandler {
         enumerable: true,
       });
 
-      logger.debug('Media session title sync configured');
+      this.logger.debug('Media session title sync configured');
     } catch (e) {
       throw new AppInitializationError('Error setting up title sync', e);
     }

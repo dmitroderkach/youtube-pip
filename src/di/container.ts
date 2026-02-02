@@ -1,0 +1,95 @@
+import { getParamMetadata } from './metadata';
+import type { Constructor, ServiceId } from './types';
+import { AppRuntimeError } from '../errors/AppRuntimeError';
+
+type Scope = 'singleton' | 'transient';
+
+interface Binding {
+  token: ServiceId;
+  implementation: Constructor;
+  scope: Scope;
+  instance?: unknown;
+}
+
+export class Container {
+  private readonly bindings = new Map<ServiceId, Binding>();
+
+  /** Bind by Symbol/string token or by class constructor */
+  public bind<_T>(token: ServiceId): BindingTo {
+    return {
+      to: (implementation: Constructor) => {
+        this.bindings.set(token, {
+          token,
+          implementation,
+          scope: 'singleton',
+        });
+      },
+      toSelf: (): void => {
+        if (typeof token !== 'function') {
+          throw new AppRuntimeError('toSelf() requires a class constructor as token');
+        }
+        this.bindings.set(token, {
+          token,
+          implementation: token as Constructor,
+          scope: 'singleton',
+        });
+      },
+      toTransient: (implementation: Constructor) => {
+        this.bindings.set(token, {
+          token,
+          implementation,
+          scope: 'transient',
+        });
+      },
+    };
+  }
+
+  public get<T>(token: ServiceId, resolutionStack = new Set<ServiceId>()): T {
+    const name = this.tokenName(token);
+    const binding = this.bindings.get(token);
+
+    if (!binding) {
+      throw new AppRuntimeError(`No binding for ${name}`);
+    }
+
+    if (binding.scope === 'singleton' && binding.instance !== undefined) {
+      return binding.instance as T;
+    }
+
+    if (resolutionStack.has(token)) {
+      const chain = [...resolutionStack, token].map((t) => this.tokenName(t)).join(' → ');
+      throw new AppRuntimeError(`Circular dependency detected: ${chain}`);
+    }
+
+    resolutionStack.add(token);
+    try {
+      const Ctor = binding.implementation;
+      const paramTokens = getParamMetadata(Ctor) ?? [];
+      const args = paramTokens.map((t) => this.get(t, resolutionStack));
+
+      const instance = new (Ctor as new (...args: unknown[]) => T)(...args);
+
+      if (binding.scope === 'singleton') {
+        binding.instance = instance;
+      }
+
+      return instance;
+    } finally {
+      resolutionStack.delete(token);
+    }
+  }
+
+  private tokenName(token: ServiceId): string {
+    return typeof token === 'function' ? token.name || 'anonymous' : String(token);
+  }
+
+  public unbind(token: ServiceId): void {
+    this.bindings.delete(token);
+  }
+}
+
+interface BindingTo {
+  to(implementation: Constructor): void;
+  toSelf(): void;
+  toTransient(implementation: Constructor): void;
+}

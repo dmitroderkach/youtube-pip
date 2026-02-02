@@ -158,3 +158,12 @@ export class Logger {
     }
   }
 }
+
+/**
+ * Factory for creating Logger instances by scope. Injected via DI (transient).
+ */
+export class LoggerFactory {
+  public create(scope: string): Logger {
+    return Logger.getInstance(scope);
+  }
+}

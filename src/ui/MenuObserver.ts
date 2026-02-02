@@ -1,24 +1,38 @@
-import { Logger } from '../logger';
 import { DEFAULT_DIMENSIONS, TIMEOUTS } from '../constants';
 import { SELECTORS } from '../selectors';
 import { DOMUtils } from '../utils/DOMUtils';
 import type { Nullable } from '../types/app';
 
-const logger = Logger.getInstance('MenuObserver');
+import type { Logger } from '../logger';
+import { LoggerFactory } from '../logger';
+import { PipWindowProvider } from '../core/PipWindowProvider';
+import { inject, injectable } from '../di';
 
 /**
  * Observes menu button state and adjusts PiP window.
  * Re-waits for the button when it is removed from DOM (e.g. navigate to video without playlist).
  */
+@injectable()
 export class MenuObserver {
+  private readonly logger: Logger;
   private observer: Nullable<MutationObserver> = null;
   private removalObserver: Nullable<MutationObserver> = null;
+
+  constructor(
+    @inject(LoggerFactory) loggerFactory: LoggerFactory,
+    @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider
+  ) {
+    this.logger = loggerFactory.create('MenuObserver');
+  }
 
   /**
    * Start observing menu button in PiP window
    */
-  public async start(pipWindow: Window): Promise<void> {
-    await this.runObservation(pipWindow);
+  public async start(): Promise<void> {
+    const pipWindow = this.pipWindowProvider.getWindow();
+    if (pipWindow) {
+      await this.runObservation(pipWindow);
+    }
   }
 
   /**
@@ -26,7 +40,7 @@ export class MenuObserver {
    */
   private async runObservation(pipWindow: Window): Promise<void> {
     if (pipWindow.closed) {
-      logger.debug('PiP window already closed, skipping menu observation');
+      this.logger.debug('PiP window already closed, skipping menu observation');
       return;
     }
 
@@ -39,11 +53,11 @@ export class MenuObserver {
         pipWindow
       );
     } catch (e) {
-      logger.warn('Wait for menu button aborted', e);
+      this.logger.warn('Wait for menu button aborted', e);
       return;
     }
 
-    logger.debug('Starting menu observation');
+    this.logger.debug('Starting menu observation');
 
     this.observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
@@ -54,13 +68,13 @@ export class MenuObserver {
           );
           const currentHeight = pipWindow.outerHeight;
 
-          logger.debug(`Menu state changed: expanded = ${isExpanded}`);
+          this.logger.debug(`Menu state changed: expanded = ${isExpanded}`);
 
           if (isExpanded) {
             // Expand window if needed
             if (currentHeight < DEFAULT_DIMENSIONS.PIP_EXPANDED_HEIGHT) {
               pipWindow.resizeTo(pipWindow.outerWidth, DEFAULT_DIMENSIONS.PIP_EXPANDED_HEIGHT);
-              logger.debug('PiP window expanded');
+              this.logger.debug('PiP window expanded');
             }
 
             // Show playlist panel
@@ -89,7 +103,7 @@ export class MenuObserver {
         this.removalObserver?.disconnect();
         this.observer = null;
         this.removalObserver = null;
-        logger.debug('Menu button removed from DOM, re-waiting');
+        this.logger.debug('Menu button removed from DOM, re-waiting');
         void this.runObservation(pipWindow);
       }
     });
@@ -112,6 +126,6 @@ export class MenuObserver {
       this.removalObserver.disconnect();
       this.removalObserver = null;
     }
-    logger.debug('Menu observation stopped');
+    this.logger.debug('Menu observation stopped');
   }
 }

@@ -1,11 +1,13 @@
-import { Logger } from '../logger';
+import type { Logger } from '../logger';
+import { LoggerFactory } from '../logger';
 import { TIMEOUTS, MOUSE_BUTTONS, COPY_MENU_INDICES } from '../constants';
 import { DOMUtils } from '../utils/DOMUtils';
 import { SELECTORS } from '../selectors';
 import { PlayerManager } from '../core/PlayerManager';
+import { YtdAppProvider } from '../core/YtdAppProvider';
+import { PipWindowProvider } from '../core/PipWindowProvider';
 import { CopyType, type Nullable } from '../types/app';
-
-const logger = Logger.getInstance('ContextMenuHandler');
+import { inject, injectable } from '../di';
 
 /**
  * Handles context menu movement between windows and copy commands in PiP.
@@ -13,15 +15,21 @@ const logger = Logger.getInstance('ContextMenuHandler');
  * is moved to the PiP popup that link breaks. We intercept copy menu clicks
  * and copy via a temporary textarea in the PiP document.
  */
+@injectable()
 export class ContextMenuHandler {
+  private readonly logger: Logger;
   private visibilityObserver: Nullable<MutationObserver> = null;
   private pipWindow: Nullable<Window> = null;
   private contextMenu: Nullable<HTMLElement> = null;
   private contextMenuPlaceholder: Nullable<Comment> = null;
-  private readonly playerManager: PlayerManager;
 
-  constructor(playerManager: PlayerManager) {
-    this.playerManager = playerManager;
+  constructor(
+    @inject(LoggerFactory) loggerFactory: LoggerFactory,
+    @inject(PlayerManager) private readonly playerManager: PlayerManager,
+    @inject(YtdAppProvider) private readonly ytdAppProvider: YtdAppProvider,
+    @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider
+  ) {
+    this.logger = loggerFactory.create('ContextMenuHandler');
   }
 
   /**
@@ -36,45 +44,44 @@ export class ContextMenuHandler {
     const doc = this.pipWindow.document;
     const item = (e.target as Element)?.closest('.ytp-menuitem');
     if (!item?.parentElement) {
-      logger.debug('Copy click: not a menu item or no parent', { item });
+      this.logger.debug('Copy click: not a menu item or no parent', { item });
       return;
     }
 
     const items = doc.querySelectorAll(SELECTORS.PANEL_MENU_ITEMS);
     const index = Array.prototype.indexOf.call(items, item);
     if (index === -1) {
-      logger.warn('Copy click: menu item index not found');
+      this.logger.warn('Copy click: menu item index not found');
       return;
     }
 
     const copyType = this.getCopyTypeForIndex(index);
     if (!copyType) {
-      logger.debug('Copy click: not a copy action', { index });
+      this.logger.debug('Copy click: not a copy action', { index });
       return;
     }
 
     let text: string;
     switch (copyType) {
       case CopyType.DEBUG_INFO: {
-        text = this.playerManager.getDebugInfoFromDocument(doc) ?? '';
+        text = this.playerManager.getDebugInfo() ?? '';
         if (!text) {
-          logger.warn('Debug info not available, cannot copy');
+          this.logger.warn('Debug info not available, cannot copy');
           return;
         }
         break;
       }
       default: {
-        const videoData = this.playerManager.getVideoDataFromDocument(doc);
+        const videoData = this.playerManager.getVideoData();
         const videoId = videoData?.video_id;
         if (!videoId) {
-          logger.warn('Video ID not found, cannot copy');
+          this.logger.warn('Video ID not found, cannot copy');
           return;
         }
         const playlistId = videoData?.list ?? null;
-        const currentTime = this.playerManager.getCurrentTimeFromDocument(doc);
+        const currentTime = this.playerManager.getCurrentTime();
         const title = videoData?.title ?? '';
-        const embedSize =
-          copyType === CopyType.EMBED ? this.playerManager.getPlayerSizeFromDocument(doc) : null;
+        const embedSize = copyType === CopyType.EMBED ? this.playerManager.getPlayerSize() : null;
         text = this.getCopyPayload({
           videoId,
           playlistId,
@@ -84,7 +91,7 @@ export class ContextMenuHandler {
           embedSize,
         });
         if (!text) {
-          logger.warn('Copy click: empty payload', { copyType });
+          this.logger.warn('Copy click: empty payload', { copyType });
           return;
         }
         break;
@@ -93,15 +100,15 @@ export class ContextMenuHandler {
 
     const ok = DOMUtils.copyViaTextarea(doc, text);
     if (ok) {
-      logger.debug(`Copied ${copyType} to clipboard`);
+      this.logger.debug(`Copied ${copyType} to clipboard`);
     }
   };
 
   /**
    * Initialize context menu handler
    */
-  public async initialize(pipWindow: Window): Promise<void> {
-    this.pipWindow = pipWindow;
+  public async initialize(): Promise<void> {
+    this.pipWindow = this.pipWindowProvider.getWindow();
     this.contextMenuPlaceholder = DOMUtils.createPlaceholder('context_menu_placeholder');
 
     // Wait for context menu to appear
@@ -110,16 +117,16 @@ export class ContextMenuHandler {
         SELECTORS.CONTEXT_MENU,
         document,
         TIMEOUTS.ELEMENT_WAIT_INFINITE,
-        pipWindow
+        this.pipWindow
       );
 
-      logger.log('Context menu element found, starting visibility monitoring');
+      this.logger.log('Context menu element found, starting visibility monitoring');
 
       this.startMonitoring();
       this.setupDismissalHandler();
       this.setupCopyHandler();
     } catch (e) {
-      logger.warn('Error initializing context menu handler:', e);
+      this.logger.warn('Error initializing context menu handler:', e);
     }
   }
 
@@ -140,7 +147,7 @@ export class ContextMenuHandler {
       const isInMainWindow = this.contextMenu.parentNode !== this.pipWindow.document.body;
 
       if (isVisible && isInMainWindow) {
-        logger.log('Context menu opened in main window. Intercepting...');
+        this.logger.log('Context menu opened in main window. Intercepting...');
 
         if (this.contextMenuPlaceholder) {
           DOMUtils.insertPlaceholderBefore(this.contextMenu, this.contextMenuPlaceholder);
@@ -148,7 +155,7 @@ export class ContextMenuHandler {
         this.pipWindow.document.body.appendChild(this.contextMenu);
       } else if (!isVisible && this.contextMenu.parentNode === this.pipWindow.document.body) {
         if (this.contextMenuPlaceholder?.parentNode) {
-          logger.log('Context menu closed in PiP window. Returning to main...');
+          this.logger.log('Context menu closed in PiP window. Returning to main...');
           DOMUtils.restoreElementFromPlaceholder(this.contextMenu, this.contextMenuPlaceholder);
           this.simulateMainContextMenu();
         }
@@ -190,7 +197,7 @@ export class ContextMenuHandler {
       ) {
         e.stopPropagation();
         menuInPip.style.display = 'none';
-        logger.debug('Context menu dismissed');
+        this.logger.debug('Context menu dismissed');
       }
     };
 
@@ -252,10 +259,7 @@ export class ContextMenuHandler {
    * Simulate context menu event in main window
    */
   private simulateMainContextMenu(): void {
-    const mainApp = document.querySelector(SELECTORS.YTD_APP);
-    if (!mainApp) {
-      return;
-    }
+    const mainApp = this.ytdAppProvider.getApp();
 
     const event = new MouseEvent('contextmenu', {
       bubbles: true,
@@ -267,7 +271,7 @@ export class ContextMenuHandler {
     });
 
     mainApp.dispatchEvent(event);
-    logger.debug('Synthetic contextmenu event sent to main window');
+    this.logger.debug('Synthetic contextmenu event sent to main window');
   }
 
   /**
@@ -290,12 +294,12 @@ export class ContextMenuHandler {
       this.contextMenu.parentNode === this.pipWindow.document.body &&
       this.contextMenuPlaceholder?.parentNode
     ) {
-      logger.log('Returning context menu to main window');
+      this.logger.log('Returning context menu to main window');
       DOMUtils.restoreElementFromPlaceholder(this.contextMenu, this.contextMenuPlaceholder);
       this.simulateMainContextMenu();
     }
 
     this.pipWindow = null;
-    logger.debug('Context menu handler stopped');
+    this.logger.debug('Context menu handler stopped');
   }
 }
