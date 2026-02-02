@@ -3,7 +3,71 @@
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
+
+## [2.0.0] - 2026-02-02
+
+### Added
+
+- **DI Container** — dependency injection without external libraries (Inversify-style)
+  - `src/di/` — metadata, decorators (`@injectable`, `@inject`), container, types
+  - Class-based tokens: `container.bind(Class).toSelf()` — no separate token registry
+  - Symbol/string tokens supported: `bind(Symbol('X')).to(Impl)`, `bind('X').to(Impl)`
+  - Circular dependency detection — throws `AppRuntimeError` with chain (e.g. `A → B → C → A`)
+  - `LoggerFactory` bound as transient; all services use `loggerFactory.create('Scope')`
+  - `createContainer()` configures bindings; `main.ts` resolves services and runs initialization
+
+- **Centralized DOM element providers**
+  - `YtdAppProvider` — holds `ytd-app` reference, initialized at app startup
+  - `PlayerManager` — holds `#movie_player` reference, initialized at app startup
+  - `PipWindowProvider` — holds PiP window reference, set by `PiPManager` when PiP opens/closes
+  - `MiniPlayerController` — holds `ytd-miniplayer` reference, initialized at app startup
+  - All DOM queries for these elements go exclusively through these providers
+
+- **PiPWindowHandlers** — extracts PiP window handler setup from `PiPManager`
+  - `initialize(miniplayer)` — handlers obtain `pipWindow` from `PipWindowProvider`
+  - `NavigationHandler.initialize()` moved here from `PiPManager`
+
+- **AppRuntimeError** — new error class for runtime/DI failures (extends `AppError`)
+
+- **YtActionSender** — now injectable, uses `PipWindowProvider` instead of `pipWindow` constructor param
+
+### Changed
+
+- **Breaking**: Manual constructor wiring removed — all dependencies resolved via container
+
+- **main.ts**
+  - Replaced `YouTubePiPApp` with `createContainer().get(...)` and explicit init sequence
+  - Initialization order: `ytdAppProvider`, `playerManager`, `miniPlayerController`, `mediaSessionHandler`
+  - Wrapped in `try/catch`; logs `AppInitializationError` on failure
+
+- **Non-nullable getters** (post-initialization guarantees)
+  - `PlayerManager.getPlayer(): YouTubePlayer` — always defined after `initialize()`
+  - `YtdAppProvider.getApp(): YouTubeAppElement` — always defined after `initialize()`
+  - `MiniPlayerController.getMiniplayer(): MiniPlayerElement` — always defined after `initialize()`
+  - Removed all `if (!player)`, `if (!mainApp)`, `if (!miniplayer)` guards for these
+
+- **PlayerManager** — no longer accepts `Document`/player params
+  - `savePlayingState(player: YouTubePlayer)`, `restorePlayingState(player: YouTubePlayer)` — required params
+  - `getPlayerState(player)`, `isPlaying(player)` — required params
+  - Internal methods use `this.getPlayer()` instead of `this.player`
+
+- **Logger scope** — string literals instead of `ClassName.name` for minifier compatibility
+  - e.g. `loggerFactory.create('PlayerManager')` so logs show real names after minification
+
+- **PiPManager**
+  - Injects `PipWindowProvider`; sets/clears it when PiP opens/closes
+  - Uses `miniPlayerController.getMiniplayer()` — no local `miniplayer` field
+  - Uses `ytdAppProvider.getApp()`, `playerManager.getPlayer()` — no null checks
+  - `PiPWindowHandlers.initialize(miniplayer)` — no `pipWindow` param
+
+- **Handlers** — inject `PipWindowProvider`, get `pipWindow` in `initialize()`
+  - `NavigationHandler`, `MenuObserver`, `ContextMenuHandler`, `SeekHandler`, `LikeButtonHandler`
+  - `ResizeTracker.start(miniplayer)` — removed unused `pipWindow` param
+
+- **Parameter property shorthand** — constructors use `private readonly x: X` for injected deps
+
+- **tsconfig**: `experimentalDecorators: true` for decorator support
 
 ## [1.6.7] - 2026-02-01
 
@@ -570,6 +634,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.0.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.7...refs/tags/v2.0.0
 [1.6.7]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.6...refs/tags/v1.6.7
 [1.6.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.5...refs/tags/v1.6.6
 [1.6.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v1.6.4...refs/tags/v1.6.5

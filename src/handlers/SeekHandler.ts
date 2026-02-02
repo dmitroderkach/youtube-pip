@@ -1,23 +1,35 @@
-import { Logger } from '../logger';
 import { SELECTORS } from '../selectors';
-import { YouTubePlayer } from '../types/youtube';
 import type { Nullable } from '../types/app';
 
-const logger = Logger.getInstance('SeekHandler');
+import type { Logger } from '../logger';
+import { LoggerFactory } from '../logger';
+import { PlayerManager } from '../core/PlayerManager';
+import { PipWindowProvider } from '../core/PipWindowProvider';
+import { inject, injectable } from '../di';
 
 /**
  * Handles manual seeking on progress bar
  */
+@injectable()
 export class SeekHandler {
+  private readonly logger: Logger;
   private pipWindow: Nullable<Window> = null;
+
+  constructor(
+    @inject(LoggerFactory) loggerFactory: LoggerFactory,
+    @inject(PlayerManager) private readonly playerManager: PlayerManager,
+    @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider
+  ) {
+    this.logger = loggerFactory.create('SeekHandler');
+  }
 
   /**
    * Initialize seek handler for PiP window
    */
-  public initialize(pipWindow: Window): void {
-    this.pipWindow = pipWindow;
+  public initialize(): void {
+    this.pipWindow = this.pipWindowProvider.getWindow();
     this.setupSeekHandler();
-    logger.debug('Seek handler initialized');
+    this.logger.debug('Seek handler initialized');
   }
 
   /**
@@ -35,21 +47,17 @@ export class SeekHandler {
         const progressBar = (e.target as Element)?.closest(SELECTORS.PROGRESS_BAR);
         if (!progressBar) return;
 
-        const player = pipDoc.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
-        if (!player) {
-          logger.error('player not found');
-          return;
-        }
+        const player = this.playerManager.getPlayer();
         if (typeof player.getDuration !== 'function') {
-          logger.error('player.getDuration method not found');
+          this.logger.error('player.getDuration method not found');
           return;
         }
         if (typeof player.seekTo !== 'function') {
-          logger.error('player.seekTo method not found');
+          this.logger.error('player.seekTo method not found');
           return;
         }
 
-        logger.debug('Progress bar clicked, initiating seek');
+        this.logger.debug('Progress bar clicked, initiating seek');
 
         e.preventDefault();
         e.stopPropagation();
@@ -62,7 +70,9 @@ export class SeekHandler {
           if (duration) {
             const seekTime = percent * duration;
             player.seekTo?.(seekTime, true);
-            logger.debug(`Seeking to ${seekTime.toFixed(2)}s (${(percent * 100).toFixed(1)}%)`);
+            this.logger.debug(
+              `Seeking to ${seekTime.toFixed(2)}s (${(percent * 100).toFixed(1)}%)`
+            );
           }
         };
 
@@ -72,7 +82,7 @@ export class SeekHandler {
         const onMouseUp = () => {
           pipDoc.removeEventListener('mousemove', onMouseMove);
           pipDoc.removeEventListener('mouseup', onMouseUp);
-          logger.debug('Seek drag ended');
+          this.logger.debug('Seek drag ended');
         };
 
         pipDoc.addEventListener('mousemove', onMouseMove);
@@ -87,6 +97,6 @@ export class SeekHandler {
    */
   public cleanup(): void {
     this.pipWindow = null;
-    logger.debug('Seek handler cleaned up');
+    this.logger.debug('Seek handler cleaned up');
   }
 }

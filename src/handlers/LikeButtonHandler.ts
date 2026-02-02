@@ -1,32 +1,35 @@
-import { Logger } from '../logger';
 import { YT_LIKE_ACTIONS } from '../constants';
 import { SELECTORS } from '../selectors';
 import { YtActionSender } from '../core/YtActionSender';
-import { PlayerManager } from '../core/PlayerManager';
+import { PipWindowProvider } from '../core/PipWindowProvider';
 import type { Nullable } from '../types/app';
-
-const logger = Logger.getInstance('LikeButtonHandler');
+import type { Logger } from '../logger';
+import { LoggerFactory } from '../logger';
+import { inject, injectable } from '../di';
 
 /**
  * Handles like/dislike button clicks in PiP window
  */
+@injectable()
 export class LikeButtonHandler {
+  private readonly logger: Logger;
   private pipWindow: Nullable<Window> = null;
-  private ytActionSender: Nullable<YtActionSender> = null;
-  private playerManager: PlayerManager;
 
-  constructor(playerManager: PlayerManager) {
-    this.playerManager = playerManager;
+  constructor(
+    @inject(LoggerFactory) loggerFactory: LoggerFactory,
+    @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider,
+    @inject(YtActionSender) private readonly ytActionSender: YtActionSender
+  ) {
+    this.logger = loggerFactory.create('LikeButtonHandler');
   }
 
   /**
    * Initialize like button handler for PiP window
    */
-  public initialize(pipWindow: Window): void {
-    this.pipWindow = pipWindow;
-    this.ytActionSender = new YtActionSender(pipWindow, this.playerManager);
+  public initialize(): void {
+    this.pipWindow = this.pipWindowProvider.getWindow();
     this.setupClickHandler();
-    logger.debug('Like button handler initialized');
+    this.logger.debug('Like button handler initialized');
   }
 
   /**
@@ -73,9 +76,9 @@ export class LikeButtonHandler {
             ? YT_LIKE_ACTIONS.LIKE
             : YT_LIKE_ACTIONS.DISLIKE;
 
-        logger.log(`${actionType} button clicked (currently pressed: ${isPressed})`);
+        this.logger.log(`${actionType} button clicked (currently pressed: ${isPressed})`);
 
-        this.ytActionSender?.sendLikeAction(actionType);
+        this.ytActionSender.sendLikeAction(actionType);
       },
       true
     ); // Capture phase
@@ -86,7 +89,6 @@ export class LikeButtonHandler {
    */
   public cleanup(): void {
     this.pipWindow = null;
-    this.ytActionSender = null;
-    logger.debug('Like button handler cleaned up');
+    this.logger.debug('Like button handler cleaned up');
   }
 }

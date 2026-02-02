@@ -1,119 +1,45 @@
 import { Logger } from './logger';
-import { MiniPlayerController } from './ui/MiniPlayerController';
+import { createContainer } from './di';
+import { LoggerFactory } from './logger';
 import { PlayerManager } from './core/PlayerManager';
-import { NavigationHandler } from './core/NavigationHandler';
-import { PiPManager } from './core/PiPManager';
-import { ResizeTracker } from './ui/ResizeTracker';
-import { MenuObserver } from './ui/MenuObserver';
-import { ContextMenuHandler } from './ui/ContextMenuHandler';
-import { SeekHandler } from './handlers/SeekHandler';
-import { LikeButtonHandler } from './handlers/LikeButtonHandler';
+import { YtdAppProvider } from './core/YtdAppProvider';
+import { MiniPlayerController } from './ui/MiniPlayerController';
 import { MediaSessionHandler } from './handlers/MediaSessionHandler';
 import { getGlobalMetadata } from './utils/VersionDetector';
-import type { PiPCleanupCallback } from './types/app';
-
-const logger = Logger.getInstance('Main');
 
 /**
  * Initialize the application
  */
-function initializeApp(): void {
+async function initializeApp(): Promise<void> {
   Logger.setGlobalMetadata(getGlobalMetadata());
 
-  const app = new YouTubePiPApp();
-  app.initialize().catch((e) => {
-    logger.error('Error initializing application:', e);
-  });
-}
+  const container = createContainer();
+  const logger = container.get<LoggerFactory>(LoggerFactory).create('Main');
 
-/**
- * Main application class
- */
-class YouTubePiPApp {
-  private miniPlayerController: MiniPlayerController;
-  private playerManager: PlayerManager;
-  private navigationHandler: NavigationHandler;
-  private pipManager: PiPManager;
-  private resizeTracker: ResizeTracker;
-  private menuObserver: MenuObserver;
-  private contextMenuHandler: ContextMenuHandler;
-  private seekHandler: SeekHandler;
-  private likeButtonHandler: LikeButtonHandler;
-  private mediaSessionHandler: MediaSessionHandler;
+  logger.log('Initializing YouTube PiP application');
 
-  constructor() {
-    this.playerManager = new PlayerManager();
-    this.miniPlayerController = new MiniPlayerController(this.playerManager);
-    this.navigationHandler = new NavigationHandler();
-    this.resizeTracker = new ResizeTracker();
-    this.menuObserver = new MenuObserver();
-    this.contextMenuHandler = new ContextMenuHandler(this.playerManager);
-    this.seekHandler = new SeekHandler();
-    this.likeButtonHandler = new LikeButtonHandler(this.playerManager);
+  try {
+    const ytdAppProvider = container.get<YtdAppProvider>(YtdAppProvider);
+    await ytdAppProvider.initialize();
 
-    this.pipManager = new PiPManager(
-      this.miniPlayerController,
-      this.playerManager,
-      this.navigationHandler,
-      (pipWindow, miniplayer) => this.createPiPWindowCallback(pipWindow, miniplayer)
-    );
+    const playerManager = container.get<PlayerManager>(PlayerManager);
+    await playerManager.initialize();
 
-    this.mediaSessionHandler = new MediaSessionHandler(this.pipManager);
-  }
+    const miniPlayerController = container.get<MiniPlayerController>(MiniPlayerController);
+    await miniPlayerController.initialize();
 
-  /**
-   * Callback for PiPManager: init handlers when PiP opens, return cleanup on close
-   */
-  private async createPiPWindowCallback(
-    pipWindow: Window,
-    miniplayer: Element
-  ): Promise<PiPCleanupCallback> {
-    await this.initializePiPWindowHandlers(pipWindow, miniplayer);
-    return () => {
-      this.seekHandler.cleanup();
-      this.likeButtonHandler.cleanup();
-      this.contextMenuHandler.stop();
-      this.menuObserver.stop();
-      this.resizeTracker.stop();
-      this.navigationHandler.cleanup();
-    };
-  }
-
-  /**
-   * Initialize the application
-   */
-  public async initialize(): Promise<void> {
-    logger.log('Initializing YouTube PiP application');
-
-    // Initialize media session handler
-    this.mediaSessionHandler.initialize();
+    const mediaSessionHandler = container.get<MediaSessionHandler>(MediaSessionHandler);
+    mediaSessionHandler.initialize();
 
     logger.log('YouTube PiP application initialized');
-  }
-
-  /**
-   * Initialize all handlers for PiP window
-   * Called when PiP window is opened
-   */
-  private async initializePiPWindowHandlers(pipWindow: Window, miniplayer: Element): Promise<void> {
-    logger.debug('Initializing PiP window handlers');
-
-    // Initialize handlers
-    this.resizeTracker.start(miniplayer, pipWindow);
-    // Run in background - may wait indefinitely for menu to appear
-    void this.menuObserver.start(pipWindow);
-    // Run in background - may wait indefinitely for menu to appear
-    void this.contextMenuHandler.initialize(pipWindow);
-    this.seekHandler.initialize(pipWindow);
-    this.likeButtonHandler.initialize(pipWindow);
-
-    logger.debug('All PiP window handlers initialized');
+  } catch (error) {
+    logger.error('YouTube PiP initialization failed', error);
   }
 }
 
 // Initialize application when DOM is ready
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initializeApp);
+  document.addEventListener('DOMContentLoaded', () => void initializeApp());
 } else {
-  initializeApp();
+  void initializeApp();
 }
