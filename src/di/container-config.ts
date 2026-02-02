@@ -1,5 +1,4 @@
 import { Container } from './container';
-import { Logger } from '../logger';
 import { LoggerFactory } from '../logger';
 import { PlayerManager } from '../core/PlayerManager';
 import { YtdAppProvider } from '../core/YtdAppProvider';
