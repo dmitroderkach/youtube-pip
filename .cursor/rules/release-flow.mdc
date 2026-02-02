@@ -1,0 +1,74 @@
+---
+description: Release flow — "залий зміни і створи реліз"
+alwaysApply: true
+---
+
+# Release Flow
+
+When the user says **"залий зміни і створи реліз"** (or equivalent: deploy changes, create release), follow this flow in order:
+
+## 1. Commit
+
+- Create commit from **staged files only** (`git add` is assumed done by user)
+- **Commit message** = first line (title) of `PR_DESCRIPTION.md`
+  - Read the file and use the line after the first `#` as the message
+
+```bash
+git commit -m "<title from PR_DESCRIPTION.md>"
+```
+
+## 2. Push branch
+
+```bash
+git push -u origin <current-branch>
+```
+
+## 3. Create PR
+
+- Title = first line of `PR_DESCRIPTION.md`
+- Body = full content of `PR_DESCRIPTION.md`
+- Base = `main`, head = current branch
+
+```bash
+gh pr create --title "<title>" --body-file PR_DESCRIPTION.md --base main --head <current-branch>
+```
+
+## 4. Merge PR
+
+- Merge when **status checks are green**
+- Use squash merge
+
+```bash
+gh pr merge <number> --squash
+```
+
+(If checks are pending, wait or poll until green.)
+
+### If checks failed
+
+1. **Do NOT merge** the PR
+2. Run `gh pr checks <number>` and show the result
+3. Identify the cause (lint, build, tests)
+4. Propose code changes to fix the failures
+5. After fix and push — wait for new checks to pass, then merge
+
+## 5. Switch to main and pull
+
+```bash
+git checkout main
+git pull
+```
+
+## 6. Create and push tag
+
+```bash
+npm run release:tag
+```
+
+---
+
+## Notes
+
+- `PR_DESCRIPTION.md` is **not** committed — used only for PR title/body
+- Version must already be bumped in `package.json` and `CHANGELOG.md` before this flow
+- Requires `gh` CLI and `gh auth login` to be done

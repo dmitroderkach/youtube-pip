@@ -1,0 +1,55 @@
+---
+description: Bump version — "бамп версії" workflow
+alwaysApply: false
+---
+
+# Bump Version Flow
+
+When the user says **"бамп версії"** (or equivalent: bump version, version bump), follow this flow in order. All changes must reflect the **diff between current branch and `main`** (`git diff main`).
+
+**Optional suffix** — patch (default) / minor / major. User may say e.g. "бамп версії мінор" or "bump version major". If not specified, use **patch**.
+
+## 1. Run version command
+
+Run the command that matches the suffix (default: patch):
+
+| Suffix          | Command                 | Example       |
+| --------------- | ----------------------- | ------------- |
+| patch (default) | `npm run version:patch` | 2.0.1 → 2.0.2 |
+| minor           | `npm run version:minor` | 2.0.1 → 2.1.0 |
+| major           | `npm run version:major` | 2.0.1 → 3.0.0 |
+
+This updates `package.json` to the next version.
+
+## 2. Update CHANGELOG.md
+
+- **New entry** — Add a new `## [X.Y.Z] - YYYY-MM-DD` section at the top of the changelog (after the intro lines, before the previous version).
+- **Content** — Describe changes based on `git diff main`: group under `### Added`, `### Changed`, `### Fixed`, `### Removed` as appropriate.
+- **Date** — Use the current date in `YYYY-MM-DD`. Run in terminal: `date +%Y-%m-%d` and use its output for the version line (uses the machine's local date).
+
+## 3. Add version link at end of CHANGELOG.md
+
+- At the **top of the links section** (first line after the blank line that separates changelog body from links), add the new version link.
+- Format: `[X.Y.Z]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v(previous)...refs/tags/vX.Y.Z` where **previous** = version from `package.json` **before** step 1.
+- Examples: patch 2.0.1→2.0.2: `v2.0.1...v2.0.2`; minor 2.0.1→2.1.0: `v2.0.1...v2.1.0`; major 2.0.1→3.0.0: `v2.0.1...v3.0.0`.
+
+## 4. Create PR_DESCRIPTION.md
+
+- **Title** — First line (after `#`) is the PR title; use a short summary of the diff vs main.
+- **Body** — Full content describing the changes, derived from `git diff main` (files changed, what was added/changed/fixed). Structure with `## Summary`, then `## Added` / `## Changed` / `## Fixed` as needed.
+
+## 5. Create branch release/X.X.X
+
+- Create a branch named `release/X.X.X` where `X.X.X` is the **current version** (from `package.json` after step 1).
+- Example: after bump to 2.0.2, run `git checkout -b release/2.0.2`.
+
+## 6. Stage all files except PR_DESCRIPTION.md
+
+- Add all changed files to the git index; exclude `PR_DESCRIPTION.md` (it is not committed).
+- Example: `git add -A` then `git restore --staged PR_DESCRIPTION.md`.
+
+## Notes
+
+- **Previous version for link**: Read `package.json` version before step 1 to build the compare URL.
+- Run `git diff main` (and optionally `git diff main --stat`) to see what changed; use that to write CHANGELOG and PR_DESCRIPTION.
+- `PR_DESCRIPTION.md` is not committed — used only for PR title/body when creating a release.
