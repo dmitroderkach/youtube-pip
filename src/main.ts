@@ -1,11 +1,12 @@
 import { Logger } from './logger';
 import { createContainer } from './di';
-import { LoggerFactory } from './logger';
 import { PlayerManager } from './core/PlayerManager';
 import { YtdAppProvider } from './core/YtdAppProvider';
 import { MiniPlayerController } from './ui/MiniPlayerController';
 import { MediaSessionHandler } from './handlers/MediaSessionHandler';
 import { getGlobalMetadata } from './utils/VersionDetector';
+
+const logger = Logger.getInstance('Main');
 
 /**
  * Initialize the application
@@ -14,7 +15,6 @@ async function initializeApp(): Promise<void> {
   Logger.setGlobalMetadata(getGlobalMetadata());
 
   const container = createContainer();
-  const logger = container.get<LoggerFactory>(LoggerFactory).create('Main');
 
   logger.log('Initializing YouTube PiP application');
 

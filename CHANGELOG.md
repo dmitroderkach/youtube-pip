@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.0.1] - 2026-02-02
+
+### Added
+
+- **DI container** — `@injectable()` validation: throws `AppRuntimeError` when resolving a class not decorated with `@injectable()`
+  - `injectableClasses` WeakSet in metadata; `setInjectable` / `isInjectable` helpers
+  - `injectable()` decorator now marks class via `setInjectable(target)` instead of no-op
+
+### Changed
+
+- **LoggerFactory** — added `@injectable()`; imports `injectable` from `./di/decorators` to avoid circular dependency with container-config
+- **main.ts** — bootstrap logger uses `Logger.getInstance('Main')` instead of resolving via container
+
 ## [2.0.0] - 2026-02-02
 
 ### Added
