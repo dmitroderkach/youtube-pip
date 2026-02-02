@@ -1,4 +1,4 @@
-import { setParamMetadata } from './metadata';
+import { setParamMetadata, setInjectable } from './metadata';
 import type { ServiceId } from './types';
 
 /**
@@ -16,7 +16,7 @@ export function inject(token: ServiceId) {
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function injectable(): (target: any) => void {
-  return (): void => {
-    // Mark as injectable; metadata is stored via @inject on params
+  return (target: object): void => {
+    setInjectable(target);
   };
 }

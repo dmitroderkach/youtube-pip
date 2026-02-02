@@ -1,4 +1,5 @@
 import { DEBUG_FLAG } from './constants';
+import { injectable } from './di/decorators';
 
 /**
  * Format date as YYYY-MM-DD:HH:mm:ss.SSS using Intl.DateTimeFormat
@@ -162,6 +163,7 @@ export class Logger {
 /**
  * Factory for creating Logger instances by scope. Injected via DI (transient).
  */
+@injectable()
 export class LoggerFactory {
   public create(scope: string): Logger {
     return Logger.getInstance(scope);

@@ -1,4 +1,4 @@
-import { getParamMetadata } from './metadata';
+import { getParamMetadata, isInjectable } from './metadata';
 import type { Constructor, ServiceId } from './types';
 import { AppRuntimeError } from '../errors/AppRuntimeError';
 
@@ -64,6 +64,9 @@ export class Container {
     resolutionStack.add(token);
     try {
       const Ctor = binding.implementation;
+      if (!isInjectable(Ctor)) {
+        throw new AppRuntimeError(`${this.tokenName(token)} must be decorated with @injectable()`);
+      }
       const paramTokens = getParamMetadata(Ctor) ?? [];
       const args = paramTokens.map((t) => this.get(t, resolutionStack));
 
