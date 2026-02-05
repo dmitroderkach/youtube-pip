@@ -15,6 +15,8 @@ import { inject, injectable } from '../di';
  * is moved to the PiP popup that link breaks. We intercept copy menu clicks
  * and copy via a temporary textarea in the PiP document.
  */
+export type ContextMenuVisibilityCallback = (visible: boolean) => void;
+
 @injectable()
 export class ContextMenuHandler {
   private readonly logger: Logger;
@@ -22,6 +24,22 @@ export class ContextMenuHandler {
   private pipWindow: Nullable<Window> = null;
   private contextMenu: Nullable<HTMLElement> = null;
   private contextMenuPlaceholder: Nullable<Comment> = null;
+  private readonly visibilitySubscribers = new Set<ContextMenuVisibilityCallback>();
+
+  /**
+   * Subscribe to context menu visibility changes.
+   * @returns Unsubscribe function
+   */
+  public subscribeContextMenu(callback: ContextMenuVisibilityCallback): () => void {
+    this.visibilitySubscribers.add(callback);
+    return () => {
+      this.visibilitySubscribers.delete(callback);
+    };
+  }
+
+  private notifyVisibility(visible: boolean): void {
+    this.visibilitySubscribers.forEach((cb) => cb(visible));
+  }
 
   constructor(
     @inject(LoggerFactory) loggerFactory: LoggerFactory,
@@ -153,7 +171,9 @@ export class ContextMenuHandler {
           DOMUtils.insertPlaceholderBefore(this.contextMenu, this.contextMenuPlaceholder);
         }
         this.pipWindow.document.body.appendChild(this.contextMenu);
+        this.notifyVisibility(true);
       } else if (!isVisible && this.contextMenu.parentNode === this.pipWindow.document.body) {
+        this.notifyVisibility(false);
         if (this.contextMenuPlaceholder?.parentNode) {
           this.logger.log('Context menu closed in PiP window. Returning to main...');
           DOMUtils.restoreElementFromPlaceholder(this.contextMenu, this.contextMenuPlaceholder);
@@ -174,6 +194,7 @@ export class ContextMenuHandler {
         DOMUtils.insertPlaceholderBefore(this.contextMenu, this.contextMenuPlaceholder);
       }
       this.pipWindow.document.body.appendChild(this.contextMenu);
+      this.notifyVisibility(true);
     }
 
     // Cleanup is done via PiPManager.onBeforeReturn
@@ -197,6 +218,7 @@ export class ContextMenuHandler {
       ) {
         e.stopPropagation();
         menuInPip.style.display = 'none';
+        this.notifyVisibility(false);
         this.logger.debug('Context menu dismissed');
       }
     };
