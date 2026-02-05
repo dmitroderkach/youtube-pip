@@ -181,9 +181,6 @@ export class PiPManager {
     ytDraggable.prepend(this.miniPlayerContainer);
 
     DOMUtils.unwrap(ytDraggable);
-
-    // Focus video player
-    this.playerManager.getPlayer().focus();
   }
 
   /**

@@ -4,28 +4,37 @@ import { LoggerFactory } from '../logger';
 import { PlayerManager } from '../core/PlayerManager';
 import { PipWindowProvider } from '../core/PipWindowProvider';
 import { ContextMenuHandler } from '../ui/ContextMenuHandler';
+import { TIMEOUTS } from '../constants';
 import { inject, injectable } from '../di';
 
 /**
- * Observes focus changes in PiP window — returns focus to player when it leaves.
- * Pauses when context menu is open; returns focus when menu closes.
+ * Polls document.activeElement and returns focus to player when it changes
+ * to an element outside the player, but only when context menu is closed.
  */
 @injectable()
 export class DocumentFocusHandler {
   private readonly logger: Logger;
   private pipWindow: Nullable<Window> = null;
   private isContextMenuOpen = false;
+  private lastActiveElement: Nullable<Element> = null;
+  private pollId: ReturnType<typeof setInterval> | null = null;
   private unsubscribeContextMenu: (() => void) | null = null;
 
-  private readonly handleFocusIn = (e: FocusEvent): void => {
+  private readonly pollActiveElement = (): void => {
     if (!this.pipWindow || this.isContextMenuOpen) return;
 
+    const active = this.pipWindow.document.activeElement;
+    if (active === this.lastActiveElement) return;
+    this.lastActiveElement = active;
+
     const player = this.playerManager.getPlayer();
-    const target = e.target as Node | null;
-    if (!target || player.contains(target) || target === player) {
+    if (!active || active === player || player.contains(active)) {
       return;
     }
-    this.returnFocusToPlayer();
+    if (typeof player.focus === 'function') {
+      this.logger.debug('Returning focus to player');
+      player.focus();
+    }
   };
 
   constructor(
@@ -50,31 +59,26 @@ export class DocumentFocusHandler {
     this.unsubscribeContextMenu = this.contextMenuHandler.subscribeContextMenu((visible) => {
       this.isContextMenuOpen = visible;
       if (!visible) {
-        this.returnFocusToPlayer();
+        this.pollActiveElement();
       }
     });
 
-    this.pipWindow.document.addEventListener('focusin', this.handleFocusIn, true);
+    this.pollId = setInterval(this.pollActiveElement, TIMEOUTS.ACTIVE_ELEMENT_POLL);
     this.logger.debug('Document focus handler initialized');
   }
 
-  private returnFocusToPlayer(): void {
-    const player = this.playerManager.getPlayer();
-    if (typeof player.focus === 'function') {
-      player.focus();
-    }
-  }
-
   /**
-   * Cleanup focus observer
+   * Cleanup
    */
   public cleanup(): void {
     this.unsubscribeContextMenu?.();
     this.unsubscribeContextMenu = null;
-    if (this.pipWindow) {
-      this.pipWindow.document.removeEventListener('focusin', this.handleFocusIn, true);
+    if (this.pollId !== null) {
+      clearInterval(this.pollId);
+      this.pollId = null;
     }
     this.pipWindow = null;
+    this.lastActiveElement = null;
     this.isContextMenuOpen = false;
     this.logger.debug('Document focus handler cleaned up');
   }
