@@ -7,6 +7,7 @@ export const DEBUG_FLAG = 'YOUTUBE_PIP_DEBUG';
 
 /** Timeout values (in milliseconds) */
 export const TIMEOUTS = {
+  ACTIVE_ELEMENT_POLL: 100,
   ELEMENT_WAIT: 5000,
   ELEMENT_WAIT_INFINITE: 0,
   MENU_RETRY_DELAY: 100,

@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.0.4] - 2026-02-05
+
+### Added
+
+- **Constants** — `TIMEOUTS.ACTIVE_ELEMENT_POLL` (100ms) for DocumentFocusHandler polling
+
+### Changed
+
+- **DocumentFocusHandler** — replaced `focusin` with polling `document.activeElement` via `setInterval` for more reliable focus tracking; returns focus to player only when context menu is closed
+
+### Removed
+
+- **PiPManager** — removed explicit `player.focus()` after unwrap (focus handled by DocumentFocusHandler)
+
 ## [2.0.3] - 2026-02-05
 
 ### Added
@@ -666,6 +680,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.0.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.3...refs/tags/v2.0.4
 [2.0.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.2...refs/tags/v2.0.3
 [2.0.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.1...refs/tags/v2.0.2
 [2.0.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.0...refs/tags/v2.0.1
