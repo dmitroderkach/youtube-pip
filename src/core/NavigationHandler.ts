@@ -5,7 +5,6 @@ import type { Nullable } from '../types/app';
 
 import type { Logger } from '../logger';
 import { LoggerFactory } from '../logger';
-import { PlayerManager } from './PlayerManager';
 import { PipWindowProvider } from './PipWindowProvider';
 import { inject, injectable } from '../di';
 
@@ -19,7 +18,6 @@ export class NavigationHandler {
 
   constructor(
     @inject(LoggerFactory) loggerFactory: LoggerFactory,
-    @inject(PlayerManager) private readonly playerManager: PlayerManager,
     @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider
   ) {
     this.logger = loggerFactory.create('NavigationHandler');
@@ -43,18 +41,9 @@ export class NavigationHandler {
       return;
     }
 
-    const playerManager = this.playerManager;
     this.pipWindow.document.addEventListener(
       'click',
       (event: MouseEvent) => {
-        // Focus video player
-        const player = playerManager.getPlayer();
-        if (typeof player.focus === 'function') {
-          player.focus();
-        } else {
-          this.logger.warn('player.focus method not found');
-        }
-
         const endpoint = (event.target as Element)?.closest<HTMLAnchorElement>(
           SELECTORS.SIMPLE_ENDPOINT
         );
