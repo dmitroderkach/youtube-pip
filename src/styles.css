@@ -50,7 +50,9 @@ video {
 .ytp-miniplayer-expand-watch-page-button,
 .ytp-miniplayer-close-button,
 #header-contents,
-.ytdMiniplayerComponentResizers {
+.ytdMiniplayerComponentResizers,
+/* TODO: remove when context menu interception is implemented */
+.dropdown-trigger {
   display: none !important;
 }
 
