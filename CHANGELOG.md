@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.0.5] - 2026-02-08
+
+### Changed
+
+- **PiP styles** — temporarily hide `.dropdown-trigger` in PiP window until context menu interception is implemented (TODO in styles.css)
+
 ## [2.0.4] - 2026-02-05
 
 ### Added
@@ -680,6 +686,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.0.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.4...refs/tags/v2.0.5
 [2.0.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.3...refs/tags/v2.0.4
 [2.0.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.2...refs/tags/v2.0.3
 [2.0.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.1...refs/tags/v2.0.2
