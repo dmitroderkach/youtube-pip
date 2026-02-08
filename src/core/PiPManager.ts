@@ -29,10 +29,12 @@ export class PiPManager {
 
   private readonly asyncLock = new AsyncLock();
 
-  private close = (): void => {
-    void this.asyncLock
+  private close = async (): Promise<void> => {
+    return this.asyncLock
       .withLock(() => this.returnPlayerToMain())
-      .catch((e) => this.logger.error('Unhandled error in returnPlayerToMain:', e));
+      .catch((e) => {
+        this.logger.error('Unhandled error in returnPlayerToMain:', e);
+      });
   };
 
   constructor(
@@ -139,7 +141,7 @@ export class PiPManager {
         if (win?.closed) {
           this.logger.warn('phantom window detected, closing');
           this.pipWindowProvider.setWindow(null);
-          this.close();
+          void this.close();
           return;
         }
       });
@@ -163,7 +165,7 @@ export class PiPManager {
     }
 
     // Create ytd-app in PiP window
-    const pipApp = pipDoc.createElement('ytd-app');
+    const pipApp = pipDoc.createElement(SELECTORS.YTD_APP);
     DOMUtils.copyAttributes(ytdApp, pipApp);
     pipDoc.body.appendChild(pipApp);
 

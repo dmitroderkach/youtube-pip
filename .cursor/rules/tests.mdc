@@ -1,0 +1,39 @@
+---
+description: Unit test conventions — test container, vitest-mock-extended, __mocks__
+alwaysApply: false
+---
+
+# Test rules
+
+## 1. Test container
+
+- **Use the test container everywhere** in unit tests: `createTestContainer()` from `src/test-utils` (or `test-utils/test-container`).
+- **Do not use the real DI container** (`new Container()` or imports from `di/container`) in tests — except in `src/di/__tests__/container.test.ts`, which tests the container itself.
+- Override dependencies with mocks via `container.bind(Service).toInstance(mock)`, then resolve the class under test with `container.get(Service)`.
+
+## 2. Mocks in `beforeEach` with vitest-mock-extended
+
+- Use **vitest-mock-extended** for mocks: `mock<SomeService>()`, and type mock variables as `MockProxy<SomeService>`.
+- In **beforeEach**: create all mocks, bind them to the test container, then get the class under test. In the test body only set behaviour (e.g. `mockX.getWindow.mockReturnValue(...)`) and assert.
+- Prefer setting mock behaviour inside each test rather than in beforeEach, so test intent stays visible.
+
+## 3. Mocks in `__tests__/__mocks__/` folder
+
+- **All mock files** (`*.mock.ts` and any reusable mock helpers) live inside **`__mocks__`** folder within the same **`__tests__`** directory (e.g. `src/core/__tests__/__mocks__/PiPWindowHandlers.mock.ts`).
+- Complex or reusable mocks (many dependencies, non-trivial setup) go there; export factory functions that return an object of mocks, so the test file stays short and readable.
+- Import from `./__mocks__/SomeName.mock` in the test file. Simple one-off mocks can stay inline in the test file.
+
+## 4. Fake timers (no real delays)
+
+- **Use Vitest fake timers API** for any time-based behaviour: `vi.useFakeTimers()`, `vi.advanceTimersByTimeAsync(ms)`, `vi.runAllTimersAsync()`, `vi.runAllTimers()`.
+- **Do not use** real delays such as `await new Promise(resolve => setTimeout(resolve, ms))` or `setTimeout(..., ms)` without fake timers — that is an anti-pattern (flaky, slow, magic numbers). Prefer fake timers and advance time explicitly.
+
+## 5. No magic constants
+
+- **Avoid raw magic numbers and strings** in tests. Use named constants: from `src/constants` (e.g. `TIMEOUTS`, `DEFAULT_DIMENSIONS`, `COPY_PAYLOAD_QUERY`) or define a local constant at the top of the describe/test file (e.g. `const EMBED_SAMPLE = { WIDTH: 640, HEIGHT: 360 } as const`).
+- For time values in tests use `TIMEOUTS.*` or a named test constant; for dimensions, selectors, copy payload params use app constants or a single shared constant.
+
+## 6. Wait for completion, not magic time (complex async scenarios)
+
+- **Do not wait in complex scenarios** by advancing time with a magic number (e.g. `advanceTimersByTimeAsync(1000)` “to let everything finish”). That is an anti-pattern: flaky and unrelated to real completion.
+- **Instead, wait for real completion** of all async work: await the promise returned by the code under test (e.g. make handlers like `close()` return a promise and `await` it), use `vi.runAllTimersAsync()` to run any `setTimeout`/`setInterval` used inside that flow, then await the same promise. Prefer exposing or calling a single entry that returns a promise so the test can `await` it; avoid “sleep N ms and hope it’s done.”
