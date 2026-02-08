@@ -1,5 +1,5 @@
 import { Logger } from './logger';
-import { createContainer } from './di';
+import { createContainer } from './di/container-config';
 import { PlayerManager } from './core/PlayerManager';
 import { YtdAppProvider } from './core/YtdAppProvider';
 import { MiniPlayerController } from './ui/MiniPlayerController';

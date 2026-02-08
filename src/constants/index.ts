@@ -2,7 +2,22 @@
  * Constants barrel export
  */
 
-export { DEBUG_FLAG, TIMEOUTS, RETRY_LIMITS, DEFAULT_DIMENSIONS } from './app';
+export {
+  DEBUG_FLAG,
+  TIMEOUTS,
+  RETRY_LIMITS,
+  DEFAULT_DIMENSIONS,
+  EMBED_IFRAME_DEFAULTS,
+} from './app';
+
+export {
+  YOUTUBE_SHORT_BASE,
+  YOUTUBE_EMBED_BASE,
+  COPY_PAYLOAD_QUERY,
+  IFRAME_TITLE_QUOT,
+  IFRAME_ALLOW,
+  IFRAME_REFERRER_POLICY,
+} from './copyPayload';
 
 export {
   PLAYER_STATES,
@@ -14,4 +29,4 @@ export {
   ROOT_VE,
 } from './youtube';
 
-export { COPY_MENU_INDICES, MOUSE_BUTTONS } from './ui';
+export { COPY_MENU_INDICES, MOUSE_BUTTONS, UI_CLASSES } from './ui';

@@ -11,6 +11,7 @@ export const SELECTORS = {
   YT_DRAGGABLE: 'yt-draggable',
   CONTEXT_MENU: '.ytp-popup.ytp-contextmenu',
   CONTEXT_MENU_CONTAINER: '.ytp-contextmenu',
+  MENU_ITEM: '.ytp-menuitem',
   PANEL_MENU_ITEMS: '.ytp-panel-menu > .ytp-menuitem',
   MENU_BUTTON: '.yt-spec-button-shape-next[aria-expanded]',
   PLAYLIST_PANEL: '.ytdMiniplayerComponentPlaylistPanel',

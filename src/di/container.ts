@@ -41,6 +41,14 @@ export class Container {
           scope: 'transient',
         });
       },
+      toInstance: (instance: unknown) => {
+        this.bindings.set(token, {
+          token,
+          implementation: (() => instance) as unknown as Constructor,
+          scope: 'singleton',
+          instance,
+        });
+      },
     };
   }
 
@@ -52,7 +60,7 @@ export class Container {
       throw new AppRuntimeError(`No binding for ${name}`);
     }
 
-    if (binding.scope === 'singleton' && binding.instance !== undefined) {
+    if (binding.instance !== undefined) {
       return binding.instance as T;
     }
 
@@ -103,4 +111,5 @@ interface BindingTo {
   to(implementation: Constructor): void;
   toSelf(): void;
   toTransient(implementation: Constructor): void;
+  toInstance(instance: unknown): void;
 }

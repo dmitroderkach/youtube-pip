@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.1.0] - 2026-02-08
+
+### Added
+
+- **Unit tests** — Vitest test suite with coverage (branch ≥90%); test container (`createTestContainer()`), vitest-mock-extended, `__mocks__` per `__tests__`; tests for logger, DI (container, decorators, metadata), core (PiPManager, PlayerManager, NavigationHandler, PipWindowProvider, PiPWindowHandlers, YtdAppProvider, YtActionSender), handlers (DocumentFocusHandler, LikeButtonHandler, MediaSessionHandler, SeekHandler), ui (ContextMenuHandler, MenuObserver, MiniPlayerController, ResizeTracker), utils (copyPayload, DOMUtils, StyleUtils, AsyncLock, VersionDetector), errors
+- **CI** — "Run tests" step in GitHub Actions build workflow; tests (with coverage) run on every push/PR to main/master
+- **DI container** — `bind(token).toInstance(instance)` for registering ready-made instances (e.g. mocks in tests); `get()` returns cached instance when set
+- **Test rules** (`.cursor/rules/tests.mdc`) — fake timers (no real delays), no magic constants, wait for async completion instead of magic time
+
+### Changed
+
+- **PiPManager** — `close()` now returns `Promise<void>` so callers can await completion; tests use `awaitClose(manager)` instead of advancing time by a fixed delay
+- **.gitignore** — added `coverage/` so coverage reports are not committed
+
 ## [2.0.5] - 2026-02-08
 
 ### Changed
@@ -686,6 +700,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.1.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.5...refs/tags/v2.1.0
 [2.0.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.4...refs/tags/v2.0.5
 [2.0.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.3...refs/tags/v2.0.4
 [2.0.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.2...refs/tags/v2.0.3

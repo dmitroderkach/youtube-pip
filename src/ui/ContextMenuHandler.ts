@@ -7,6 +7,7 @@ import { PlayerManager } from '../core/PlayerManager';
 import { YtdAppProvider } from '../core/YtdAppProvider';
 import { PipWindowProvider } from '../core/PipWindowProvider';
 import { CopyType, type Nullable } from '../types/app';
+import { buildCopyPayload } from '../utils/copyPayload';
 import { inject, injectable } from '../di';
 
 /**
@@ -60,7 +61,7 @@ export class ContextMenuHandler {
     }
 
     const doc = this.pipWindow.document;
-    const item = (e.target as Element)?.closest('.ytp-menuitem');
+    const item = (e.target as Element)?.closest(SELECTORS.MENU_ITEM);
     if (!item?.parentElement) {
       this.logger.debug('Copy click: not a menu item or no parent', { item });
       return;
@@ -255,26 +256,7 @@ export class ContextMenuHandler {
     copyType: CopyType;
     embedSize?: Nullable<{ width: number; height: number }>;
   }): string {
-    const { videoId, playlistId, currentTime, title, copyType, embedSize } = params;
-    const base = `https://youtu.be/${videoId}`;
-    const listPart = playlistId ? `?list=${playlistId}` : '';
-    const tPart = currentTime > 0 ? (listPart ? `&t=${currentTime}s` : `?t=${currentTime}s`) : '';
-
-    switch (copyType) {
-      case CopyType.VIDEO_URL:
-        return listPart ? `${base}${listPart}` : base;
-      case CopyType.URL_AT_TIME:
-        return `${base}${listPart}${tPart}`;
-      case CopyType.EMBED: {
-        const w = embedSize?.width ?? 400;
-        const h = embedSize?.height ?? 225;
-        const src = `https://www.youtube.com/embed/${videoId}${playlistId ? `?list=${playlistId}` : ''}`;
-        const safeTitle = title.replace(/"/g, '&quot;');
-        return `<iframe width="${w}" height="${h}" src="${src}" title="${safeTitle}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>`;
-      }
-      default:
-        return '';
-    }
+    return buildCopyPayload(params);
   }
 
   /**
@@ -286,7 +268,6 @@ export class ContextMenuHandler {
     const event = new MouseEvent('contextmenu', {
       bubbles: true,
       cancelable: true,
-      view: window,
       clientX: 0,
       clientY: 0,
       button: MOUSE_BUTTONS.SECONDARY,

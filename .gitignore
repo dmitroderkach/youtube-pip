@@ -1,5 +1,6 @@
 node_modules/
 dist/
+coverage/
 *.log
 .DS_Store
 # Ignore .cursor except rules (so .cursor/rules/ is tracked)

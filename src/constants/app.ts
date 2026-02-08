@@ -25,3 +25,9 @@ export const DEFAULT_DIMENSIONS = {
   PIP_HEIGHT: 270,
   PIP_EXPANDED_HEIGHT: 600,
 } as const;
+
+/** Default dimensions for embed iframe (fallback when player size unknown) */
+export const EMBED_IFRAME_DEFAULTS = {
+  WIDTH: 400,
+  HEIGHT: 225,
+} as const;
