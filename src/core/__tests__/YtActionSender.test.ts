@@ -5,6 +5,10 @@ import { PipWindowProvider } from '../PipWindowProvider';
 import { PlayerManager } from '../PlayerManager';
 import { YtdAppProvider } from '../YtdAppProvider';
 import { createTestContainer } from '../../test-utils/test-container';
+import {
+  createFakeYtdApp,
+  createFakeYtdAppWithResolveCommand,
+} from '../../test-utils/test-helpers';
 
 describe('YtActionSender', () => {
   let sender: YtActionSender;
@@ -29,9 +33,7 @@ describe('YtActionSender', () => {
   it('sendLikeAction calls resolveCommand with like endpoint', () => {
     mockPip.getWindow.mockReturnValue(window);
     mockPlayerManager.getVideoId.mockReturnValue('vid1');
-    mockYtdApp.getApp.mockReturnValue({
-      resolveCommand: mockResolveCommand,
-    } as unknown as ReturnType<YtdAppProvider['getApp']>);
+    mockYtdApp.getApp.mockReturnValue(createFakeYtdAppWithResolveCommand(mockResolveCommand));
 
     sender.sendLikeAction('LIKE');
 
@@ -65,7 +67,7 @@ describe('YtActionSender', () => {
   it('sendLikeAction does nothing when resolveCommand is not function', () => {
     mockPip.getWindow.mockReturnValue(window);
     mockPlayerManager.getVideoId.mockReturnValue('v1');
-    mockYtdApp.getApp.mockReturnValue({} as unknown as ReturnType<YtdAppProvider['getApp']>);
+    mockYtdApp.getApp.mockReturnValue(createFakeYtdApp({}));
 
     sender.sendLikeAction('LIKE');
 
@@ -78,9 +80,7 @@ describe('YtActionSender', () => {
     mockResolveCommand.mockImplementation(() => {
       throw new Error('resolve failed');
     });
-    mockYtdApp.getApp.mockReturnValue({
-      resolveCommand: mockResolveCommand,
-    } as unknown as ReturnType<YtdAppProvider['getApp']>);
+    mockYtdApp.getApp.mockReturnValue(createFakeYtdAppWithResolveCommand(mockResolveCommand));
 
     expect(() => sender.sendLikeAction('LIKE')).not.toThrow();
   });

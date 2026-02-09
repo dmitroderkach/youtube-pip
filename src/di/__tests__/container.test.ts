@@ -1,6 +1,16 @@
 import { describe, it, expect } from 'vitest';
 import { Container } from '../container';
-import type { Constructor } from '../types';
+import type { Constructor, ServiceId } from '../types';
+
+/** Helper for tests that deliberately bind non-Constructor types. */
+function bindAsConstructor(value: unknown): Constructor {
+  return value as Constructor;
+}
+
+/** Helper for tests that use anonymous functions as service IDs. */
+function asServiceId(value: unknown): ServiceId {
+  return value as ServiceId;
+}
 import { inject, injectable } from '../decorators';
 import { AppRuntimeError } from '../../errors/AppRuntimeError';
 
@@ -87,7 +97,7 @@ describe('Container', () => {
 
   it('get throws when implementation is not injectable', () => {
     const c = new Container();
-    c.bind('NotInjectable').to(NotInjectable as unknown as Constructor);
+    c.bind('NotInjectable').to(bindAsConstructor(NotInjectable));
     expect(() => c.get('NotInjectable')).toThrow(AppRuntimeError);
     expect(() => c.get('NotInjectable')).toThrow(/@injectable/);
   });
@@ -126,7 +136,14 @@ describe('Container', () => {
   it('tokenName uses "anonymous" for function with no name', () => {
     const Anon = function () {};
     const c = new Container();
-    c.bind(Anon as unknown as import('../types').ServiceId).to(NoDeps);
-    expect(c.get(Anon as unknown as import('../types').ServiceId)).toBeDefined();
+    c.bind(asServiceId(Anon)).to(NoDeps);
+    expect(c.get(asServiceId(Anon))).toBeDefined();
+  });
+
+  it('tokenName returns "anonymous" when function name is empty', () => {
+    const EmptyName = function () {};
+    Object.defineProperty(EmptyName, 'name', { value: '', configurable: true });
+    const c = new Container();
+    expect(() => c.get(asServiceId(EmptyName))).toThrow(/No binding for anonymous/);
   });
 });

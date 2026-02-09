@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { createTestContainer } from '../../test-utils/test-container';
+import { createFakeYtdApp, createFakeYtdAppWithFire } from '../../test-utils/test-helpers';
 import { MiniPlayerController } from '../MiniPlayerController';
 import { PlayerManager } from '../../core/PlayerManager';
 import { YtdAppProvider } from '../../core/YtdAppProvider';
@@ -22,14 +23,11 @@ describe('MiniPlayerController', () => {
     mockFire = vi.fn();
     mockPlayerManager = mock<PlayerManager>();
     mockYtdAppProvider = mock<YtdAppProvider>();
-    mockYtdAppProvider.getApp.mockReturnValue({
-      fire: mockFire,
-      miniplayerIsActive: false,
-    } as unknown as ReturnType<YtdAppProvider['getApp']>);
+    mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdAppWithFire(mockFire, false));
 
     const { DOMUtils } = await import('../../utils/DOMUtils');
     const miniplayerEl = document.createElement('div');
-    vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(miniplayerEl as Element);
+    vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(miniplayerEl as never);
 
     const c = createTestContainer();
     c.bind(PlayerManager).toInstance(mockPlayerManager);
@@ -75,10 +73,7 @@ describe('MiniPlayerController', () => {
   });
 
   it('toggleMiniPlayer when miniplayerIsActive calls fire with NAVIGATE and getVideoId', () => {
-    mockYtdAppProvider.getApp.mockReturnValue({
-      fire: mockFire,
-      miniplayerIsActive: true,
-    } as unknown as ReturnType<YtdAppProvider['getApp']>);
+    mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdAppWithFire(mockFire, true));
     mockPlayerManager.getVideoId.mockReturnValue('vid123');
     controller.toggleMiniPlayer();
     expect(mockFire).toHaveBeenCalledWith(YT_EVENTS.NAVIGATE, {
@@ -98,26 +93,19 @@ describe('MiniPlayerController', () => {
   });
 
   it('activateMiniPlayer does nothing when fire is not function', () => {
-    mockYtdAppProvider.getApp.mockReturnValue({ fire: undefined } as unknown as ReturnType<
-      YtdAppProvider['getApp']
-    >);
+    mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({ fire: undefined }));
     controller.activateMiniPlayer();
     expect(mockFire).not.toHaveBeenCalled();
   });
 
   it('toggleMiniPlayer does nothing when fire is not function', () => {
-    mockYtdAppProvider.getApp.mockReturnValue({ fire: undefined } as unknown as ReturnType<
-      YtdAppProvider['getApp']
-    >);
+    mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({ fire: undefined }));
     controller.toggleMiniPlayer();
     expect(mockFire).not.toHaveBeenCalled();
   });
 
   it('toggleMiniPlayer when miniplayerIsActive and no videoId does not fire', () => {
-    mockYtdAppProvider.getApp.mockReturnValue({
-      fire: mockFire,
-      miniplayerIsActive: true,
-    } as unknown as ReturnType<YtdAppProvider['getApp']>);
+    mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdAppWithFire(mockFire, true));
     mockPlayerManager.getVideoId.mockReturnValue(null);
     controller.toggleMiniPlayer();
     expect(mockFire).not.toHaveBeenCalled();

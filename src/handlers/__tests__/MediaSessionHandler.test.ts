@@ -5,6 +5,17 @@ import { MediaSessionHandler } from '../MediaSessionHandler';
 import { PiPManager } from '../../core/PiPManager';
 import { AppInitializationError } from '../../errors/AppInitializationError';
 
+/** Navigator type for tests that remove mediaSession */
+type NavigatorWithoutMediaSession = Omit<Navigator, 'mediaSession'> & {
+  mediaSession?: unknown;
+};
+
+/** MediaSession type for metadata tests */
+type MediaSessionWithMetadata<T = unknown> = {
+  setActionHandler: (action: string, cb: () => void) => void;
+  metadata?: T;
+};
+
 describe('MediaSessionHandler', () => {
   let handler: MediaSessionHandler;
   let mockPipManager: MockProxy<PiPManager>;
@@ -21,6 +32,20 @@ describe('MediaSessionHandler', () => {
     const nav = { ...navigator };
     vi.stubGlobal('navigator', nav);
     expect(() => handler.initialize()).not.toThrow();
+  });
+
+  it('registerActionHandler when mediaSession not in navigator returns early', () => {
+    const nav = { ...navigator };
+    delete (nav as NavigatorWithoutMediaSession).mediaSession;
+    vi.stubGlobal('navigator', nav);
+    expect(() => handler['registerActionHandler']()).not.toThrow();
+  });
+
+  it('setupTitleSync when mediaSession not in navigator returns early', () => {
+    const nav = { ...navigator };
+    delete (nav as NavigatorWithoutMediaSession).mediaSession;
+    vi.stubGlobal('navigator', nav);
+    expect(() => handler['setupTitleSync']()).not.toThrow();
   });
 
   it('initialize when mediaSession exists registers action handler', () => {
@@ -103,6 +128,21 @@ describe('MediaSessionHandler', () => {
     expect(() => handler.initialize()).not.toThrow();
   });
 
+  it('setupTitleSync when metadata descriptor has no get/set logs warn', () => {
+    const setActionHandler = vi.fn();
+    const proto = Object.create(null);
+    Object.defineProperty(proto, 'metadata', {
+      value: null,
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
+    const mediaSession = Object.create(proto);
+    mediaSession.setActionHandler = setActionHandler;
+    vi.stubGlobal('navigator', { ...navigator, mediaSession });
+    expect(() => handler.initialize()).not.toThrow();
+  });
+
   it('setupTitleSync throws when defineProperty throws', () => {
     const setActionHandler = vi.fn();
     const metaDesc = {
@@ -141,7 +181,7 @@ describe('MediaSessionHandler', () => {
     mediaSessionObj.setActionHandler = vi.fn();
     vi.stubGlobal('navigator', { ...navigator, mediaSession: mediaSessionObj });
     handler.initialize();
-    (navigator.mediaSession as { metadata?: { artist: string } }).metadata = {
+    (navigator.mediaSession as MediaSessionWithMetadata<{ artist: string }>).metadata = {
       artist: 'Only artist',
     };
     expect(mockPipManager.updateTitle).not.toHaveBeenCalled();
@@ -161,7 +201,28 @@ describe('MediaSessionHandler', () => {
     mediaSessionObj.setActionHandler = vi.fn();
     vi.stubGlobal('navigator', { ...navigator, mediaSession: mediaSessionObj });
     handler.initialize();
-    (navigator.mediaSession as { metadata?: { title: string } }).metadata = { title: 'My Video' };
+    (navigator.mediaSession as MediaSessionWithMetadata<{ title: string }>).metadata = {
+      title: 'My Video',
+    };
     expect(mockPipManager.updateTitle).toHaveBeenCalledWith('My Video');
+  });
+
+  it('metadata getter delegates to original descriptor', () => {
+    const metaGet = vi.fn().mockReturnValue({ title: 'Test' });
+    const metaSet = vi.fn();
+    const proto = Object.create(null);
+    Object.defineProperty(proto, 'metadata', {
+      get: metaGet,
+      set: metaSet,
+      configurable: true,
+      enumerable: true,
+    });
+    const mediaSessionObj = Object.create(proto);
+    mediaSessionObj.setActionHandler = vi.fn();
+    vi.stubGlobal('navigator', { ...navigator, mediaSession: mediaSessionObj });
+    handler.initialize();
+    const value = (navigator.mediaSession as MediaSessionWithMetadata).metadata;
+    expect(metaGet).toHaveBeenCalled();
+    expect(value).toEqual({ title: 'Test' });
   });
 });

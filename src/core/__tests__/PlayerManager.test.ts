@@ -34,7 +34,7 @@ describe('PlayerManager', () => {
 
   it('getPlayerState returns UNSTARTED when getPlayerState missing', () => {
     const p = manager.getPlayer();
-    delete (p as unknown as { getPlayerState?: unknown }).getPlayerState;
+    delete p['getPlayerState'];
     expect(manager.getPlayerState(p)).toBe(PLAYER_STATES.UNSTARTED);
   });
 
@@ -92,7 +92,7 @@ describe('PlayerManager', () => {
   });
 
   it('getDebugInfo returns null when getDebugText missing', () => {
-    delete (manager.getPlayer() as unknown as { getDebugText?: unknown }).getDebugText;
+    delete manager.getPlayer()['getDebugText'];
     expect(manager.getDebugInfo()).toBeNull();
   });
 
@@ -103,7 +103,7 @@ describe('PlayerManager', () => {
 
   it('restorePlayingState logs when playVideo missing', () => {
     manager.savePlayingState(manager.getPlayer());
-    delete (manager.getPlayer() as unknown as { playVideo?: unknown }).playVideo;
+    delete manager.getPlayer()['playVideo'];
     manager.restorePlayingState(manager.getPlayer());
     expect(mockPlayer.playVideo).not.toHaveBeenCalled();
   });
@@ -145,13 +145,13 @@ describe('PlayerManager', () => {
 
   it('getVideoData returns null when getVideoData is not a function', () => {
     const p = manager.getPlayer();
-    delete (p as unknown as { getVideoData?: unknown }).getVideoData;
+    delete p['getVideoData'];
     expect(manager.getVideoData()).toBeNull();
   });
 
   it('getCurrentTime returns 0 when getCurrentTime is not a function', () => {
     const p = manager.getPlayer();
-    delete (p as unknown as { getCurrentTime?: unknown }).getCurrentTime;
+    delete p['getCurrentTime'];
     expect(manager.getCurrentTime()).toBe(0);
   });
 
@@ -162,7 +162,7 @@ describe('PlayerManager', () => {
 
   it('getPlayerSize returns null when getPlayerSize is not a function', () => {
     const p = manager.getPlayer();
-    delete (p as unknown as { getPlayerSize?: unknown }).getPlayerSize;
+    delete p['getPlayerSize'];
     expect(manager.getPlayerSize()).toBeNull();
   });
 

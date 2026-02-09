@@ -19,7 +19,7 @@ export default defineConfig({
         'src/di/types.ts',
         'src/main.ts',
         'src/constants/index.ts',
-        'src/test-utils/index.ts',
+        'src/test-utils/**',
       ],
       thresholds: {
         lines: 90,

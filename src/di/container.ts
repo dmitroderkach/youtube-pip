@@ -44,6 +44,7 @@ export class Container {
       toInstance: (instance: unknown) => {
         this.bindings.set(token, {
           token,
+          /* v8 ignore next -- factory never called, instance returned directly */
           implementation: (() => instance) as unknown as Constructor,
           scope: 'singleton',
           instance,

@@ -1,8 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { createTestContainer } from '../../test-utils/test-container';
+import { createFakePlayer, createFakeResizeObserverEntry } from '../../test-utils/test-helpers';
 import { ResizeTracker } from '../ResizeTracker';
 import { PlayerManager } from '../../core/PlayerManager';
+
+/** ContentRect width for resize callback tests */
+const RESIZE_WIDTH_PRIMARY = 200;
+const RESIZE_WIDTH_SECONDARY = 100;
 
 describe('ResizeTracker', () => {
   let tracker: ResizeTracker;
@@ -26,15 +31,11 @@ describe('ResizeTracker', () => {
     );
 
     mockPlayerManager = mock<PlayerManager>();
-    const fakePlayer = document.createElement('div') as HTMLDivElement & {
-      setInternalSize: ReturnType<typeof vi.fn>;
-      setSize: ReturnType<typeof vi.fn>;
-    };
-    fakePlayer.setInternalSize = vi.fn();
-    fakePlayer.setSize = vi.fn();
-    mockPlayerManager.getPlayer.mockReturnValue(
-      fakePlayer as unknown as ReturnType<PlayerManager['getPlayer']>
-    );
+    const fakePlayer = createFakePlayer({
+      setInternalSize: vi.fn(),
+      setSize: vi.fn(),
+    });
+    mockPlayerManager.getPlayer.mockReturnValue(fakePlayer);
 
     const c = createTestContainer();
     c.bind(PlayerManager).toInstance(mockPlayerManager);
@@ -53,28 +54,25 @@ describe('ResizeTracker', () => {
     const el = document.createElement('div');
     tracker.start(el);
     expect(resizeCallback).toBeDefined();
-    const fakePlayer = mockPlayerManager.getPlayer() as {
-      setInternalSize?: ReturnType<typeof vi.fn>;
-      setSize?: ReturnType<typeof vi.fn>;
-    };
-    const entry = {
-      contentRect: { width: 200 },
+    const entry = createFakeResizeObserverEntry({
+      contentRect: { width: RESIZE_WIDTH_PRIMARY } as DOMRectReadOnly,
       target: el,
-    } as unknown as ResizeObserverEntry;
+    });
     resizeCallback!([entry]);
-    expect(fakePlayer.setInternalSize).toHaveBeenCalled();
-    expect(fakePlayer.setSize).toHaveBeenCalled();
+    expect(mockPlayerManager.getPlayer().setInternalSize).toHaveBeenCalled();
+    expect(mockPlayerManager.getPlayer().setSize).toHaveBeenCalled();
   });
 
   it('resize callback when player has no resize methods still dispatches resize event', () => {
-    const playerNoResize = document.createElement('div');
-    mockPlayerManager.getPlayer.mockReturnValue(
-      playerNoResize as unknown as ReturnType<PlayerManager['getPlayer']>
-    );
+    const playerNoResize = createFakePlayer({});
+    mockPlayerManager.getPlayer.mockReturnValue(playerNoResize);
     const el = document.createElement('div');
     tracker.start(el);
     const dispatchSpy = vi.spyOn(playerNoResize, 'dispatchEvent');
-    const entry = { contentRect: { width: 100 }, target: el } as unknown as ResizeObserverEntry;
+    const entry = createFakeResizeObserverEntry({
+      contentRect: { width: RESIZE_WIDTH_SECONDARY } as DOMRectReadOnly,
+      target: el,
+    });
     resizeCallback!([entry]);
     expect(dispatchSpy).toHaveBeenCalledWith(expect.objectContaining({ type: 'resize' }));
   });

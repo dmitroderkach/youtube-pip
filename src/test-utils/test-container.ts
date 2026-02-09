@@ -41,6 +41,15 @@ export function createMockLoggerFactory(): LoggerFactory {
   } as unknown as LoggerFactory;
 }
 
+/**
+ * Creates a LoggerFactory that returns the given logger. Use when you need a custom logger in tests.
+ */
+export function createLoggerFactoryWithLogger(logger: Logger): LoggerFactory {
+  return {
+    create: () => logger,
+  } as unknown as LoggerFactory;
+}
+
 /** Classes that tests commonly resolve. Add more as needed. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const TEST_BINDINGS: readonly (new (...args: any[]) => any)[] = [

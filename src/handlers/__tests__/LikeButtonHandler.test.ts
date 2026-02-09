@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { createTestContainer } from '../../test-utils/test-container';
+import { createFakeWindow, createFakeMouseEvent } from '../../test-utils/test-helpers';
 import { LikeButtonHandler } from '../LikeButtonHandler';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
 import { YtActionSender } from '../../core/YtActionSender';
@@ -21,7 +22,7 @@ describe('LikeButtonHandler', () => {
         if (type === 'click') clickHandler = listener as (e: MouseEvent) => void;
       }
     );
-    const pipWindow = { document: pipDoc } as unknown as Window;
+    const pipWindow = createFakeWindow({ document: pipDoc });
 
     mockPipProvider = mock<PipWindowProvider>();
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
@@ -66,21 +67,21 @@ describe('LikeButtonHandler', () => {
   it('click on like button (not pressed) sends LIKE', () => {
     likeHandler.initialize();
     const button = createLikeButtonDOM(false, true);
-    clickHandler!({ target: button } as unknown as MouseEvent);
+    clickHandler!(createFakeMouseEvent({ target: button }));
     expect(mockYtActionSender.sendLikeAction).toHaveBeenCalledWith(YT_LIKE_ACTIONS.LIKE);
   });
 
   it('click on like button (pressed) sends REMOVE', () => {
     likeHandler.initialize();
     const button = createLikeButtonDOM(true, true);
-    clickHandler!({ target: button } as unknown as MouseEvent);
+    clickHandler!(createFakeMouseEvent({ target: button }));
     expect(mockYtActionSender.sendLikeAction).toHaveBeenCalledWith(YT_LIKE_ACTIONS.REMOVE);
   });
 
   it('click on dislike button (not pressed) sends DISLIKE', () => {
     likeHandler.initialize();
     const button = createLikeButtonDOM(false, false);
-    clickHandler!({ target: button } as unknown as MouseEvent);
+    clickHandler!(createFakeMouseEvent({ target: button }));
     expect(mockYtActionSender.sendLikeAction).toHaveBeenCalledWith(YT_LIKE_ACTIONS.DISLIKE);
   });
 
@@ -88,7 +89,7 @@ describe('LikeButtonHandler', () => {
     likeHandler.initialize();
     const div = pipDoc.createElement('div');
     pipDoc.body.appendChild(div);
-    clickHandler!({ target: div } as unknown as MouseEvent);
+    clickHandler!(createFakeMouseEvent({ target: div }));
     expect(mockYtActionSender.sendLikeAction).not.toHaveBeenCalled();
   });
 
@@ -96,7 +97,7 @@ describe('LikeButtonHandler', () => {
     likeHandler.initialize();
     const toggle = pipDoc.createElement(SELECTORS.LIKE_BUTTON);
     toggle.appendChild(pipDoc.createElement('button'));
-    clickHandler!({ target: toggle } as unknown as MouseEvent);
+    clickHandler!(createFakeMouseEvent({ target: toggle }));
     expect(mockYtActionSender.sendLikeAction).not.toHaveBeenCalled();
   });
 
@@ -113,7 +114,7 @@ describe('LikeButtonHandler', () => {
     container.appendChild(second);
     container.appendChild(third);
     pipDoc.body.appendChild(container);
-    clickHandler!({ target: btn } as unknown as MouseEvent);
+    clickHandler!(createFakeMouseEvent({ target: btn }));
     expect(mockYtActionSender.sendLikeAction).not.toHaveBeenCalled();
   });
 
@@ -123,7 +124,7 @@ describe('LikeButtonHandler', () => {
     const span = pipDoc.createElement('span');
     toggle.appendChild(span);
     pipDoc.body.appendChild(toggle);
-    clickHandler!({ target: span } as unknown as MouseEvent);
+    clickHandler!(createFakeMouseEvent({ target: span }));
     expect(mockYtActionSender.sendLikeAction).not.toHaveBeenCalled();
   });
 });
