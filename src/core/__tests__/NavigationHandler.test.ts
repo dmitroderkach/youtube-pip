@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { createTestContainer } from '../../test-utils/test-container';
+import { createFakeWindow } from '../../test-utils/test-helpers';
+import type { NavigationState } from '../../types/youtube';
 import { NavigationHandler } from '../NavigationHandler';
 import { PipWindowProvider } from '../PipWindowProvider';
 
@@ -12,7 +14,7 @@ describe('NavigationHandler', () => {
 
   beforeEach(() => {
     pipDoc = document.implementation.createHTMLDocument();
-    const pipWindow = { document: pipDoc } as unknown as Window;
+    const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider = mock<PipWindowProvider>();
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     popstateSpy = vi.fn<(ev: PopStateEvent) => void>();
@@ -32,14 +34,17 @@ describe('NavigationHandler', () => {
     expect(() => handler.cleanup()).not.toThrow();
   });
 
-  it('click on link dispatches popstate', () => {
+  it('click on link dispatches popstate and prevents default', () => {
     handler.initialize();
     const link = pipDoc.createElement('a');
     link.href = 'https://www.youtube.com/watch?v=abc';
     link.className = 'yt-simple-endpoint';
     pipDoc.body.appendChild(link);
-    link.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const ev = new MouseEvent('click', { bubbles: true });
+    vi.spyOn(ev, 'preventDefault');
+    link.dispatchEvent(ev);
     expect(popstateSpy).toHaveBeenCalled();
+    expect(ev.preventDefault).toHaveBeenCalled();
   });
 
   it('click on link with playlist and index builds state', () => {
@@ -51,9 +56,7 @@ describe('NavigationHandler', () => {
     link.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(popstateSpy).toHaveBeenCalled();
     const ev = popstateSpy.mock.calls[0][0] as PopStateEvent;
-    const watchEndpoint = (
-      ev.state as { endpoint?: { watchEndpoint?: { playlistId?: string; index?: number } } }
-    )?.endpoint?.watchEndpoint;
+    const watchEndpoint = (ev.state as NavigationState)?.endpoint?.watchEndpoint;
     expect(watchEndpoint?.playlistId).toBe('PL1');
     expect(watchEndpoint?.index).toBe(1);
   });
@@ -100,9 +103,9 @@ describe('NavigationHandler', () => {
     link.className = 'yt-simple-endpoint';
     pipDoc.body.appendChild(link);
     const OrigURL = globalThis.URL;
-    globalThis.URL = function () {
+    (globalThis as Record<string, unknown>)['URL'] = function () {
       throw new Error('URL error');
-    } as unknown as typeof URL;
+    };
     link.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     globalThis.URL = OrigURL;
     expect(popstateSpy).not.toHaveBeenCalled();

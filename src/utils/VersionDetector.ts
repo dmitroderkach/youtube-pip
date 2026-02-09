@@ -6,6 +6,7 @@
  * Get script version from Vite define (injected at build time)
  */
 function getScriptVersion(): string {
+  /* v8 ignore next -- @preserve */
   return typeof SCRIPT_VERSION !== 'undefined' ? SCRIPT_VERSION : 'unknown';
 }
 

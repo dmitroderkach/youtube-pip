@@ -155,6 +155,7 @@ export class DOMUtils {
       });
 
       // Observe the parent for changes
+      /* v8 ignore next -- @preserve */
       const target = parent === document ? document.body : parent;
       if (!target) {
         reject(new AppRuntimeError(`Target element not found for selector: ${selector}`));

@@ -25,11 +25,12 @@ describe('AppError', () => {
   });
 
   it('captureStackTrace branch when not available', () => {
-    const orig = Error.captureStackTrace;
-    (Error as unknown as { captureStackTrace?: unknown }).captureStackTrace = undefined;
+    const errProto = Error as unknown as Record<string, unknown>;
+    const orig = errProto['captureStackTrace'];
+    errProto['captureStackTrace'] = undefined;
     const err = new ConcreteError('no stack');
     expect(err.message).toBe('no stack');
-    (Error as unknown as { captureStackTrace?: unknown }).captureStackTrace = orig;
+    errProto['captureStackTrace'] = orig;
   });
 });
 

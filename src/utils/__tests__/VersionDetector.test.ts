@@ -100,7 +100,7 @@ describe('VersionDetector', () => {
     const meta = getGlobalMetadata();
     expect(meta.youtubeVersion).toBe('unknown');
     expect(meta.youtubeFeatureFlags).toBeUndefined();
-    delete (window as unknown as { ytcfg?: unknown }).ytcfg;
+    delete window['ytcfg'];
     window.ytcfg = originalYtcfg;
   });
 

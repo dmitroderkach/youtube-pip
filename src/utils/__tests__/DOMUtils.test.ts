@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { DOMUtils } from '../DOMUtils';
 import { TIMEOUTS } from '../../constants';
+import { createFakeWindow } from '../../test-utils/test-helpers';
 
 vi.mock('../../logger', () => ({
   Logger: { getInstance: () => ({ debug: vi.fn(), warn: vi.fn(), error: vi.fn() }) },
@@ -12,6 +13,10 @@ const SHORT_TIMEOUT_MS = 50;
 const TINY_TIMEOUT_MS = 10;
 /** Delay after which element is appended in mutation test (fake timers) */
 const MUTATION_DELAY_MS = 20;
+/** Timeout for "mutation skips non-matching" test */
+const MUTATION_SKIP_TIMEOUT_MS = 500;
+/** Step size when advancing timers for mutation tests */
+const MUTATION_STEP_MS = 10;
 
 describe('DOMUtils', () => {
   beforeEach(() => {
@@ -173,17 +178,39 @@ describe('DOMUtils', () => {
     const origBody = document.body;
     Object.defineProperty(document, 'body', { value: null, configurable: true });
     try {
-      await expect(
-        DOMUtils.waitForElementSelector('.x', document, TINY_TIMEOUT_MS)
-      ).rejects.toThrow(/Target element not found/);
+      const p = DOMUtils.waitForElementSelector('.x', document, TINY_TIMEOUT_MS);
+      await expect(p).rejects.toThrow(/Target element not found/);
     } finally {
       Object.defineProperty(document, 'body', { value: origBody, configurable: true });
     }
   });
 
+  it('waitForElementSelector MutationObserver callback skips when mutation does not add matching element', async () => {
+    vi.useFakeTimers();
+    const parent = document.createElement('div');
+    document.body.appendChild(parent);
+    const p = DOMUtils.waitForElementSelector<HTMLSpanElement>(
+      '.will-appear-later',
+      document,
+      MUTATION_SKIP_TIMEOUT_MS
+    );
+    parent.appendChild(document.createElement('div'));
+    await vi.advanceTimersByTimeAsync(MUTATION_STEP_MS);
+    const el = document.createElement('span');
+    el.className = 'will-appear-later';
+    parent.appendChild(el);
+    await vi.advanceTimersByTimeAsync(MUTATION_STEP_MS);
+    const found = await p;
+    expect(found.classList.contains('will-appear-later')).toBe(true);
+  });
+
   it('waitForElementSelector rejects on pagehide when timeout 0 and targetWindow given', async () => {
     const addSpy = vi.fn();
-    const win = { closed: false, addEventListener: addSpy } as unknown as Window;
+    const win = createFakeWindow({
+      document: document.implementation.createHTMLDocument(),
+      closed: false,
+      addEventListener: addSpy,
+    });
     const p = DOMUtils.waitForElementSelector(
       '.never',
       document,

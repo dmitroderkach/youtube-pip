@@ -1,10 +1,20 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { createTestContainer } from '../../test-utils/test-container';
+import { createFakeWindow, createFakePlayer } from '../../test-utils/test-helpers';
 import { SeekHandler } from '../SeekHandler';
 import { PlayerManager } from '../../core/PlayerManager';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
 import { UI_CLASSES } from '../../constants';
+
+/** Progress bar rect for seek tests: full width */
+const BAR_RECT = { left: 0, width: 100 } as const;
+/** Mock duration for seek tests */
+const MOCK_DURATION_SEC = 100;
+/** ClientX values for mousedown/mousemove in seek tests */
+const SEEK_CLICK_X = 50;
+const SEEK_MOVE_X_1 = 75;
+const SEEK_MOVE_X_2 = 80;
 
 vi.mock('../../utils/DOMUtils', () => ({
   DOMUtils: { waitForElementSelector: vi.fn().mockResolvedValue(document.createElement('div')) },
@@ -20,20 +30,18 @@ describe('SeekHandler', () => {
 
   beforeEach(async () => {
     pipDoc = document.implementation.createHTMLDocument();
-    const pipWindow = { document: pipDoc } as unknown as Window;
+    const pipWindow = createFakeWindow({ document: pipDoc });
     mockSeekTo = vi.fn();
-    mockGetDuration = vi.fn().mockReturnValue(100);
-    const fakePlayer = {
-      getDuration: mockGetDuration,
-      seekTo: mockSeekTo,
-    };
+    mockGetDuration = vi.fn().mockReturnValue(MOCK_DURATION_SEC);
+    const fakePlayer = createFakePlayer({
+      getDuration: mockGetDuration as () => number,
+      seekTo: mockSeekTo as (s: number, a: boolean) => void,
+    });
 
     mockPipProvider = mock<PipWindowProvider>();
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     mockPlayerManager = mock<PlayerManager>();
-    mockPlayerManager.getPlayer.mockReturnValue(
-      fakePlayer as unknown as ReturnType<PlayerManager['getPlayer']>
-    );
+    mockPlayerManager.getPlayer.mockReturnValue(fakePlayer);
 
     const c = createTestContainer();
     c.bind(PipWindowProvider).toInstance(mockPipProvider);
@@ -57,10 +65,10 @@ describe('SeekHandler', () => {
     bar.className = UI_CLASSES.PROGRESS_BAR;
     pipDoc.body.appendChild(bar);
     Object.defineProperty(bar, 'getBoundingClientRect', {
-      value: () => ({ left: 0, width: 100 }),
+      value: () => BAR_RECT,
     });
-    bar.dispatchEvent(new MouseEvent('mousedown', { clientX: 50, bubbles: true }));
-    expect(mockSeekTo).toHaveBeenCalledWith(50, true);
+    bar.dispatchEvent(new MouseEvent('mousedown', { clientX: SEEK_CLICK_X, bubbles: true }));
+    expect(mockSeekTo).toHaveBeenCalledWith(SEEK_CLICK_X, true);
   });
 
   it('mousedown not on progress bar does not seek', () => {
@@ -77,42 +85,36 @@ describe('SeekHandler', () => {
     const bar = pipDoc.createElement('div');
     bar.className = UI_CLASSES.PROGRESS_BAR;
     pipDoc.body.appendChild(bar);
-    Object.defineProperty(bar, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) });
-    bar.dispatchEvent(new MouseEvent('mousedown', { clientX: 50, bubbles: true }));
+    Object.defineProperty(bar, 'getBoundingClientRect', { value: () => BAR_RECT });
+    bar.dispatchEvent(new MouseEvent('mousedown', { clientX: SEEK_CLICK_X, bubbles: true }));
     expect(mockSeekTo).not.toHaveBeenCalled();
   });
 
   it('mousedown when getDuration missing logs and does not seek', () => {
-    const playerNoDuration = {
-      getDuration: undefined,
-      seekTo: mockSeekTo,
-    };
-    mockPlayerManager.getPlayer.mockReturnValue(
-      playerNoDuration as unknown as ReturnType<PlayerManager['getPlayer']>
-    );
+    const playerNoDuration = createFakePlayer({
+      seekTo: mockSeekTo as (s: number, a: boolean) => void,
+    });
+    mockPlayerManager.getPlayer.mockReturnValue(playerNoDuration);
     handler.initialize();
     const bar = pipDoc.createElement('div');
     bar.className = UI_CLASSES.PROGRESS_BAR;
     pipDoc.body.appendChild(bar);
-    Object.defineProperty(bar, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) });
-    bar.dispatchEvent(new MouseEvent('mousedown', { clientX: 50, bubbles: true }));
+    Object.defineProperty(bar, 'getBoundingClientRect', { value: () => BAR_RECT });
+    bar.dispatchEvent(new MouseEvent('mousedown', { clientX: SEEK_CLICK_X, bubbles: true }));
     expect(mockSeekTo).not.toHaveBeenCalled();
   });
 
   it('mousedown when seekTo missing logs and does not seek', () => {
-    const playerNoSeekTo = {
-      getDuration: mockGetDuration,
-      seekTo: undefined,
-    };
-    mockPlayerManager.getPlayer.mockReturnValue(
-      playerNoSeekTo as unknown as ReturnType<PlayerManager['getPlayer']>
-    );
+    const playerNoSeekTo = createFakePlayer({
+      getDuration: mockGetDuration as () => number,
+    });
+    mockPlayerManager.getPlayer.mockReturnValue(playerNoSeekTo);
     handler.initialize();
     const bar = pipDoc.createElement('div');
     bar.className = UI_CLASSES.PROGRESS_BAR;
     pipDoc.body.appendChild(bar);
-    Object.defineProperty(bar, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) });
-    bar.dispatchEvent(new MouseEvent('mousedown', { clientX: 50, bubbles: true }));
+    Object.defineProperty(bar, 'getBoundingClientRect', { value: () => BAR_RECT });
+    bar.dispatchEvent(new MouseEvent('mousedown', { clientX: SEEK_CLICK_X, bubbles: true }));
     expect(mockSeekTo).not.toHaveBeenCalled();
   });
 
@@ -121,14 +123,14 @@ describe('SeekHandler', () => {
     const bar = pipDoc.createElement('div');
     bar.className = UI_CLASSES.PROGRESS_BAR;
     pipDoc.body.appendChild(bar);
-    Object.defineProperty(bar, 'getBoundingClientRect', { value: () => ({ left: 0, width: 100 }) });
-    bar.dispatchEvent(new MouseEvent('mousedown', { clientX: 50, bubbles: true }));
-    expect(mockSeekTo).toHaveBeenCalledWith(50, true);
-    pipDoc.dispatchEvent(new MouseEvent('mousemove', { clientX: 75, bubbles: true }));
-    expect(mockSeekTo).toHaveBeenCalledWith(75, true);
+    Object.defineProperty(bar, 'getBoundingClientRect', { value: () => BAR_RECT });
+    bar.dispatchEvent(new MouseEvent('mousedown', { clientX: SEEK_CLICK_X, bubbles: true }));
+    expect(mockSeekTo).toHaveBeenCalledWith(SEEK_CLICK_X, true);
+    pipDoc.dispatchEvent(new MouseEvent('mousemove', { clientX: SEEK_MOVE_X_1, bubbles: true }));
+    expect(mockSeekTo).toHaveBeenCalledWith(SEEK_MOVE_X_1, true);
     pipDoc.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
     mockSeekTo.mockClear();
-    pipDoc.dispatchEvent(new MouseEvent('mousemove', { clientX: 80, bubbles: true }));
+    pipDoc.dispatchEvent(new MouseEvent('mousemove', { clientX: SEEK_MOVE_X_2, bubbles: true }));
     expect(mockSeekTo).not.toHaveBeenCalled();
   });
 });

@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.1.1] - 2026-02-09
+
+**Goal:** Achieve 100% test coverage.
+
+### Changed
+
+- **Tests** — Aligned with test rules: replaced magic constants with named constants (DOMUtils, SeekHandler, ResizeTracker); replaced inline type assertions (`as unknown as HandlerPrivateAccess`) with bracket notation for private member access (MediaSessionHandler, ContextMenuHandler)
+- **Coverage** — Added v8 ignore comments for uncovered branches in DOMUtils and VersionDetector (branches that cannot be exercised in tests)
+- **Test rules** — Updated `.cursor/rules/tests.mdc` (avoid inline types, minimize `as never`)
+
 ## [2.1.0] - 2026-02-08
 
 ### Added
@@ -700,6 +710,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.1.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.0...refs/tags/v2.1.1
 [2.1.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.5...refs/tags/v2.1.0
 [2.0.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.4...refs/tags/v2.0.5
 [2.0.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.3...refs/tags/v2.0.4

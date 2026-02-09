@@ -31,9 +31,15 @@ alwaysApply: false
 ## 5. No magic constants
 
 - **Avoid raw magic numbers and strings** in tests. Use named constants: from `src/constants` (e.g. `TIMEOUTS`, `DEFAULT_DIMENSIONS`, `COPY_PAYLOAD_QUERY`) or define a local constant at the top of the describe/test file (e.g. `const EMBED_SAMPLE = { WIDTH: 640, HEIGHT: 360 } as const`).
-- For time values in tests use `TIMEOUTS.*` or a named test constant; for dimensions, selectors, copy payload params use app constants or a single shared constant.
+- For time values in tests use `TIMEOUTS.*` or a named test constant; for dimensions, selectors, copy payload params use app constants or a single named constant.
 
 ## 6. Wait for completion, not magic time (complex async scenarios)
 
-- **Do not wait in complex scenarios** by advancing time with a magic number (e.g. `advanceTimersByTimeAsync(1000)` “to let everything finish”). That is an anti-pattern: flaky and unrelated to real completion.
-- **Instead, wait for real completion** of all async work: await the promise returned by the code under test (e.g. make handlers like `close()` return a promise and `await` it), use `vi.runAllTimersAsync()` to run any `setTimeout`/`setInterval` used inside that flow, then await the same promise. Prefer exposing or calling a single entry that returns a promise so the test can `await` it; avoid “sleep N ms and hope it’s done.”
+- **Do not wait in complex scenarios** by advancing time with a magic number (e.g. `advanceTimersByTimeAsync(1000)` "to let everything finish"). That is an anti-pattern: flaky and unrelated to real completion.
+- **Instead, wait for real completion** of all async work: await the promise returned by the code under test (e.g. make handlers like `close()` return a promise and `await` it), use `vi.runAllTimersAsync()` to run any `setTimeout`/`setInterval` used inside that flow, then await the same promise. Prefer exposing or calling a single entry that returns a promise so the test can `await` it; avoid "sleep N ms and hope it's done."
+
+## 7. Avoid inline types (anti-pattern)
+
+- **Do not use inline type assertions** such as `(obj as unknown as { close(): Promise<void> }).close()`. Use bracket notation for private member access: `obj['close']()`, `obj['returnPlayerToMain']`.
+- **Avoid inline object types** in type assertions: `as unknown as { closed: boolean }`, `as unknown as Window`. Prefer typed helpers in `test-utils` (e.g. `createFakeWindow(partial)`) or named type aliases at the top of the test file.
+- **Minimize `as never`** — use only when a mock must return a value incompatible with its declared type. Prefer typed mocks or `satisfies` where possible.
