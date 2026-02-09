@@ -2,19 +2,6 @@ import { vi } from 'vitest';
 import type { Logger } from '../logger';
 import { LoggerFactory } from '../logger';
 import { Container } from '../di/container';
-import type { ServiceId } from '../di/types';
-import { PlayerManager } from '../core/PlayerManager';
-import { YtdAppProvider } from '../core/YtdAppProvider';
-import { PipWindowProvider } from '../core/PipWindowProvider';
-import { YtActionSender } from '../core/YtActionSender';
-import { NavigationHandler } from '../core/NavigationHandler';
-import { SeekHandler } from '../handlers/SeekHandler';
-import { ResizeTracker } from '../ui/ResizeTracker';
-import { MenuObserver } from '../ui/MenuObserver';
-import { ContextMenuHandler } from '../ui/ContextMenuHandler';
-import { MiniPlayerController } from '../ui/MiniPlayerController';
-import { DocumentFocusHandler } from '../handlers/DocumentFocusHandler';
-import { LikeButtonHandler } from '../handlers/LikeButtonHandler';
 
 const noop = () => {};
 
@@ -50,42 +37,12 @@ export function createLoggerFactoryWithLogger(logger: Logger): LoggerFactory {
   } as unknown as LoggerFactory;
 }
 
-/** Classes that tests commonly resolve. Add more as needed. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const TEST_BINDINGS: readonly (new (...args: any[]) => any)[] = [
-  PlayerManager,
-  YtdAppProvider,
-  PipWindowProvider,
-  YtActionSender,
-  NavigationHandler,
-  SeekHandler,
-  ResizeTracker,
-  MenuObserver,
-  ContextMenuHandler,
-  MiniPlayerController,
-  DocumentFocusHandler,
-  LikeButtonHandler,
-];
-
 /**
- * Creates a test DI container with:
- * - LoggerFactory bound to a mock (no-op logger).
- * - All TEST_BINDINGS registered with toSelf().
- *
- * In each test you can override any dependency with a mock, then get the class under test:
- *
- *   const c = createTestContainer();
- *   c.bind(PlayerManager).toInstance(myMockPlayerManager);
- *   const sender = c.get(YtActionSender);
+ * Creates an empty test DI container with only LoggerFactory (mock). No real implementations.
+ * Each test must bind the class under test (.toSelf()) and all its dependencies (.toInstance(mock)).
  */
-export function createTestContainer(): Container {
+export function createTestContainer() {
   const container = new Container();
-
   container.bind(LoggerFactory).toInstance(createMockLoggerFactory());
-
-  for (const Ctor of TEST_BINDINGS) {
-    container.bind(Ctor as ServiceId).toSelf();
-  }
-
   return container;
 }

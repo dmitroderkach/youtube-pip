@@ -39,6 +39,7 @@ describe('ResizeTracker', () => {
 
     const c = createTestContainer();
     c.bind(PlayerManager).toInstance(mockPlayerManager);
+    c.bind(ResizeTracker).toSelf();
     tracker = c.get(ResizeTracker);
   });
 
@@ -81,6 +82,7 @@ describe('ResizeTracker', () => {
     vi.stubGlobal('ResizeObserver', undefined);
     const c = createTestContainer();
     c.bind(PlayerManager).toInstance(mockPlayerManager);
+    c.bind(ResizeTracker).toSelf();
     const tracker2 = c.get(ResizeTracker) as ResizeTracker;
     tracker2.start(document.createElement('div'));
     expect(mockObserve).not.toHaveBeenCalled();

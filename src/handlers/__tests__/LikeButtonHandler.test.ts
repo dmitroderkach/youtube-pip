@@ -31,6 +31,7 @@ describe('LikeButtonHandler', () => {
     const c = createTestContainer();
     c.bind(PipWindowProvider).toInstance(mockPipProvider);
     c.bind(YtActionSender).toInstance(mockYtActionSender);
+    c.bind(LikeButtonHandler).toSelf();
     likeHandler = c.get(LikeButtonHandler);
   });
 

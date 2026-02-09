@@ -27,6 +27,7 @@ describe('YtActionSender', () => {
     c.bind(PipWindowProvider).toInstance(mockPip);
     c.bind(PlayerManager).toInstance(mockPlayerManager);
     c.bind(YtdAppProvider).toInstance(mockYtdApp);
+    c.bind(YtActionSender).toSelf();
     sender = c.get(YtActionSender);
   });
 

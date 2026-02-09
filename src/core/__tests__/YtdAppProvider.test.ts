@@ -19,6 +19,7 @@ describe('YtdAppProvider', () => {
       .mockResolvedValueOnce(mockApp)
       .mockResolvedValueOnce(mockNotify);
     const c = createTestContainer();
+    c.bind(YtdAppProvider).toSelf();
     provider = c.get(YtdAppProvider);
     await provider.initialize();
   });
@@ -37,6 +38,7 @@ describe('YtdAppProvider initialize failure', () => {
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockRejectedValueOnce(new Error('timeout'));
     const c = createTestContainer();
+    c.bind(YtdAppProvider).toSelf();
     const provider = c.get(YtdAppProvider) as YtdAppProvider;
     await expect(provider.initialize()).rejects.toThrow(/element not found/);
   });
@@ -47,6 +49,7 @@ describe('YtdAppProvider initialize failure', () => {
       .mockResolvedValueOnce(document.createElement('div'))
       .mockRejectedValueOnce(new Error('timeout'));
     const c = createTestContainer();
+    c.bind(YtdAppProvider).toSelf();
     const provider = c.get(YtdAppProvider) as YtdAppProvider;
     await provider.initialize();
     expect(provider.getNotifyRenderer()).toBeNull();

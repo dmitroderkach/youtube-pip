@@ -28,6 +28,7 @@ describe('NavigationHandler', () => {
 
     const c = createTestContainer();
     c.bind(PipWindowProvider).toInstance(mockPipProvider);
+    c.bind(NavigationHandler).toSelf();
     handler = c.get(NavigationHandler);
   });
 
