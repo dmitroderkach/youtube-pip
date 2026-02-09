@@ -5,7 +5,8 @@ import { createFakeYtdApp, createFakeYtdAppWithFire } from '../../test-utils/tes
 import { MiniPlayerController } from '../MiniPlayerController';
 import { PlayerManager } from '../../core/PlayerManager';
 import { YtdAppProvider } from '../../core/YtdAppProvider';
-import { YT_EVENTS, YT_ACTION_NAMES, UI_CLASSES } from '../../constants';
+import { YT_EVENTS, YT_ACTION_NAMES } from '../../constants';
+import { SELECTORS } from '../../selectors';
 
 vi.mock('../../utils/DOMUtils', () => ({
   DOMUtils: {
@@ -42,7 +43,7 @@ describe('MiniPlayerController', () => {
 
   it('isVisible returns true when MINIPLAYER_HOST in document', () => {
     const host = document.createElement('div');
-    host.className = UI_CLASSES.MINIPLAYER_HOST;
+    host.className = SELECTORS.MINIPLAYER_HOST.slice(1).replace(/\./g, ' ');
     document.body.appendChild(host);
     expect(controller.isVisible()).toBe(true);
     host.remove();

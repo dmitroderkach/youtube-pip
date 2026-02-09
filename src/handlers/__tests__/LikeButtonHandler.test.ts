@@ -5,7 +5,7 @@ import { createFakeWindow, createFakeMouseEvent } from '../../test-utils/test-he
 import { LikeButtonHandler } from '../LikeButtonHandler';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
 import { YtActionSender } from '../../core/YtActionSender';
-import { YT_LIKE_ACTIONS, UI_CLASSES } from '../../constants';
+import { YT_LIKE_ACTIONS } from '../../constants';
 import { SELECTORS } from '../../selectors';
 
 describe('LikeButtonHandler', () => {
@@ -55,7 +55,7 @@ describe('LikeButtonHandler', () => {
     const likeToggle = pipDoc.createElement(SELECTORS.LIKE_BUTTON);
     const dislikeToggle = pipDoc.createElement(SELECTORS.LIKE_BUTTON);
     const button = pipDoc.createElement('button');
-    button.className = UI_CLASSES.BUTTON_SHAPE;
+    button.className = SELECTORS.BUTTON_SHAPE.slice(1);
     button.setAttribute('aria-pressed', String(ariaPressed));
     (isLike ? likeToggle : dislikeToggle).appendChild(button);
     container.appendChild(likeToggle);
@@ -108,7 +108,7 @@ describe('LikeButtonHandler', () => {
     const second = pipDoc.createElement(SELECTORS.LIKE_BUTTON);
     const third = pipDoc.createElement(SELECTORS.LIKE_BUTTON);
     const btn = pipDoc.createElement('button');
-    btn.className = UI_CLASSES.BUTTON_SHAPE;
+    btn.className = SELECTORS.BUTTON_SHAPE.slice(1);
     third.appendChild(btn);
     container.appendChild(first);
     container.appendChild(second);

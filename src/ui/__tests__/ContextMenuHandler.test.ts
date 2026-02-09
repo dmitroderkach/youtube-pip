@@ -6,7 +6,7 @@ import { ContextMenuHandler, type ContextMenuVisibilityCallback } from '../Conte
 import { PlayerManager } from '../../core/PlayerManager';
 import { YtdAppProvider } from '../../core/YtdAppProvider';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
-import { COPY_MENU_INDICES, UI_CLASSES } from '../../constants';
+import { COPY_MENU_INDICES } from '../../constants';
 import { SELECTORS } from '../../selectors';
 import {
   buildVideoUrlPayload,
@@ -18,6 +18,10 @@ import {
 const EMBED_SAMPLE = { WIDTH: 640, HEIGHT: 360 } as const;
 /** Current time in seconds used in "URL at time" copy tests */
 const CURRENT_TIME_SEC = 30;
+/** Inline styles for menu visibility tests */
+const STYLE_DISPLAY_BLOCK = 'display: block';
+const STYLE_DISPLAY_NONE = 'display: none';
+const STYLE_DISPLAY_BLOCK_COLOR = 'display: block; color: red';
 
 vi.mock('../../utils/DOMUtils', () => ({
   DOMUtils: {
@@ -122,7 +126,7 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     menuEl.style.display = 'block';
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
@@ -139,7 +143,7 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const menuEl = document.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     menuEl.style.display = 'none';
     document.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
@@ -162,7 +166,7 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const menuEl = document.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     menuEl.style.display = 'none';
     document.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
@@ -189,15 +193,15 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
@@ -223,15 +227,15 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
@@ -253,15 +257,15 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
@@ -293,15 +297,15 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
@@ -326,15 +330,15 @@ describe('ContextMenuHandler', () => {
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
@@ -366,15 +370,15 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
@@ -393,15 +397,15 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getVideoData.mockReturnValue(null);
@@ -419,15 +423,15 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getDebugInfo.mockReturnValue(null);
@@ -445,15 +449,15 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getDebugInfo.mockReturnValue('');
@@ -469,7 +473,7 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     menuEl.style.display = 'block';
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
@@ -486,8 +490,8 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const menuEl = document.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
-    menuEl.setAttribute('style', 'display: block');
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.setAttribute('style', STYLE_DISPLAY_BLOCK);
     document.body.appendChild(menuEl);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
     const { DOMUtils } = await import('../../utils/DOMUtils');
@@ -501,7 +505,7 @@ describe('ContextMenuHandler', () => {
     );
     await handler.initialize();
     expect(DOMUtils.restoreElementFromPlaceholder).not.toHaveBeenCalled();
-    menuEl.setAttribute('style', 'display: none');
+    menuEl.setAttribute('style', STYLE_DISPLAY_NONE);
     await vi.waitFor(() => {
       expect(DOMUtils.restoreElementFromPlaceholder).toHaveBeenCalled();
     });
@@ -513,8 +517,8 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const menuEl = document.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
-    menuEl.setAttribute('style', 'display: block');
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.setAttribute('style', STYLE_DISPLAY_BLOCK);
     document.body.appendChild(menuEl);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
     const { DOMUtils } = await import('../../utils/DOMUtils');
@@ -527,7 +531,7 @@ describe('ContextMenuHandler', () => {
       }
     );
     await handler.initialize();
-    menuEl.setAttribute('style', 'display: block; color: red');
+    menuEl.setAttribute('style', STYLE_DISPLAY_BLOCK_COLOR);
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(DOMUtils.restoreElementFromPlaceholder).not.toHaveBeenCalled();
     handler.stop();
@@ -541,15 +545,15 @@ describe('ContextMenuHandler', () => {
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getVideoData.mockReturnValue({ video_id: 'v', title: 'T', list: 'PL123' });
@@ -571,15 +575,15 @@ describe('ContextMenuHandler', () => {
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getVideoData.mockReturnValue({
@@ -613,15 +617,15 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getVideoData.mockReturnValue({
@@ -646,15 +650,15 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getVideoData.mockReturnValue({
@@ -678,15 +682,15 @@ describe('ContextMenuHandler', () => {
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getVideoData.mockReturnValue({ video_id: 'v', title: 'T', list: undefined });
@@ -704,20 +708,20 @@ describe('ContextMenuHandler', () => {
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const otherContainer = pipDoc.createElement('div');
     const orphanItem = pipDoc.createElement('div');
-    orphanItem.className = UI_CLASSES.MENU_ITEM;
+    orphanItem.className = SELECTORS.MENU_ITEM.slice(1);
     otherContainer.appendChild(orphanItem);
     pipDoc.body.appendChild(otherContainer);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
@@ -734,15 +738,15 @@ describe('ContextMenuHandler', () => {
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
     const panelMenu = pipDoc.createElement('div');
-    panelMenu.className = UI_CLASSES.PANEL_MENU;
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
     for (let i = 0; i < 6; i++) {
       const item = pipDoc.createElement('div');
-      item.className = UI_CLASSES.MENU_ITEM;
+      item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
     pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
@@ -760,9 +764,9 @@ describe('ContextMenuHandler', () => {
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
     const container = pipDoc.createElement('div');
-    container.className = UI_CLASSES.CONTEXT_MENU_CONTAINER;
+    container.className = SELECTORS.CONTEXT_MENU_CONTAINER.slice(1);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     menuEl.style.display = 'block';
     container.appendChild(menuEl);
     pipDoc.body.appendChild(container);
@@ -783,7 +787,7 @@ describe('ContextMenuHandler', () => {
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = `${UI_CLASSES.CONTEXT_MENU} ${UI_CLASSES.CONTEXT_MENU_CONTAINER}`;
+    menuEl.className = `${SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ')} ${SELECTORS.CONTEXT_MENU_CONTAINER.slice(1)}`;
     menuEl.style.display = 'block';
     pipDoc.body.appendChild(menuEl);
     const outside = pipDoc.createElement('div');
@@ -805,7 +809,7 @@ describe('ContextMenuHandler', () => {
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = `${UI_CLASSES.CONTEXT_MENU} ${UI_CLASSES.CONTEXT_MENU_CONTAINER}`;
+    menuEl.className = `${SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ')} ${SELECTORS.CONTEXT_MENU_CONTAINER.slice(1)}`;
     menuEl.style.display = 'block';
     pipDoc.body.appendChild(menuEl);
     const outside = pipDoc.createElement('div');
@@ -826,7 +830,7 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     menuEl.style.display = 'block';
     pipDoc.body.appendChild(menuEl);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
@@ -841,7 +845,7 @@ describe('ContextMenuHandler', () => {
       }
     );
     await handler.initialize();
-    menuEl.setAttribute('style', 'display: none');
+    menuEl.setAttribute('style', STYLE_DISPLAY_NONE);
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(DOMUtils.restoreElementFromPlaceholder).not.toHaveBeenCalled();
     handler.stop();
@@ -854,7 +858,7 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const menuEl = pipDoc.createElement('div');
-    menuEl.className = UI_CLASSES.CONTEXT_MENU;
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
     menuEl.style.display = 'block';
     pipDoc.body.appendChild(menuEl);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));

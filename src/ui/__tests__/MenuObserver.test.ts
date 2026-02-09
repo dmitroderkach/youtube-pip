@@ -4,7 +4,8 @@ import { createFakeWindow } from '../../test-utils/test-helpers';
 import { createMenuObserverMocks } from './__mocks__/MenuObserver.mock';
 import { MenuObserver } from '../MenuObserver';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
-import { DEFAULT_DIMENSIONS, UI_CLASSES } from '../../constants';
+import { DEFAULT_DIMENSIONS } from '../../constants';
+import { SELECTORS } from '../../selectors';
 
 vi.mock('../../utils/DOMUtils', () => ({
   DOMUtils: {
@@ -101,10 +102,10 @@ describe('MenuObserver', () => {
   it('when aria-expanded true and playlist panel exists shows panel', async () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const button = pipDoc.createElement('button');
-    button.className = UI_CLASSES.BUTTON_SHAPE;
+    button.className = SELECTORS.BUTTON_SHAPE.slice(1);
     button.setAttribute('aria-expanded', 'false');
     const panel = pipDoc.createElement('div');
-    panel.className = UI_CLASSES.PLAYLIST_PANEL;
+    panel.className = SELECTORS.PLAYLIST_PANEL.slice(1);
     panel.style.display = 'none';
     pipDoc.body.appendChild(button);
     pipDoc.body.appendChild(panel);
@@ -151,10 +152,10 @@ describe('MenuObserver', () => {
   it('when aria-expanded goes back to false hides playlist panel', async () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const button = pipDoc.createElement('button');
-    button.className = UI_CLASSES.BUTTON_SHAPE;
+    button.className = SELECTORS.BUTTON_SHAPE.slice(1);
     button.setAttribute('aria-expanded', 'true');
     const panel = pipDoc.createElement('div');
-    panel.className = UI_CLASSES.PLAYLIST_PANEL;
+    panel.className = SELECTORS.PLAYLIST_PANEL.slice(1);
     panel.style.display = 'block';
     pipDoc.body.appendChild(button);
     pipDoc.body.appendChild(panel);
@@ -256,7 +257,7 @@ describe('MenuObserver', () => {
   it('when button removed from DOM re-runs observation', async () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const button = pipDoc.createElement('button');
-    button.className = UI_CLASSES.BUTTON_SHAPE;
+    button.className = SELECTORS.BUTTON_SHAPE.slice(1);
     button.setAttribute('aria-expanded', 'false');
     pipDoc.body.appendChild(button);
     const pipWindow = createFakeWindow({

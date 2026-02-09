@@ -5,7 +5,7 @@ import { createFakeWindow, createFakePlayer } from '../../test-utils/test-helper
 import { SeekHandler } from '../SeekHandler';
 import { PlayerManager } from '../../core/PlayerManager';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
-import { UI_CLASSES } from '../../constants';
+import { SELECTORS } from '../../selectors';
 
 /** Progress bar rect for seek tests: full width */
 const BAR_RECT = { left: 0, width: 100 } as const;
@@ -62,7 +62,7 @@ describe('SeekHandler', () => {
   it('mousedown on progress bar seeks', () => {
     handler.initialize();
     const bar = pipDoc.createElement('div');
-    bar.className = UI_CLASSES.PROGRESS_BAR;
+    bar.className = SELECTORS.PROGRESS_BAR.slice(1);
     pipDoc.body.appendChild(bar);
     Object.defineProperty(bar, 'getBoundingClientRect', {
       value: () => BAR_RECT,
@@ -83,7 +83,7 @@ describe('SeekHandler', () => {
     mockGetDuration.mockReturnValue(0);
     handler.initialize();
     const bar = pipDoc.createElement('div');
-    bar.className = UI_CLASSES.PROGRESS_BAR;
+    bar.className = SELECTORS.PROGRESS_BAR.slice(1);
     pipDoc.body.appendChild(bar);
     Object.defineProperty(bar, 'getBoundingClientRect', { value: () => BAR_RECT });
     bar.dispatchEvent(new MouseEvent('mousedown', { clientX: SEEK_CLICK_X, bubbles: true }));
@@ -97,7 +97,7 @@ describe('SeekHandler', () => {
     mockPlayerManager.getPlayer.mockReturnValue(playerNoDuration);
     handler.initialize();
     const bar = pipDoc.createElement('div');
-    bar.className = UI_CLASSES.PROGRESS_BAR;
+    bar.className = SELECTORS.PROGRESS_BAR.slice(1);
     pipDoc.body.appendChild(bar);
     Object.defineProperty(bar, 'getBoundingClientRect', { value: () => BAR_RECT });
     bar.dispatchEvent(new MouseEvent('mousedown', { clientX: SEEK_CLICK_X, bubbles: true }));
@@ -111,7 +111,7 @@ describe('SeekHandler', () => {
     mockPlayerManager.getPlayer.mockReturnValue(playerNoSeekTo);
     handler.initialize();
     const bar = pipDoc.createElement('div');
-    bar.className = UI_CLASSES.PROGRESS_BAR;
+    bar.className = SELECTORS.PROGRESS_BAR.slice(1);
     pipDoc.body.appendChild(bar);
     Object.defineProperty(bar, 'getBoundingClientRect', { value: () => BAR_RECT });
     bar.dispatchEvent(new MouseEvent('mousedown', { clientX: SEEK_CLICK_X, bubbles: true }));
@@ -121,7 +121,7 @@ describe('SeekHandler', () => {
   it('mousemove after mousedown seeks again, mouseup removes listeners', () => {
     handler.initialize();
     const bar = pipDoc.createElement('div');
-    bar.className = UI_CLASSES.PROGRESS_BAR;
+    bar.className = SELECTORS.PROGRESS_BAR.slice(1);
     pipDoc.body.appendChild(bar);
     Object.defineProperty(bar, 'getBoundingClientRect', { value: () => BAR_RECT });
     bar.dispatchEvent(new MouseEvent('mousedown', { clientX: SEEK_CLICK_X, bubbles: true }));

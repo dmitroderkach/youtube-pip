@@ -5,6 +5,12 @@ import { createFakeWindow } from '../../test-utils/test-helpers';
 import type { NavigationState } from '../../types/youtube';
 import { NavigationHandler } from '../NavigationHandler';
 import { PipWindowProvider } from '../PipWindowProvider';
+import { SELECTORS } from '../../selectors';
+
+/** Sample watch URLs for navigation tests */
+const SAMPLE_WATCH_URL = 'https://www.youtube.com/watch?v=abc';
+const SAMPLE_PLAYLIST_URL = 'https://www.youtube.com/watch?v=vid&list=PL1&index=2&pp=foo';
+const SAMPLE_WATCH_URL_SHORT = 'https://www.youtube.com/watch?v=x';
 
 describe('NavigationHandler', () => {
   let handler: NavigationHandler;
@@ -37,8 +43,8 @@ describe('NavigationHandler', () => {
   it('click on link dispatches popstate and prevents default', () => {
     handler.initialize();
     const link = pipDoc.createElement('a');
-    link.href = 'https://www.youtube.com/watch?v=abc';
-    link.className = 'yt-simple-endpoint';
+    link.href = SAMPLE_WATCH_URL;
+    link.className = SELECTORS.SIMPLE_ENDPOINT.slice(1);
     pipDoc.body.appendChild(link);
     const ev = new MouseEvent('click', { bubbles: true });
     vi.spyOn(ev, 'preventDefault');
@@ -50,8 +56,8 @@ describe('NavigationHandler', () => {
   it('click on link with playlist and index builds state', () => {
     handler.initialize();
     const link = pipDoc.createElement('a');
-    link.href = 'https://www.youtube.com/watch?v=vid&list=PL1&index=2&pp=foo';
-    link.className = 'yt-simple-endpoint';
+    link.href = SAMPLE_PLAYLIST_URL;
+    link.className = SELECTORS.SIMPLE_ENDPOINT.slice(1);
     pipDoc.body.appendChild(link);
     link.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(popstateSpy).toHaveBeenCalled();
@@ -64,7 +70,7 @@ describe('NavigationHandler', () => {
   it('click on endpoint with no href does not dispatch popstate', () => {
     handler.initialize();
     const link = pipDoc.createElement('a');
-    link.className = 'yt-simple-endpoint';
+    link.className = SELECTORS.SIMPLE_ENDPOINT.slice(1);
     pipDoc.body.appendChild(link);
     link.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(popstateSpy).not.toHaveBeenCalled();
@@ -73,7 +79,7 @@ describe('NavigationHandler', () => {
   it('click on button skips navigation', () => {
     handler.initialize();
     const btn = pipDoc.createElement('button');
-    btn.className = 'yt-simple-endpoint';
+    btn.className = SELECTORS.SIMPLE_ENDPOINT.slice(1);
     pipDoc.body.appendChild(btn);
     pipDoc.body.appendChild(pipDoc.createElement('a'));
     btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -90,7 +96,7 @@ describe('NavigationHandler', () => {
     handler.initialize();
     const link = pipDoc.createElement('a');
     link.setAttribute('href', '');
-    link.className = 'yt-simple-endpoint';
+    link.className = SELECTORS.SIMPLE_ENDPOINT.slice(1);
     pipDoc.body.appendChild(link);
     link.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(popstateSpy).not.toHaveBeenCalled();
@@ -99,8 +105,8 @@ describe('NavigationHandler', () => {
   it('click when URL constructor throws is caught', () => {
     handler.initialize();
     const link = pipDoc.createElement('a');
-    link.href = 'https://www.youtube.com/watch?v=x';
-    link.className = 'yt-simple-endpoint';
+    link.href = SAMPLE_WATCH_URL_SHORT;
+    link.className = SELECTORS.SIMPLE_ENDPOINT.slice(1);
     pipDoc.body.appendChild(link);
     const OrigURL = globalThis.URL;
     (globalThis as Record<string, unknown>)['URL'] = function () {

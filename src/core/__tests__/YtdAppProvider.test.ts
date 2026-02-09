@@ -38,7 +38,7 @@ describe('YtdAppProvider initialize failure', () => {
     vi.mocked(DOMUtils.waitForElementSelector).mockRejectedValueOnce(new Error('timeout'));
     const c = createTestContainer();
     const provider = c.get(YtdAppProvider) as YtdAppProvider;
-    await expect(provider.initialize()).rejects.toThrow(/ytd-app|element not found/);
+    await expect(provider.initialize()).rejects.toThrow(/element not found/);
   });
 
   it('sets notifyRenderer null when notification element not found', async () => {
