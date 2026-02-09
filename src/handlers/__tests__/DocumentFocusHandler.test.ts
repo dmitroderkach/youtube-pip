@@ -24,6 +24,7 @@ describe('DocumentFocusHandler', () => {
     c.bind(PlayerManager).toInstance(mockPlayerManager);
     c.bind(PipWindowProvider).toInstance(mockPipProvider);
     c.bind(ContextMenuHandler).toInstance(mockContextMenuHandler);
+    c.bind(DocumentFocusHandler).toSelf();
     handler = c.get(DocumentFocusHandler);
   });
 

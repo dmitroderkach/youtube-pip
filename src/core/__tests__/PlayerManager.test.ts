@@ -18,6 +18,7 @@ describe('PlayerManager', () => {
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(document.createElement('div'));
     const c = createTestContainer();
+    c.bind(PlayerManager).toSelf();
     manager = c.get(PlayerManager);
     await manager.initialize();
     mockPlayer = createMockPlayer();
@@ -168,6 +169,7 @@ describe('PlayerManager', () => {
 
   it('initialize throws AppInitializationError when waitForElementSelector rejects', async () => {
     const c = createTestContainer();
+    c.bind(PlayerManager).toSelf();
     const m = c.get(PlayerManager) as PlayerManager;
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockRejectedValueOnce(new Error('timeout'));

@@ -21,6 +21,7 @@ describe('MenuObserver', () => {
     mocks = createMenuObserverMocks();
     const c = createTestContainer();
     c.bind(PipWindowProvider).toInstance(mocks.pipWindowProvider);
+    c.bind(MenuObserver).toSelf();
     observer = c.get(MenuObserver);
   });
 

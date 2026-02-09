@@ -7,6 +7,7 @@ describe('PipWindowProvider', () => {
 
   beforeEach(() => {
     const c = createTestContainer();
+    c.bind(PipWindowProvider).toSelf();
     provider = c.get(PipWindowProvider);
   });
 

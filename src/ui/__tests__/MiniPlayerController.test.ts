@@ -33,6 +33,7 @@ describe('MiniPlayerController', () => {
     const c = createTestContainer();
     c.bind(PlayerManager).toInstance(mockPlayerManager);
     c.bind(YtdAppProvider).toInstance(mockYtdAppProvider);
+    c.bind(MiniPlayerController).toSelf();
     controller = c.get(MiniPlayerController);
     await controller.initialize();
   });
@@ -88,6 +89,7 @@ describe('MiniPlayerController', () => {
     const c = createTestContainer();
     c.bind(PlayerManager).toInstance(mockPlayerManager);
     c.bind(YtdAppProvider).toInstance(mockYtdAppProvider);
+    c.bind(MiniPlayerController).toSelf();
     const ctrl = c.get(MiniPlayerController) as MiniPlayerController;
     const { AppInitializationError } = await import('../../errors/AppInitializationError');
     await expect(ctrl.initialize()).rejects.toThrow(AppInitializationError);

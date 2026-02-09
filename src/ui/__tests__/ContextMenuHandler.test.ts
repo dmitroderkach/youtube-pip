@@ -49,6 +49,7 @@ describe('ContextMenuHandler', () => {
     c.bind(PlayerManager).toInstance(mockPlayerManager);
     c.bind(YtdAppProvider).toInstance(mockYtdAppProvider);
     c.bind(PipWindowProvider).toInstance(mockPipProvider);
+    c.bind(ContextMenuHandler).toSelf();
     handler = c.get(ContextMenuHandler);
   });
 

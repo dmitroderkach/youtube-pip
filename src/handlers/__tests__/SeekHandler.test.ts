@@ -46,6 +46,7 @@ describe('SeekHandler', () => {
     const c = createTestContainer();
     c.bind(PipWindowProvider).toInstance(mockPipProvider);
     c.bind(PlayerManager).toInstance(mockPlayerManager);
+    c.bind(SeekHandler).toSelf();
     handler = c.get(SeekHandler);
   });
 
