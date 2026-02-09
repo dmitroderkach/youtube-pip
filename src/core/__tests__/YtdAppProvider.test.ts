@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { createTestContainer } from '../../test-utils/test-container';
-import { SELECTORS } from '../../selectors';
 import { YtdAppProvider } from '../YtdAppProvider';
 
 vi.mock('../../utils/DOMUtils', () => ({
@@ -39,9 +38,7 @@ describe('YtdAppProvider initialize failure', () => {
     vi.mocked(DOMUtils.waitForElementSelector).mockRejectedValueOnce(new Error('timeout'));
     const c = createTestContainer();
     const provider = c.get(YtdAppProvider) as YtdAppProvider;
-    await expect(provider.initialize()).rejects.toThrow(
-      new RegExp(`${SELECTORS.YTD_APP}|element not found`)
-    );
+    await expect(provider.initialize()).rejects.toThrow(/element not found/);
   });
 
   it('sets notifyRenderer null when notification element not found', async () => {
