@@ -29,4 +29,4 @@ export {
   ROOT_VE,
 } from './youtube';
 
-export { COPY_MENU_INDICES, MOUSE_BUTTONS, UI_CLASSES } from './ui';
+export { COPY_MENU_INDICES, MOUSE_BUTTONS } from './ui';

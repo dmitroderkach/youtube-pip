@@ -18,6 +18,12 @@ const MUTATION_SKIP_TIMEOUT_MS = 500;
 /** Step size when advancing timers for mutation tests */
 const MUTATION_STEP_MS = 10;
 
+/** CSS selectors and class names for waitForElementSelector tests */
+const TEST_SELECTOR_TARGET = '.target';
+const TEST_SELECTOR_IN_ELEMENT = '.in-element';
+const TEST_SELECTOR_DYNAMIC = '.dynamic';
+const TEST_SELECTOR_WILL_APPEAR = '.will-appear-later';
+
 describe('DOMUtils', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
@@ -119,11 +125,11 @@ describe('DOMUtils', () => {
   it('waitForElementSelector resolves when element already exists', async () => {
     const parent = document.createElement('div');
     const el = document.createElement('span');
-    el.className = 'target';
+    el.className = TEST_SELECTOR_TARGET.slice(1);
     parent.appendChild(el);
     document.body.appendChild(parent);
     const found = await DOMUtils.waitForElementSelector<HTMLSpanElement>(
-      '.target',
+      TEST_SELECTOR_TARGET,
       document,
       TIMEOUTS.MENU_RETRY_DELAY
     );
@@ -134,10 +140,10 @@ describe('DOMUtils', () => {
     const parent = document.createElement('div');
     document.body.appendChild(parent);
     const el = document.createElement('span');
-    el.className = 'in-element';
+    el.className = TEST_SELECTOR_IN_ELEMENT.slice(1);
     parent.appendChild(el);
     const found = await DOMUtils.waitForElementSelector<HTMLSpanElement>(
-      '.in-element',
+      TEST_SELECTOR_IN_ELEMENT,
       parent,
       TIMEOUTS.MENU_RETRY_DELAY
     );
@@ -149,18 +155,18 @@ describe('DOMUtils', () => {
     const parent = document.createElement('div');
     document.body.appendChild(parent);
     const p = DOMUtils.waitForElementSelector<HTMLSpanElement>(
-      '.dynamic',
+      TEST_SELECTOR_DYNAMIC,
       document,
       TIMEOUTS.PHANTOM_WINDOW_CHECK
     );
     setTimeout(() => {
       const el = document.createElement('span');
-      el.className = 'dynamic';
+      el.className = TEST_SELECTOR_DYNAMIC.slice(1);
       parent.appendChild(el);
     }, MUTATION_DELAY_MS);
     await vi.advanceTimersByTimeAsync(MUTATION_DELAY_MS);
     const found = await p;
-    expect(found.classList.contains('dynamic')).toBe(true);
+    expect(found.classList.contains(TEST_SELECTOR_DYNAMIC.slice(1))).toBe(true);
   });
 
   it('waitForElementSelector rejects on timeout', async () => {
@@ -190,18 +196,18 @@ describe('DOMUtils', () => {
     const parent = document.createElement('div');
     document.body.appendChild(parent);
     const p = DOMUtils.waitForElementSelector<HTMLSpanElement>(
-      '.will-appear-later',
+      TEST_SELECTOR_WILL_APPEAR,
       document,
       MUTATION_SKIP_TIMEOUT_MS
     );
     parent.appendChild(document.createElement('div'));
     await vi.advanceTimersByTimeAsync(MUTATION_STEP_MS);
     const el = document.createElement('span');
-    el.className = 'will-appear-later';
+    el.className = TEST_SELECTOR_WILL_APPEAR.slice(1);
     parent.appendChild(el);
     await vi.advanceTimersByTimeAsync(MUTATION_STEP_MS);
     const found = await p;
-    expect(found.classList.contains('will-appear-later')).toBe(true);
+    expect(found.classList.contains(TEST_SELECTOR_WILL_APPEAR.slice(1))).toBe(true);
   });
 
   it('waitForElementSelector rejects on pagehide when timeout 0 and targetWindow given', async () => {

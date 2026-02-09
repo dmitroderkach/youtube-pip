@@ -1,6 +1,15 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import { getGlobalMetadata } from '../VersionDetector';
 
+/** User agent strings for browser detection tests */
+const USER_AGENT_CHROME =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+const USER_AGENT_EDGE =
+  'Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0';
+const USER_AGENT_FIREFOX = 'Mozilla/5.0 (Windows NT 10.0; rv:121.0) Gecko/20100101 Firefox/121.0';
+const USER_AGENT_SAFARI =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15';
+
 describe('VersionDetector', () => {
   const originalUserAgent = navigator.userAgent;
   const originalYtcfg = typeof window !== 'undefined' ? window.ytcfg : undefined;
@@ -38,8 +47,7 @@ describe('VersionDetector', () => {
 
   it('getGlobalMetadata returns browserVersion from userAgent (Chrome)', () => {
     Object.defineProperty(navigator, 'userAgent', {
-      value:
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      value: USER_AGENT_CHROME,
       configurable: true,
     });
     const meta = getGlobalMetadata();
@@ -48,8 +56,7 @@ describe('VersionDetector', () => {
 
   it('getGlobalMetadata returns Edge when Edg/ in userAgent', () => {
     Object.defineProperty(navigator, 'userAgent', {
-      value:
-        'Mozilla/5.0 (Windows NT 10.0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0',
+      value: USER_AGENT_EDGE,
       configurable: true,
     });
     const meta = getGlobalMetadata();
@@ -58,7 +65,7 @@ describe('VersionDetector', () => {
 
   it('getGlobalMetadata returns Firefox when Firefox/ in userAgent', () => {
     Object.defineProperty(navigator, 'userAgent', {
-      value: 'Mozilla/5.0 (Windows NT 10.0; rv:121.0) Gecko/20100101 Firefox/121.0',
+      value: USER_AGENT_FIREFOX,
       configurable: true,
     });
     const meta = getGlobalMetadata();
@@ -67,8 +74,7 @@ describe('VersionDetector', () => {
 
   it('getGlobalMetadata returns Safari when Version/ and Safari in userAgent', () => {
     Object.defineProperty(navigator, 'userAgent', {
-      value:
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
+      value: USER_AGENT_SAFARI,
       configurable: true,
     });
     const meta = getGlobalMetadata();

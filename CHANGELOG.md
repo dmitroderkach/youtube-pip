@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.1.2] - 2026-02-09
+
+### Changed
+
+- **Constants** — Removed `UI_CLASSES` from constants; tests now use `SELECTORS` with `.slice(1)` (and `.replace(/\./g, ' ')` for compound selectors) to derive class names from selectors
+- **Selectors** — Added `PANEL_MENU: '.ytp-panel-menu'` for tests that need the panel class
+- **Magic constants cleanup** — Replaced raw numbers/strings in tests with named constants: DOMUtils (`MUTATION_SKIP_TIMEOUT_MS`, `MUTATION_STEP_MS`, `TEST_SELECTOR_*`), SeekHandler (`BAR_RECT`, `MOCK_DURATION_SEC`, `SEEK_CLICK_X`, etc.), ResizeTracker (`RESIZE_WIDTH_*`), VersionDetector (`USER_AGENT_*`), ContextMenuHandler (`STYLE_DISPLAY_*`), NavigationHandler (`SAMPLE_WATCH_URL*`), YtdAppProvider (regex via `SELECTORS.YTD_APP`)
+
 ## [2.1.1] - 2026-02-09
 
 **Goal:** Achieve 100% test coverage.
@@ -710,6 +718,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.1.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.1...refs/tags/v2.1.2
 [2.1.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.0...refs/tags/v2.1.1
 [2.1.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.5...refs/tags/v2.1.0
 [2.0.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.0.4...refs/tags/v2.0.5
