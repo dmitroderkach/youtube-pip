@@ -6,7 +6,6 @@ import { DocumentFocusHandler } from '../DocumentFocusHandler';
 import { PlayerManager } from '../../core/PlayerManager';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
 import { ContextMenuHandler } from '../../ui/ContextMenuHandler';
-import { TIMEOUTS } from '../../constants';
 
 describe('DocumentFocusHandler', () => {
   let handler: DocumentFocusHandler;
@@ -56,7 +55,7 @@ describe('DocumentFocusHandler', () => {
     expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
-  it('pollActiveElement returns focus to player when activeElement outside player', async () => {
+  it('onBodyClick returns focus to player when activeElement outside player', async () => {
     vi.useFakeTimers();
     const pipDoc = document.implementation.createHTMLDocument();
     const player = pipDoc.createElement('div');
@@ -69,39 +68,16 @@ describe('DocumentFocusHandler', () => {
 
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
-    mockContextMenuHandler.subscribeContextMenu.mockImplementation((_cb) => {
-      return () => {};
-    });
+    mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
     handler.initialize();
     Object.defineProperty(pipDoc, 'activeElement', { value: outer, configurable: true });
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.ACTIVE_ELEMENT_POLL);
+    pipDoc.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await vi.runAllTimersAsync();
     expect(focusFn).toHaveBeenCalled();
     handler.cleanup();
   });
 
-  it('pollActiveElement does nothing when activeElement equals lastActiveElement', async () => {
-    vi.useFakeTimers();
-    const pipDoc = document.implementation.createHTMLDocument();
-    const player = pipDoc.createElement('div');
-    const outer = pipDoc.createElement('div');
-    pipDoc.body.appendChild(player);
-    pipDoc.body.appendChild(outer);
-    player.focus = vi.fn();
-    mockPlayerManager.getPlayer.mockReturnValue(player as never);
-    const pipWindow = createFakeWindow({ document: pipDoc });
-    mockPipProvider.getWindow.mockReturnValue(pipWindow);
-    mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
-    handler.initialize();
-    Object.defineProperty(pipDoc, 'activeElement', { value: outer, configurable: true });
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.ACTIVE_ELEMENT_POLL);
-    expect(player.focus).toHaveBeenCalledTimes(1);
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.ACTIVE_ELEMENT_POLL);
-    expect(player.focus).toHaveBeenCalledTimes(1);
-    handler.cleanup();
-  });
-
-  it('pollActiveElement does nothing when activeElement is player', async () => {
-    vi.useFakeTimers();
+  it('onBodyClick does nothing when activeElement is player', () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const player = pipDoc.createElement('div');
     pipDoc.body.appendChild(player);
@@ -113,13 +89,12 @@ describe('DocumentFocusHandler', () => {
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
     handler.initialize();
     Object.defineProperty(pipDoc, 'activeElement', { value: player, configurable: true });
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.ACTIVE_ELEMENT_POLL);
+    pipDoc.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(focusFn).not.toHaveBeenCalled();
     handler.cleanup();
   });
 
-  it('pollActiveElement does nothing when activeElement is inside player', async () => {
-    vi.useFakeTimers();
+  it('onBodyClick does nothing when activeElement is inside player', () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const player = pipDoc.createElement('div');
     const inner = pipDoc.createElement('span');
@@ -132,13 +107,12 @@ describe('DocumentFocusHandler', () => {
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
     handler.initialize();
     Object.defineProperty(pipDoc, 'activeElement', { value: inner, configurable: true });
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.ACTIVE_ELEMENT_POLL);
+    pipDoc.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(player.focus).not.toHaveBeenCalled();
     handler.cleanup();
   });
 
-  it('pollActiveElement does nothing when context menu open', async () => {
-    vi.useFakeTimers();
+  it('onBodyClick does nothing when context menu open', () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const player = pipDoc.createElement('div');
     const outer = pipDoc.createElement('div');
@@ -156,13 +130,12 @@ describe('DocumentFocusHandler', () => {
     handler.initialize();
     visibilityCb(true);
     Object.defineProperty(pipDoc, 'activeElement', { value: outer, configurable: true });
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.ACTIVE_ELEMENT_POLL);
+    pipDoc.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(player.focus).not.toHaveBeenCalled();
     handler.cleanup();
   });
 
-  it('pollActiveElement does nothing when activeElement is null', async () => {
-    vi.useFakeTimers();
+  it('onBodyClick does nothing when activeElement is null', () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const player = pipDoc.createElement('div');
     pipDoc.body.appendChild(player);
@@ -173,13 +146,12 @@ describe('DocumentFocusHandler', () => {
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
     handler.initialize();
     Object.defineProperty(pipDoc, 'activeElement', { value: null, configurable: true });
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.ACTIVE_ELEMENT_POLL);
+    pipDoc.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(player.focus).not.toHaveBeenCalled();
     handler.cleanup();
   });
 
-  it('pollActiveElement does nothing when player.focus is not a function', async () => {
-    vi.useFakeTimers();
+  it('onBodyClick does nothing when player.focus is not a function', () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const player = pipDoc.createElement('div');
     const outer = pipDoc.createElement('div');
@@ -192,12 +164,35 @@ describe('DocumentFocusHandler', () => {
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
     handler.initialize();
     Object.defineProperty(pipDoc, 'activeElement', { value: outer, configurable: true });
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.ACTIVE_ELEMENT_POLL);
+    expect(() =>
+      pipDoc.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    ).not.toThrow();
     handler.cleanup();
   });
 
-  it('pollActiveElement returns early when activeElement becomes null after focus was outside', async () => {
+  it('onKeyUp returns focus to player when activeElement outside and key is not Tab', async () => {
     vi.useFakeTimers();
+    const pipDoc = document.implementation.createHTMLDocument();
+    const player = pipDoc.createElement('div');
+    const outer = pipDoc.createElement('div');
+    pipDoc.body.appendChild(player);
+    pipDoc.body.appendChild(outer);
+    const focusFn = vi.fn();
+    player.focus = focusFn;
+    mockPlayerManager.getPlayer.mockReturnValue(player as never);
+
+    const pipWindow = createFakeWindow({ document: pipDoc });
+    mockPipProvider.getWindow.mockReturnValue(pipWindow);
+    mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
+    handler.initialize();
+    Object.defineProperty(pipDoc, 'activeElement', { value: outer, configurable: true });
+    pipDoc.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
+    await vi.runAllTimersAsync();
+    expect(focusFn).toHaveBeenCalled();
+    handler.cleanup();
+  });
+
+  it('onKeyUp does nothing when key is Tab', () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const player = pipDoc.createElement('div');
     const outer = pipDoc.createElement('div');
@@ -208,21 +203,14 @@ describe('DocumentFocusHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
-    let activeValue: Element | null = outer;
-    Object.defineProperty(pipDoc, 'activeElement', {
-      get: () => activeValue,
-      configurable: true,
-    });
     handler.initialize();
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.ACTIVE_ELEMENT_POLL);
-    expect(player.focus).toHaveBeenCalledTimes(1);
-    activeValue = null;
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.ACTIVE_ELEMENT_POLL);
-    expect(player.focus).toHaveBeenCalledTimes(1);
+    Object.defineProperty(pipDoc, 'activeElement', { value: outer, configurable: true });
+    pipDoc.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab', bubbles: true }));
+    expect(player.focus).not.toHaveBeenCalled();
     handler.cleanup();
   });
 
-  it('subscribe callback with false calls pollActiveElement', async () => {
+  it('subscribe callback with false calls onBodyClick and returns focus', async () => {
     vi.useFakeTimers();
     const pipDoc = document.implementation.createHTMLDocument();
     const player = pipDoc.createElement('div');
@@ -241,6 +229,7 @@ describe('DocumentFocusHandler', () => {
     handler.initialize();
     Object.defineProperty(pipDoc, 'activeElement', { value: outer, configurable: true });
     visibilityCb(false);
+    await vi.runAllTimersAsync();
     expect(player.focus).toHaveBeenCalled();
     handler.cleanup();
   });
