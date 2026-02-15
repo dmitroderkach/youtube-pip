@@ -56,6 +56,17 @@ describe('PlayerManager', () => {
     expect(mockPlayer.playVideo).not.toHaveBeenCalled();
   });
 
+  it('getWasMiniPlayerActiveBeforePiP returns false by default', () => {
+    expect(manager.getWasMiniPlayerActiveBeforePiP()).toBe(false);
+  });
+
+  it('setWasMiniPlayerActiveBeforePiP and getWasMiniPlayerActiveBeforePiP', () => {
+    manager.setWasMiniPlayerActiveBeforePiP(true);
+    expect(manager.getWasMiniPlayerActiveBeforePiP()).toBe(true);
+    manager.setWasMiniPlayerActiveBeforePiP(false);
+    expect(manager.getWasMiniPlayerActiveBeforePiP()).toBe(false);
+  });
+
   it('getVideoId returns video_id from player', () => {
     expect(manager.getVideoId()).toBe('abc');
   });

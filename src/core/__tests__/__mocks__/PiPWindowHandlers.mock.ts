@@ -6,6 +6,7 @@ import { SeekHandler } from '../../../handlers/SeekHandler';
 import { LikeButtonHandler } from '../../../handlers/LikeButtonHandler';
 import { NavigationHandler } from '../../NavigationHandler';
 import { DocumentFocusHandler } from '../../../handlers/DocumentFocusHandler';
+import { TitleSyncHandler } from '../../../handlers/TitleSyncHandler';
 
 export interface PiPWindowHandlersMocks {
   resizeTracker: MockProxy<ResizeTracker>;
@@ -15,6 +16,7 @@ export interface PiPWindowHandlersMocks {
   likeButtonHandler: MockProxy<LikeButtonHandler>;
   navigationHandler: MockProxy<NavigationHandler>;
   documentFocusHandler: MockProxy<DocumentFocusHandler>;
+  titleSyncHandler: MockProxy<TitleSyncHandler>;
 }
 
 export function createPiPWindowHandlersMocks(): PiPWindowHandlersMocks {
@@ -26,5 +28,6 @@ export function createPiPWindowHandlersMocks(): PiPWindowHandlersMocks {
     likeButtonHandler: mock<LikeButtonHandler>(),
     navigationHandler: mock<NavigationHandler>(),
     documentFocusHandler: mock<DocumentFocusHandler>(),
+    titleSyncHandler: mock<TitleSyncHandler>(),
   };
 }

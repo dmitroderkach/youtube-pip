@@ -5,6 +5,7 @@ import { SeekHandler } from '../handlers/SeekHandler';
 import { LikeButtonHandler } from '../handlers/LikeButtonHandler';
 import { NavigationHandler } from '../core/NavigationHandler';
 import { DocumentFocusHandler } from '../handlers/DocumentFocusHandler';
+import { TitleSyncHandler } from '../handlers/TitleSyncHandler';
 import type { PiPCleanupCallback } from '../types/app';
 import { inject, injectable } from '../di';
 
@@ -20,7 +21,8 @@ export class PiPWindowHandlers {
     @inject(SeekHandler) private readonly seekHandler: SeekHandler,
     @inject(LikeButtonHandler) private readonly likeButtonHandler: LikeButtonHandler,
     @inject(NavigationHandler) private readonly navigationHandler: NavigationHandler,
-    @inject(DocumentFocusHandler) private readonly documentFocusHandler: DocumentFocusHandler
+    @inject(DocumentFocusHandler) private readonly documentFocusHandler: DocumentFocusHandler,
+    @inject(TitleSyncHandler) private readonly titleSyncHandler: TitleSyncHandler
   ) {}
 
   public async initialize(miniplayer: Element): Promise<PiPCleanupCallback> {
@@ -31,8 +33,10 @@ export class PiPWindowHandlers {
     this.seekHandler.initialize();
     this.likeButtonHandler.initialize();
     this.documentFocusHandler.initialize();
+    this.titleSyncHandler.initialize();
 
     return () => {
+      this.titleSyncHandler.cleanup();
       this.documentFocusHandler.cleanup();
       this.seekHandler.cleanup();
       this.likeButtonHandler.cleanup();

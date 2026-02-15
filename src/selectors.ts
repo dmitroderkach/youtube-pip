@@ -7,6 +7,8 @@ export const SELECTORS = {
   MINIPLAYER_CONTAINER: 'ytd-miniplayer-player-container',
   MINIPLAYER_HOST: '.ytdMiniplayerComponentHost.ytdMiniplayerComponentVisible',
   MOVIE_PLAYER: '#movie_player',
+  /** <video> element inside the player (query relative to player root) */
+  PLAYER_VIDEO: 'video',
   YTD_APP: 'ytd-app',
   YT_DRAGGABLE: 'yt-draggable',
   CONTEXT_MENU: '.ytp-popup.ytp-contextmenu',

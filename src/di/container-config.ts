@@ -11,6 +11,7 @@ import { ContextMenuHandler } from '../ui/ContextMenuHandler';
 import { SeekHandler } from '../handlers/SeekHandler';
 import { LikeButtonHandler } from '../handlers/LikeButtonHandler';
 import { DocumentFocusHandler } from '../handlers/DocumentFocusHandler';
+import { TitleSyncHandler } from '../handlers/TitleSyncHandler';
 import { PiPWindowHandlers } from '../core/PiPWindowHandlers';
 import { PiPManager } from '../core/PiPManager';
 import { YtActionSender } from '../core/YtActionSender';
@@ -32,6 +33,7 @@ export function createContainer(): Container {
   container.bind(YtActionSender).toSelf();
   container.bind(LikeButtonHandler).toSelf();
   container.bind(DocumentFocusHandler).toSelf();
+  container.bind(TitleSyncHandler).toSelf();
   container.bind(PiPWindowHandlers).toSelf();
   container.bind(PiPManager).toSelf();
   container.bind(MediaSessionHandler).toSelf();

@@ -19,6 +19,7 @@ export class PlayerManager {
   private readonly logger: Logger;
   private player: Nullable<YouTubePlayer> = null;
   private wasPlaying: boolean = false;
+  private wasMiniPlayerActiveBeforePiP: boolean = false;
 
   constructor(@inject(LoggerFactory) loggerFactory: LoggerFactory) {
     this.logger = loggerFactory.create('PlayerManager');
@@ -74,6 +75,20 @@ export class PlayerManager {
   public savePlayingState(player: YouTubePlayer): void {
     this.wasPlaying = this.isPlaying(player);
     this.logger.debug(`Player state saved: wasPlaying = ${this.wasPlaying}`);
+  }
+
+  /**
+   * Set whether mini player was active when PiP was opened. Used by TitleSyncHandler to skip initial title sync.
+   */
+  public setWasMiniPlayerActiveBeforePiP(value: boolean): void {
+    this.wasMiniPlayerActiveBeforePiP = value;
+  }
+
+  /**
+   * Whether mini player was visible when PiP was opened.
+   */
+  public getWasMiniPlayerActiveBeforePiP(): boolean {
+    return this.wasMiniPlayerActiveBeforePiP;
   }
 
   /**
