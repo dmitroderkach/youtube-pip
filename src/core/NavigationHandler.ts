@@ -68,8 +68,6 @@ export class NavigationHandler {
 
           // Prevent default navigation
           event.preventDefault();
-          event.stopPropagation();
-          event.stopImmediatePropagation();
 
           // Build navigation state
           const state: NavigationState = {

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.1.5] - 2026-02-16
+
+### Changed
+
+- **DocumentFocusHandler** — Replaced interval poll with body click and keyup (any key except Tab); focus change via `setTimeout(0)` so it runs after other handlers
+- **NavigationHandler** — Minor cleanup (2 lines removed)
+- **Tests** — DocumentFocusHandler tests updated for click/keyup flow; added onKeyUp Tab filter and non-Tab key coverage
+
 ## [2.1.4] - 2026-02-15
 
 ### Added
@@ -741,6 +749,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.1.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.4...refs/tags/v2.1.5
 [2.1.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.3...refs/tags/v2.1.4
 [2.1.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.2...refs/tags/v2.1.3
 [2.1.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.1...refs/tags/v2.1.2

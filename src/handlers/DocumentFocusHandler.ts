@@ -4,37 +4,38 @@ import { LoggerFactory } from '../logger';
 import { PlayerManager } from '../core/PlayerManager';
 import { PipWindowProvider } from '../core/PipWindowProvider';
 import { ContextMenuHandler } from '../ui/ContextMenuHandler';
-import { TIMEOUTS } from '../constants';
 import { inject, injectable } from '../di';
 
 /**
- * Polls document.activeElement and returns focus to player when it changes
- * to an element outside the player, but only when context menu is closed.
+ * Listens to capture click on body and keyup on document (any key except Tab).
+ * Returns focus to player when it moves outside the player, but only when context
+ * menu is closed. Uses setTimeout(0) so focus runs after other handlers.
  */
 @injectable()
 export class DocumentFocusHandler {
   private readonly logger: Logger;
   private pipWindow: Nullable<Window> = null;
   private isContextMenuOpen = false;
-  private lastActiveElement: Nullable<Element> = null;
-  private pollId: ReturnType<typeof setInterval> | null = null;
   private unsubscribeContextMenu: (() => void) | null = null;
 
-  private readonly pollActiveElement = (): void => {
+  private returnFocusToPlayerIfNeeded(): void {
     if (!this.pipWindow || this.isContextMenuOpen) return;
 
     const active = this.pipWindow.document.activeElement;
-    if (active === this.lastActiveElement) return;
-    this.lastActiveElement = active;
-
     const player = this.playerManager.getPlayer();
-    if (!active || active === player || player.contains(active)) {
-      return;
-    }
+    if (!active || active === player || player.contains(active)) return;
+
     if (typeof player.focus === 'function') {
       this.logger.debug('Returning focus to player');
-      player.focus();
+      setTimeout(() => player.focus(), 0);
     }
+  }
+
+  private readonly onBodyClick = (): void => this.returnFocusToPlayerIfNeeded();
+
+  private readonly onKeyUp = (e: KeyboardEvent): void => {
+    if (e.key === 'Tab') return;
+    this.returnFocusToPlayerIfNeeded();
   };
 
   constructor(
@@ -59,11 +60,12 @@ export class DocumentFocusHandler {
     this.unsubscribeContextMenu = this.contextMenuHandler.subscribeContextMenu((visible) => {
       this.isContextMenuOpen = visible;
       if (!visible) {
-        this.pollActiveElement();
+        this.returnFocusToPlayerIfNeeded();
       }
     });
 
-    this.pollId = setInterval(this.pollActiveElement, TIMEOUTS.ACTIVE_ELEMENT_POLL);
+    this.pipWindow.document.body.addEventListener('click', this.onBodyClick, true);
+    this.pipWindow.document.addEventListener('keyup', this.onKeyUp, true);
     this.logger.debug('Document focus handler initialized');
   }
 
@@ -73,12 +75,11 @@ export class DocumentFocusHandler {
   public cleanup(): void {
     this.unsubscribeContextMenu?.();
     this.unsubscribeContextMenu = null;
-    if (this.pollId !== null) {
-      clearInterval(this.pollId);
-      this.pollId = null;
+    if (this.pipWindow?.document?.body) {
+      this.pipWindow.document.body.removeEventListener('click', this.onBodyClick, true);
+      this.pipWindow.document.removeEventListener('keyup', this.onKeyUp, true);
     }
     this.pipWindow = null;
-    this.lastActiveElement = null;
     this.isContextMenuOpen = false;
     this.logger.debug('Document focus handler cleaned up');
   }
