@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.1.4] - 2026-02-15
+
+### Added
+
+- **TitleSyncHandler** — Keeps PiP and main window titles in sync: observes video element (`src`) and notify renderer (childList/subtree), syncs on init and on mutation from `player.getVideoData().title`; skips sync when PiP was opened from mini player (reads `PlayerManager.getWasMiniPlayerActiveBeforePiP()`). No dependency on PiPManager.
+
+### Changed
+
+- **PlayerManager** — Added `wasMiniPlayerActiveBeforePiP` state with `setWasMiniPlayerActiveBeforePiP` / `getWasMiniPlayerActiveBeforePiP` (moved from PiPManager; used by TitleSyncHandler)
+- **PiPManager** — Removed local `wasMiniPlayerActiveBeforePiP`; uses PlayerManager; `pipWindowHandlers.initialize(miniplayer)` no longer passes second argument
+- **PiPWindowHandlers** — `initialize(miniplayer)` single argument; initializes TitleSyncHandler (no args)
+- **Tests** — PiPManager, PiPWindowHandlers, TitleSyncHandler, PlayerManager updated; PlayerManager coverage for new get/set
+- **MediaSessionHandler** — Simplified; test suite reduced
+- **.gitignore** — Track `.cursor/commands/`
+- **Cursor** — Added `.cursor/commands/` with bump-version and release-flow commands
+
 ## [2.1.3] - 2026-02-09
 
 ### Changed
@@ -725,6 +741,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.1.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.3...refs/tags/v2.1.4
 [2.1.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.2...refs/tags/v2.1.3
 [2.1.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.1...refs/tags/v2.1.2
 [2.1.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.0...refs/tags/v2.1.1

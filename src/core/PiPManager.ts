@@ -23,7 +23,6 @@ export class PiPManager {
   private readonly logger: Logger;
   private miniPlayerContainer: Nullable<Element> = null;
   private placeholder: Nullable<Comment> = null;
-  private wasMiniPlayerActiveBeforePiP: boolean = false;
 
   private onBeforeReturn: Nullable<PiPCleanupCallback> = null;
 
@@ -103,9 +102,9 @@ export class PiPManager {
     const miniplayer = this.miniPlayerController.getMiniplayer();
 
     // Save mini player state
-    this.wasMiniPlayerActiveBeforePiP = this.miniPlayerController.isVisible();
+    this.playerManager.setWasMiniPlayerActiveBeforePiP(this.miniPlayerController.isVisible());
 
-    if (!this.wasMiniPlayerActiveBeforePiP) {
+    if (!this.playerManager.getWasMiniPlayerActiveBeforePiP()) {
       this.miniPlayerController.toggleMiniPlayer();
 
       // Wait for mini player container
@@ -156,13 +155,6 @@ export class PiPManager {
     DOMUtils.copyAttributes(document.body, pipDoc.body);
     StyleUtils.copyStyles(document, pipDoc);
     StyleUtils.injectCSSFixes(pipDoc);
-
-    // Set window title only if PiP was not opened from mini player mode
-    // When opened from mini player, title is already set and should not be overwritten
-    if (!this.wasMiniPlayerActiveBeforePiP) {
-      const title = window.navigator.mediaSession?.metadata?.title || '';
-      this.setWindowsTitle(title);
-    }
 
     // Create ytd-app in PiP window
     const pipApp = pipDoc.createElement(SELECTORS.YTD_APP);
@@ -242,7 +234,7 @@ export class PiPManager {
     }
     ytDraggable.prepend(this.miniPlayerContainer);
 
-    if (!this.wasMiniPlayerActiveBeforePiP) {
+    if (!this.playerManager.getWasMiniPlayerActiveBeforePiP()) {
       this.miniPlayerController.toggleMiniPlayer();
 
       // Wait for main player
@@ -259,42 +251,12 @@ export class PiPManager {
     await new Promise<void>((resolve) => {
       setTimeout(async () => {
         this.playerManager.restorePlayingState(player);
-        if (this.wasMiniPlayerActiveBeforePiP) {
+        if (this.playerManager.getWasMiniPlayerActiveBeforePiP()) {
           this.miniPlayerController.activateMiniPlayer();
           await this.playerManager.waitForMiniPlayer().catch(() => {});
         }
         resolve();
       });
     });
-  }
-
-  /**
-   * Set window titles
-   */
-  private setWindowsTitle(title: string): void {
-    const pipWindow = this.pipWindowProvider.getWindow();
-    if (pipWindow) {
-      const notifyRenderer = this.ytdAppProvider.getNotifyRenderer();
-      let countNotif = '';
-      if (notifyRenderer?.showNotificationCount) {
-        countNotif = `(${notifyRenderer.showNotificationCount}) `;
-      }
-
-      const newTitle = `${countNotif}${title} - YouTube`;
-      document.title = newTitle;
-      pipWindow.document.title = newTitle;
-      this.logger.debug(`Title synced from MediaSession: ${title}`);
-    }
-  }
-
-  /**
-   * Update window title from media session
-   * Skips update if PiP was opened from mini player mode
-   */
-  public updateTitle(title: string): void {
-    // Don't sync title if PiP was opened from mini player mode
-    if (!this.wasMiniPlayerActiveBeforePiP) {
-      this.setWindowsTitle(title);
-    }
   }
 }

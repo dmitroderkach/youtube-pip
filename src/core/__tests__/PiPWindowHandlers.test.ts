@@ -9,6 +9,7 @@ import { SeekHandler } from '../../handlers/SeekHandler';
 import { LikeButtonHandler } from '../../handlers/LikeButtonHandler';
 import { NavigationHandler } from '../NavigationHandler';
 import { DocumentFocusHandler } from '../../handlers/DocumentFocusHandler';
+import { TitleSyncHandler } from '../../handlers/TitleSyncHandler';
 
 describe('PiPWindowHandlers', () => {
   let handlers: PiPWindowHandlers;
@@ -24,11 +25,12 @@ describe('PiPWindowHandlers', () => {
     c.bind(LikeButtonHandler).toInstance(mocks.likeButtonHandler);
     c.bind(NavigationHandler).toInstance(mocks.navigationHandler);
     c.bind(DocumentFocusHandler).toInstance(mocks.documentFocusHandler);
+    c.bind(TitleSyncHandler).toInstance(mocks.titleSyncHandler);
     c.bind(PiPWindowHandlers).toSelf();
     handlers = c.get(PiPWindowHandlers);
   });
 
-  it('initialize calls initialize on navigation, seek, like, contextMenu, documentFocus and start on resize, menuObserver', async () => {
+  it('initialize calls initialize on navigation, seek, like, contextMenu, documentFocus, titleSync and start on resize, menuObserver', async () => {
     const miniplayer = document.createElement('div');
     const cleanup = await handlers.initialize(miniplayer);
 
@@ -39,6 +41,7 @@ describe('PiPWindowHandlers', () => {
     expect(mocks.seekHandler.initialize).toHaveBeenCalledOnce();
     expect(mocks.likeButtonHandler.initialize).toHaveBeenCalledOnce();
     expect(mocks.documentFocusHandler.initialize).toHaveBeenCalledOnce();
+    expect(mocks.titleSyncHandler.initialize).toHaveBeenCalledOnce();
 
     expect(typeof cleanup).toBe('function');
   });
@@ -50,6 +53,7 @@ describe('PiPWindowHandlers', () => {
 
     void cleanup();
 
+    expect(mocks.titleSyncHandler.cleanup).toHaveBeenCalledOnce();
     expect(mocks.documentFocusHandler.cleanup).toHaveBeenCalledOnce();
     expect(mocks.seekHandler.cleanup).toHaveBeenCalledOnce();
     expect(mocks.likeButtonHandler.cleanup).toHaveBeenCalledOnce();

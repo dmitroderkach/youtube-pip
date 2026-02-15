@@ -4,11 +4,7 @@ import {
   createMockLogger,
   createLoggerFactoryWithLogger,
 } from '../../test-utils/test-container';
-import {
-  createFakeWindow,
-  createFakePlayer,
-  createFakeNotifyRenderer,
-} from '../../test-utils/test-helpers';
+import { createFakeWindow, createFakePlayer } from '../../test-utils/test-helpers';
 import { LoggerFactory } from '../../logger';
 import { createPiPManagerMocks } from './__mocks__/PiPManager.mock';
 import { PiPManager } from '../PiPManager';
@@ -77,6 +73,7 @@ describe('PiPManager', () => {
       document.createElement('div') as never
     );
     mocks.miniPlayerController.isVisible.mockReturnValue(true);
+    mocks.playerManager.getWasMiniPlayerActiveBeforePiP.mockReturnValue(true);
     const orig = window.documentPictureInPicture;
     Object.defineProperty(window, 'documentPictureInPicture', {
       value: undefined,
@@ -94,6 +91,7 @@ describe('PiPManager', () => {
       document.createElement('div') as never
     );
     mocks.miniPlayerController.isVisible.mockReturnValue(true);
+    mocks.playerManager.getWasMiniPlayerActiveBeforePiP.mockReturnValue(true);
     const orig = window.documentPictureInPicture;
     Object.defineProperty(window, 'documentPictureInPicture', {
       value: {
@@ -173,26 +171,6 @@ describe('PiPManager', () => {
       'Unhandled error in returnPlayerToMain:',
       expect.any(Error)
     );
-  });
-
-  it('updateTitle sets pip window title when window is open', () => {
-    const pipDoc = document.implementation.createHTMLDocument();
-    const pipWindow = createFakeWindow({ document: pipDoc });
-    mocks.pipProvider.getWindow.mockReturnValue(pipWindow);
-    manager.updateTitle('Test Video');
-    expect(pipDoc.title).toContain('Test Video');
-  });
-
-  it('updateTitle includes notification count when getNotifyRenderer provides showNotificationCount', () => {
-    const pipDoc = document.implementation.createHTMLDocument();
-    const pipWindow = createFakeWindow({ document: pipDoc });
-    mocks.pipProvider.getWindow.mockReturnValue(pipWindow);
-    mocks.ytdAppProvider.getNotifyRenderer.mockReturnValue(
-      createFakeNotifyRenderer({ showNotificationCount: 3 })
-    );
-    manager.updateTitle('My Video');
-    expect(pipDoc.title).toContain('(3) ');
-    expect(pipDoc.title).toContain('My Video');
   });
 
   it('open throws PiPCriticalError when pipDoc has no yt-draggable', async () => {
@@ -340,11 +318,6 @@ describe('PiPManager', () => {
       value: origDpp,
       configurable: true,
     });
-  });
-
-  it('updateTitle when pip closed does not throw (setWindowsTitle skips when window null)', () => {
-    mocks.pipProvider.getWindow.mockReturnValue(null);
-    expect(() => manager.updateTitle('Test')).not.toThrow();
   });
 
   it('open stores onBeforeReturn when handlers.initialize returns a function', async () => {
@@ -523,6 +496,17 @@ describe('PiPManager (integration)', () => {
     vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
   });
 
+  it('full flow: open with mini inactive opens PiP', async () => {
+    mockMiniController.isVisible.mockReturnValue(false);
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    vi.spyOn(DOMUtils, 'waitForElementSelector').mockResolvedValue(containerEl as never);
+
+    await manager.open();
+
+    expect(manager.isOpen()).toBe(true);
+    vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
+  });
+
   it('full flow: open with mini inactive then close calls toggleMiniPlayer and waitForMainPlayer on return', async () => {
     mockMiniController.isVisible.mockReturnValue(false);
     const { DOMUtils } = await import('../../utils/DOMUtils');
@@ -589,13 +573,10 @@ describe('PiPManager (integration)', () => {
 
   it('full flow: when mini player was active before PiP, restore path calls activateMiniPlayer and waitForMiniPlayer', async () => {
     mockMiniController.isVisible.mockReturnValue(true);
+    mockPlayerManager.getWasMiniPlayerActiveBeforePiP.mockReturnValue(true);
     mockMiniController.activateMiniPlayer.mockImplementation(() => {});
 
     await manager.open();
-    pipDoc.title = '';
-    manager.updateTitle('Should Not Sync From Mini');
-    expect(pipDoc.title).not.toContain('Should Not Sync From Mini');
-
     await awaitClose(manager);
 
     expect(manager.getWindow()).toBeNull();
@@ -605,6 +586,7 @@ describe('PiPManager (integration)', () => {
 
   it('full flow: when mini player was active and waitForMiniPlayer rejects, close still completes', async () => {
     mockMiniController.isVisible.mockReturnValue(true);
+    mockPlayerManager.getWasMiniPlayerActiveBeforePiP.mockReturnValue(true);
     mockMiniController.activateMiniPlayer.mockImplementation(() => {});
     mockPlayerManager.waitForMiniPlayer.mockRejectedValue(new Error('timeout'));
 

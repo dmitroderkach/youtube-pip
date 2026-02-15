@@ -3,6 +3,7 @@ dist/
 coverage/
 *.log
 .DS_Store
-# Ignore .cursor except rules (so .cursor/rules/ is tracked)
+# Ignore .cursor except rules and commands (so .cursor/rules/ and .cursor/commands/ are tracked)
 .cursor/*
 !.cursor/rules/
+!.cursor/commands/
