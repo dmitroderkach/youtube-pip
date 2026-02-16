@@ -23,7 +23,7 @@ export class DocumentFocusHandler {
 
     const active = this.pipWindow.document.activeElement;
     const player = this.playerManager.getPlayer();
-    if (!active || active === player || player.contains(active)) return;
+    if (!active || active === player) return;
 
     if (typeof player.focus === 'function') {
       this.logger.debug('Returning focus to player');
