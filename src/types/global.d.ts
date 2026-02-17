@@ -10,6 +10,7 @@ interface DocumentPictureInPictureOptions {
 
 interface DocumentPictureInPicture {
   requestWindow(options?: DocumentPictureInPictureOptions): Promise<Window>;
+  window: Window | null;
 }
 
 /**
