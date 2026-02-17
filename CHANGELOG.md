@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.2.5] - 2026-02-17
+
+### Changed
+
+- **e2e** — Skip consent flow on CI (no cookie banner in GitHub Actions region); remove `E2E_WAIT_CONSENT_TIMEOUT_MS`, use single timeout for consent wait/click
+
 ## [2.2.4] - 2026-02-17
 
 ### Changed
@@ -796,6 +802,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.2.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.4...refs/tags/v2.2.5
 [2.2.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.3...refs/tags/v2.2.4
 [2.2.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.2...refs/tags/v2.2.3
 [2.2.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.1...refs/tags/v2.2.2
