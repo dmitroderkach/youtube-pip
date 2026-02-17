@@ -90,7 +90,7 @@ export const test = base.extend<{
     await use(getUserscriptBody());
   },
 
-  /** Accept YouTube cookie/consent dialog (button on main page). Waits for next DOMContentLoaded after click (reload), then re-inits handler stub. */
+  /** Accept YouTube cookie/consent dialog (button on main page). Waits for next DOMContentLoaded after click (reload). */
   acceptYouTubeConsent: async ({ page: _page }, use) => {
     const accept: AcceptYouTubeConsentFn = async (page) => {
       try {
@@ -98,7 +98,6 @@ export const test = base.extend<{
           page.waitForEvent('domcontentloaded', { timeout: E2E_WAIT_TIMEOUT_MS }),
           page.getByRole('button', { name: 'Accept the use of cookies and' }).click(),
         ]);
-        await page.evaluate(initHandlerStub);
       } catch {
         // No consent or already accepted
       }
