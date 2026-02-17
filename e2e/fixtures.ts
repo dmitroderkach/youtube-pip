@@ -89,10 +89,10 @@ export const test = base.extend<{
   acceptYouTubeConsent: async ({ page: _page }, use) => {
     const accept: AcceptYouTubeConsentFn = async (page) => {
       try {
-        await page
-          .getByRole('button', { name: 'Accept the use of cookies and' })
-          .click({ timeout: 8000 });
-        await page.waitForLoadState('domcontentloaded', { timeout: 15000 });
+        await Promise.all([
+          page.waitForLoadState('domcontentloaded', { timeout: 15000 }),
+          page.getByRole('button', { name: 'Accept the use of cookies and' }).click({ timeout: 8000 }),
+        ]);
         await page.evaluate(initHandlerStub);
       } catch {
         // No consent or already accepted
