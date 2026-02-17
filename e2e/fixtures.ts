@@ -3,7 +3,7 @@
  * Stub implementation lives here; no Playwright scripts in scripts/.
  */
 import { test as base, expect, type Page } from '@playwright/test';
-import { E2E_WAIT_TIMEOUT_MS } from './constants';
+import { E2E_WAIT_CONSENT_TIMEOUT_MS, E2E_WAIT_TIMEOUT_MS } from './constants';
 import { E2E_SELECTORS } from './selectors';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -95,8 +95,10 @@ export const test = base.extend<{
     const accept: AcceptYouTubeConsentFn = async (page) => {
       try {
         await Promise.all([
-          page.waitForEvent('domcontentloaded', { timeout: E2E_WAIT_TIMEOUT_MS }),
-          page.getByRole('button', { name: 'Accept the use of cookies and' }).click(),
+          page.waitForEvent('domcontentloaded', { timeout: E2E_WAIT_CONSENT_TIMEOUT_MS }),
+          page
+            .getByRole('button', { name: 'Accept the use of cookies and' })
+            .click({ timeout: E2E_WAIT_CONSENT_TIMEOUT_MS }),
         ]);
       } catch {
         // No consent or already accepted
