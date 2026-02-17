@@ -132,7 +132,8 @@ export const test = base.extend<{
           const pipWindow = window.documentPictureInPicture?.window;
           if (!pipWindow?.document) return false;
           return !!(
-            pipWindow.document.querySelector(ytdApp) && pipWindow.document.querySelector(moviePlayer)
+            pipWindow.document.querySelector(ytdApp) &&
+            pipWindow.document.querySelector(moviePlayer)
           );
         },
         { ytdApp: E2E_SELECTORS.YTD_APP, moviePlayer: E2E_SELECTORS.MOVIE_PLAYER },
