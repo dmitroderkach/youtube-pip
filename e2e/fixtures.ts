@@ -3,6 +3,8 @@
  * Stub implementation lives here; no Playwright scripts in scripts/.
  */
 import { test as base, expect, type Page } from '@playwright/test';
+import { E2E_WAIT_TIMEOUT_MS } from './constants';
+import { E2E_SELECTORS } from './selectors';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -67,11 +69,14 @@ type AcceptYouTubeConsentFn = (page: Page) => Promise<void>;
 
 type TriggerEnterPictureInPictureFn = (page: Page) => Promise<void>;
 
+type AssertPiPWindowHasPlayerFn = (page: Page) => Promise<void>;
+
 export const test = base.extend<{
   userscriptBody: string;
   acceptYouTubeConsent: AcceptYouTubeConsentFn;
   videoPageReady: Page;
   triggerEnterPictureInPicture: TriggerEnterPictureInPictureFn;
+  assertPiPWindowHasPlayer: AssertPiPWindowHasPlayerFn;
 }>({
   context: async ({ browser }, use) => {
     const ctx = await browser.newContext();
@@ -90,10 +95,8 @@ export const test = base.extend<{
     const accept: AcceptYouTubeConsentFn = async (page) => {
       try {
         await Promise.all([
-          page.waitForEvent('domcontentloaded', { timeout: 15000 }),
-          page
-            .getByRole('button', { name: 'Accept the use of cookies and' })
-            .click({ timeout: 8000 }),
+          page.waitForEvent('domcontentloaded', { timeout: E2E_WAIT_TIMEOUT_MS }),
+          page.getByRole('button', { name: 'Accept the use of cookies and' }).click(),
         ]);
         await page.evaluate(initHandlerStub);
       } catch {
@@ -109,7 +112,7 @@ export const test = base.extend<{
     await acceptYouTubeConsent(page);
     await page.evaluate((code: string) => eval(code), userscriptBody);
     await page.waitForFunction(() => window.__E2E_PIP__?.has('enterpictureinpicture'), {
-      timeout: 15000,
+      timeout: E2E_WAIT_TIMEOUT_MS,
     });
     await use(page);
   },
@@ -119,6 +122,24 @@ export const test = base.extend<{
     const trigger: TriggerEnterPictureInPictureFn = (page) =>
       page.evaluate(() => window.__E2E_PIP__!.trigger('enterpictureinpicture'));
     await use(trigger);
+  },
+
+  /** Asserts PiP window is open and contains ytd-app and movie player. */
+  assertPiPWindowHasPlayer: async ({ page: _page }, use) => {
+    const assertFn: AssertPiPWindowHasPlayerFn = async (page) => {
+      await page.waitForFunction(
+        ({ ytdApp, moviePlayer }: { ytdApp: string; moviePlayer: string }) => {
+          const pipWindow = window.documentPictureInPicture?.window;
+          if (!pipWindow?.document) return false;
+          return !!(
+            pipWindow.document.querySelector(ytdApp) && pipWindow.document.querySelector(moviePlayer)
+          );
+        },
+        { ytdApp: E2E_SELECTORS.YTD_APP, moviePlayer: E2E_SELECTORS.MOVIE_PLAYER },
+        { timeout: E2E_WAIT_TIMEOUT_MS }
+      );
+    };
+    await use(assertFn);
   },
 });
 
