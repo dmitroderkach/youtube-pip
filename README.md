@@ -75,55 +75,88 @@ youtube-pip/
 │   ├── vite-env.d.ts        # Vite client types, *.css?raw module declaration
 │   │
 │   ├── constants/           # Application constants (barrel export via index.ts)
-│   │   ├── index.ts         # Re-exports all constants
+│   │   ├── index.ts
 │   │   ├── app.ts           # DEBUG_FLAG, TIMEOUTS, RETRY_LIMITS, DEFAULT_DIMENSIONS
-│   │   ├── youtube.ts       # PLAYER_STATES, YT_EVENTS, YT_ACTION_NAMES, YT_LIKE_ACTIONS, etc.
-│   │   └── ui.ts            # COPY_MENU_INDICES, MOUSE_BUTTONS
+│   │   ├── youtube.ts       # PLAYER_STATES, YT_EVENTS, YT_ACTION_NAMES, etc.
+│   │   ├── ui.ts            # COPY_MENU_INDICES, MOUSE_BUTTONS
+│   │   └── copyPayload.ts
 │   │
 │   ├── di/                  # Dependency injection (no external libs)
 │   │   ├── container.ts     # Container, bind, get
 │   │   ├── container-config.ts  # createContainer(), bindings
 │   │   ├── decorators.ts    # @injectable, @inject
 │   │   ├── metadata.ts      # Param metadata for injection
-│   │   ├── tokens.ts        # TYPES symbols
-│   │   └── index.ts         # Barrel export
+│   │   ├── types.ts         # TYPES symbols
+│   │   ├── index.ts
+│   │   └── __tests__/
 │   │
 │   ├── core/                # PiP lifecycle and YouTube integration
 │   │   ├── PiPManager.ts    # Document PiP window, move player main ↔ PiP
 │   │   ├── PiPWindowHandlers.ts  # PiP window init, handlers setup + cleanup
 │   │   ├── PlayerManager.ts # Player state, video data, playback time
 │   │   ├── NavigationHandler.ts  # SPA navigation in PiP (yt-navigate)
-│   │   └── YtActionSender.ts     # Like/dislike/remove → main app
+│   │   ├── YtActionSender.ts     # Like/dislike/remove → main app
+│   │   ├── YtdAppProvider.ts
+│   │   ├── PipWindowProvider.ts
+│   │   └── __tests__/
 │   │
 │   ├── errors/              # Custom error classes
 │   │   ├── AppError.ts      # Base error class
-│   │   ├── AppInitializationError.ts  # App init failures
+│   │   ├── AppInitializationError.ts
+│   │   ├── AppRuntimeError.ts
 │   │   ├── PiPError.ts      # Recoverable PiP errors
-│   │   └── PiPCriticalError.ts  # Unrecoverable PiP errors (broken page state)
+│   │   ├── PiPCriticalError.ts
+│   │   └── __tests__/
 │   │
 │   ├── handlers/
 │   │   ├── MediaSessionHandler.ts  # enterpictureinpicture, title sync
+│   │   ├── DocumentFocusHandler.ts  # Focus restoration (click/keyup)
+│   │   ├── TitleSyncHandler.ts      # PiP/main title sync
 │   │   ├── SeekHandler.ts          # Progress bar click/drag
-│   │   └── LikeButtonHandler.ts    # Like/dislike in PiP
+│   │   ├── LikeButtonHandler.ts    # Like/dislike in PiP
+│   │   └── __tests__/
 │   │
 │   ├── ui/
 │   │   ├── MiniPlayerController.ts # Toggle mini player via yt-action
 │   │   ├── MenuObserver.ts         # Menu expand/collapse, PiP height
 │   │   ├── ResizeTracker.ts        # ResizeObserver → player size updates
-│   │   └── ContextMenuHandler.ts   # Context menu main ↔ PiP, copy menu support
+│   │   ├── ContextMenuHandler.ts   # Context menu main ↔ PiP, copy menu support
+│   │   └── __tests__/
 │   │
 │   ├── utils/
 │   │   ├── DOMUtils.ts      # Placeholders, waitForElement, copyAttributes, copyViaTextarea
 │   │   ├── StyleUtils.ts    # copyStyles, injectCSSFixes
-│   │   └── VersionDetector.ts  # Script/YouTube/browser version detection
+│   │   ├── VersionDetector.ts
+│   │   ├── AsyncLock.ts
+│   │   ├── copyPayload.ts
+│   │   └── __tests__/
+│   │
+│   ├── test-utils/          # Vitest helpers, test container, mocks
+│   │   ├── index.ts
+│   │   ├── test-container.ts
+│   │   └── test-helpers.ts
 │   │
 │   └── types/
 │       ├── app.ts           # Nullable, MaybePromise, CopyType, PiPCleanupCallback, etc.
 │       ├── youtube.ts       # YouTubePlayer, VideoData, NavigationState, YouTubeAppElement
 │       └── global.d.ts      # Document PiP, extended MediaSession types
 │
+├── e2e/                     # Playwright E2E (Document PiP stub, real app on YouTube)
+│   ├── fixtures.ts          # PiP/handler stubs, videoPageReady, assertPiPWindowHasPlayer
+│   ├── constants.ts         # E2E_WAIT_TIMEOUT_MS
+│   ├── selectors.ts         # E2E_SELECTORS (mini player, movie player, ytd-app)
+│   ├── global.d.ts          # E2E types, MediaSession stub
+│   ├── tsconfig.json
+│   └── tests/
+│       ├── pip-stub.spec.ts # Happy flow: open PiP → assert → close → player back
+│       └── mini-player.spec.ts  # Press "i" → mini player → PiP → close → mini player visible
+│
 ├── docs/
 │   └── YOUTUBE_INTERNAL_API.md  # Kevlar API documentation
+│
+├── .github/
+│   └── workflows/
+│       └── build.yml       # Lint, type-check, unit tests, build, Playwright e2e (Chromium), report artifact
 │
 ├── dist/
 │   └── userscript.js        # Built userscript (IIFE, inline source map)
@@ -132,8 +165,10 @@ youtube-pip/
 │   └── release-tag.js       # Create and push git tag from package.json version
 │
 ├── vite.config.ts           # Build config, userscript header, SCRIPT_VERSION injection
+├── playwright.config.ts     # E2E config (baseURL, actionTimeout from e2e/constants)
 ├── eslint.config.js         # ESLint flat + TypeScript + Prettier
-├── tsconfig.json
+├── tsconfig.json            # src/ only
+├── tsconfig.eslint.json     # Extends tsconfig, includes src + e2e + root
 ├── package.json
 ├── CHANGELOG.md
 ├── .prettierrc / .prettierignore
@@ -148,11 +183,16 @@ youtube-pip/
 | `npm run build`         | Type-check + production build → `dist/userscript.js` |
 | `npm run build:debug`   | Debug build (no minify, header via plugin)           |
 | `npm run type-check`    | `tsc --noEmit`                                       |
+| `npm run test`          | Vitest unit tests (run + coverage)                   |
+| `npm run test:e2e`      | Playwright e2e tests (Chromium, YouTube + PiP stub)  |
+| `npm run test:e2e:ui`   | Playwright e2e with UI (debug)                       |
 | `npm run lint`          | ESLint                                               |
 | `npm run lint:fix`      | ESLint with `--fix`                                  |
 | `npm run prettier`      | Prettier check                                       |
 | `npm run prettier:fix`  | Prettier write                                       |
-| `npm run version:patch` | Bump version in `package.json` only (no commit/tag)  |
+| `npm run version:patch` | Bump patch in `package.json` only (no commit/tag)    |
+| `npm run version:minor` | Bump minor in `package.json` only                    |
+| `npm run version:major` | Bump major in `package.json` only                    |
 | `npm run release:tag`   | Create tag `v{VERSION}` from `package.json`, push    |
 
 Userscript `@version` is taken from `package.json` during build.
@@ -163,6 +203,8 @@ Userscript `@version` is taken from `package.json` during build.
 
 - **TypeScript** (strict)
 - **Vite** (build, Rollup, Terser)
+- **Vitest** (unit tests, coverage)
+- **Playwright** (e2e tests, Chromium, Document PiP stub on YouTube)
 - **ESLint** (flat config, typescript-eslint, eslint-config-prettier)
 - **Prettier**
 - **Intl API** (native date formatting)
