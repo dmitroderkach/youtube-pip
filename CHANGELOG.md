@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.2.3] - 2026-02-17
+
+### Added
+
+- **e2e** — Mini player test (press "i" → PiP → close → mini player visible again)
+
+### Changed
+
+- **e2e** — Improvements: shared constants/selectors, `assertPiPWindowHasPlayer` fixture, tests in `e2e/tests/`, default wait timeout in config
+
 ## [2.2.2] - 2026-02-17
 
 ### Changed
@@ -780,6 +790,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.2.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.2...refs/tags/v2.2.3
 [2.2.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.1...refs/tags/v2.2.2
 [2.2.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.0...refs/tags/v2.2.1
 [2.2.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.6...refs/tags/v2.2.0
