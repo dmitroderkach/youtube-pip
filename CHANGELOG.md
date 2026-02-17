@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.2.0] - 2026-02-17
+
+### Added
+
+- **E2E in CI** — GitHub Actions: install Playwright Chromium, run `test:e2e`, upload Playwright HTML report artifact when e2e run completes (success or failure); report retained 7 days
+- **.gitignore** — `playwright-report/`, `test-results/` so Playwright outputs are not committed
+
+### Changed
+
+- **build.yml** — Steps: Install Playwright browsers, Run e2e tests, Upload Playwright report (conditional on e2e step outcome)
+- **global.d.ts** — MediaSession `setActionHandler` signature extended for e2e stub (action: string, handler: unknown)
+- **tsconfig.eslint.json** — Include `e2e/**/*` for type-aware linting
+
 ## [2.1.6] - 2026-02-17
 
 ### Changed
@@ -755,6 +768,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.2.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.6...refs/tags/v2.2.0
 [2.1.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.5...refs/tags/v2.1.6
 [2.1.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.4...refs/tags/v2.1.5
 [2.1.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.1.3...refs/tags/v2.1.4
