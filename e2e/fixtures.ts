@@ -85,12 +85,12 @@ export const test = base.extend<{
     await use(getUserscriptBody());
   },
 
-  /** Accept YouTube cookie/consent dialog (button on main page). Waits for page refresh, then re-inits handler stub. */
+  /** Accept YouTube cookie/consent dialog (button on main page). Waits for next DOMContentLoaded after click (reload), then re-inits handler stub. */
   acceptYouTubeConsent: async ({ page: _page }, use) => {
     const accept: AcceptYouTubeConsentFn = async (page) => {
       try {
         await Promise.all([
-          page.waitForLoadState('domcontentloaded', { timeout: 15000 }),
+          page.waitForEvent('domcontentloaded', { timeout: 15000 }),
           page
             .getByRole('button', { name: 'Accept the use of cookies and' })
             .click({ timeout: 8000 }),
@@ -108,7 +108,6 @@ export const test = base.extend<{
     await page.goto(VIDEO_URL, { waitUntil: 'domcontentloaded' });
     await acceptYouTubeConsent(page);
     await page.evaluate((code: string) => eval(code), userscriptBody);
-    await page.waitForTimeout(5000);
     await page.waitForFunction(() => window.__E2E_PIP__?.has('enterpictureinpicture'), {
       timeout: 15000,
     });
