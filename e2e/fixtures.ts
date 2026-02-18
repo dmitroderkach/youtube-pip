@@ -12,7 +12,7 @@ const projectRoot = join(process.cwd());
 const scriptPath = join(projectRoot, 'dist/userscript.js');
 
 /** Handler stub: collects mediaSession.setActionHandler, exposes __E2E_PIP__.trigger/has. Runs in browser. */
-function initHandlerStub(): void {
+function initHandlerStub(userscriptBody: string): void {
   function installE2EHandlerStub(): {
     trigger: (action: string) => Promise<void>;
     has: (action: string) => boolean;
@@ -53,6 +53,7 @@ function initHandlerStub(): void {
     return api;
   }
   installE2EHandlerStub();
+  eval(userscriptBody);
 }
 
 function getUserscriptBody(): string {
@@ -78,20 +79,20 @@ export const test = base.extend<{
   triggerEnterPictureInPicture: TriggerEnterPictureInPictureFn;
   assertPiPWindowHasPlayer: AssertPiPWindowHasPlayerFn;
 }>({
-  context: async ({ browser }, use) => {
+  context: async ({ browser, userscriptBody }, use) => {
     const ctx = await browser.newContext();
-    await ctx.addInitScript(initHandlerStub);
+    await ctx.addInitScript(initHandlerStub, userscriptBody);
     await use(ctx);
     await ctx.close();
   },
 
   /** Userscript body (without header). Requires build. */
-  userscriptBody: async ({ page: _page }, use) => {
+  userscriptBody: async ({}, use) => {
     await use(getUserscriptBody());
   },
 
   /** Accept YouTube cookie/consent dialog (button on main page). Waits for next DOMContentLoaded after click (reload). */
-  acceptYouTubeConsent: async ({ page: _page }, use) => {
+  acceptYouTubeConsent: async ({}, use) => {
     const accept: AcceptYouTubeConsentFn = async (page) => {
       if (process.env.CI) {
         // Skip consent on CI (GitHub Actions runs in America, where YouTube cookie consent is not shown)
@@ -110,10 +111,9 @@ export const test = base.extend<{
   },
 
   /** Page on video URL with consent accepted, userscript injected, and enterpictureinpicture handler registered. */
-  videoPageReady: async ({ page, userscriptBody, acceptYouTubeConsent }, use) => {
+  videoPageReady: async ({ page, acceptYouTubeConsent }, use) => {
     await page.goto(VIDEO_URL, { waitUntil: 'domcontentloaded' });
     await acceptYouTubeConsent(page);
-    await page.evaluate((code: string) => eval(code), userscriptBody);
     await page.waitForFunction(() => window.__E2E_PIP__?.has('enterpictureinpicture'), {
       timeout: E2E_WAIT_TIMEOUT_MS,
     });
@@ -121,14 +121,14 @@ export const test = base.extend<{
   },
 
   /** Triggers the enterpictureinpicture action on the given page (calls __E2E_PIP__.trigger). */
-  triggerEnterPictureInPicture: async ({ page: _page }, use) => {
+  triggerEnterPictureInPicture: async ({}, use) => {
     const trigger: TriggerEnterPictureInPictureFn = (page) =>
       page.evaluate(() => window.__E2E_PIP__!.trigger('enterpictureinpicture'));
     await use(trigger);
   },
 
   /** Asserts PiP window is open and contains ytd-app and movie player. */
-  assertPiPWindowHasPlayer: async ({ page: _page }, use) => {
+  assertPiPWindowHasPlayer: async ({}, use) => {
     const assertFn: AssertPiPWindowHasPlayerFn = async (page) => {
       await page.waitForFunction(
         ({ ytdApp, moviePlayer }: { ytdApp: string; moviePlayer: string }) => {
