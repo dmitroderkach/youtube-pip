@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.2.6] - 2026-02-18
+
+### Changed
+
+- **e2e fixtures** — Userscript runs via `addInitScript(initHandlerStub, userscriptBody)` so script executes before page load; `videoPageReady` no longer evals userscript in page; fixtures that don't need `page` use empty dependency `{}`; ESLint `no-empty-pattern` disabled for that block
+- **Playwright** — `viewport: null`, `colorScheme: 'dark'`, `deviceScaleFactor: undefined` so context works with null viewport (fix "deviceScaleFactor not supported with null viewport")
+
 ## [2.2.5] - 2026-02-17
 
 ### Changed
@@ -802,6 +809,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.2.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.5...refs/tags/v2.2.6
 [2.2.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.4...refs/tags/v2.2.5
 [2.2.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.3...refs/tags/v2.2.4
 [2.2.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.2...refs/tags/v2.2.3

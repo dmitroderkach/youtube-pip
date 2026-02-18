@@ -37,6 +37,7 @@ export default [
           checksVoidReturn: false,
         },
       ],
+      'no-empty-pattern': 'off',
     },
   },
   eslintConfigPrettier,
