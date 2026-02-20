@@ -3,10 +3,7 @@
  * Stub implementation lives here; no Playwright scripts in scripts/.
  */
 import { test as base, expect, type Page } from '@playwright/test';
-import {
-  E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
-  E2E_WAIT_TIMEOUT_MS,
-} from './constants';
+import { E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS, E2E_WAIT_TIMEOUT_MS } from './constants';
 import { E2E_SELECTORS } from './selectors';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
