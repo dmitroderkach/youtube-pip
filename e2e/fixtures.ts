@@ -3,7 +3,11 @@
  * Stub implementation lives here; no Playwright scripts in scripts/.
  */
 import { test as base, expect, type Page } from '@playwright/test';
-import { E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS, E2E_WAIT_TIMEOUT_MS } from './constants';
+import {
+  E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
+  E2E_PIP_AD_STABILITY_MS,
+  E2E_WAIT_TIMEOUT_MS,
+} from './constants';
 import { E2E_SELECTORS } from './selectors';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -166,20 +170,35 @@ export const test = base.extend<{
     await use(assertFn);
   },
 
-  /** Wait until ad overlay is gone in PiP (ad ended; uses .ytp-ad-player-overlay). */
+  /** Wait until ad overlay is gone in PiP (all ads ended; YouTube may show 2+ in a row). */
   waitForPiPAdToEnd: async ({}, use) => {
+    const isAdOverlayGone = (page: Page) =>
+      page.evaluate((adOverlaySel: string) => {
+        const pip = window.documentPictureInPicture?.window;
+        const overlay = pip?.document.querySelector(adOverlaySel);
+        if (!overlay) return true;
+        const style = pip?.document.defaultView?.getComputedStyle(overlay);
+        return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
+      }, E2E_SELECTORS.AD_PLAYER_OVERLAY);
+
     const waitFn: WaitForPiPAdToEndFn = async (page) => {
-      await page.waitForFunction(
-        (adOverlaySel: string) => {
-          const pip = window.documentPictureInPicture?.window;
-          const overlay = pip?.document.querySelector(adOverlaySel);
-          if (!overlay) return true;
-          const style = pip?.document.defaultView?.getComputedStyle(overlay);
-          return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
-        },
-        E2E_SELECTORS.AD_PLAYER_OVERLAY,
-        { timeout: E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS }
-      );
+      const timeout = E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS;
+      const maxAttempts = 10;
+      for (let i = 0; i < maxAttempts; i++) {
+        await page.waitForFunction(
+          (adOverlaySel: string) => {
+            const pip = window.documentPictureInPicture?.window;
+            const overlay = pip?.document.querySelector(adOverlaySel);
+            if (!overlay) return true;
+            const style = pip?.document.defaultView?.getComputedStyle(overlay);
+            return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
+          },
+          E2E_SELECTORS.AD_PLAYER_OVERLAY,
+          { timeout }
+        );
+        await page.waitForTimeout(E2E_PIP_AD_STABILITY_MS);
+        if (await isAdOverlayGone(page)) return;
+      }
     };
     await use(waitFn);
   },

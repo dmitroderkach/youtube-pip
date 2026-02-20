@@ -105,9 +105,11 @@ test.describe('Playlist navigation in PiP popup', () => {
     playlistVideoPageReady: page,
     triggerEnterPictureInPicture,
     assertPiPWindowHasPlayer,
+    waitForPiPAdToEnd,
   }) => {
     await triggerEnterPictureInPicture(page);
     await assertPiPWindowHasPlayer(page);
+    await waitForPiPAdToEnd(page);
 
     await waitForMiniPlayerVisibleInPip(page);
     await clickExpandInPip(page);
