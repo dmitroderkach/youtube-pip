@@ -56,12 +56,6 @@ async function waitForContextMenuItemVisible(
       const item = items[idx];
       if (!item) return false;
       const style = doc.defaultView?.getComputedStyle(item);
-      console.log({
-        display: style?.display,
-        visibility: style?.visibility,
-        index: idx,
-        text: item.textContent,
-      });
       return (
         item.getBoundingClientRect().height > 0 &&
         style?.display !== 'none' &&
@@ -111,7 +105,7 @@ test.describe('Context menu copy in PiP', () => {
       })
       .toMatch(/youtube\.com\/watch|youtu\.be/);
 
-    await page.waitForTimeout(2000); // wait for video current time to be updated
+    await page.waitForTimeout(5000); // wait for video current time to be updated
     await waitForContextMenuItemVisible(
       page,
       COPY_MENU_INDICES.URL_AT_TIME,
