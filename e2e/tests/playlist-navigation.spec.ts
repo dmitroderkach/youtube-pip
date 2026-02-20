@@ -101,7 +101,7 @@ async function waitForPlaylistItemVisibleInPip(page: Page, index: number): Promi
 test.describe('Playlist navigation in PiP popup', () => {
   test.slow();
 
-  test.only('playlist video → open PiP → expand → click another video → video src changes in popup', async ({
+  test('playlist video → open PiP → expand → click another video → video src changes in popup', async ({
     playlistVideoPageReady: page,
     triggerEnterPictureInPicture,
     assertPiPWindowHasPlayer,
