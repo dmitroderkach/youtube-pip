@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.2.7] - 2026-02-21
+
+### Added
+
+- **e2e** — Playlist navigation test: open playlist video → mini player → expand → click another video; assert video src changes in mini player
+- **e2e** — Context menu copy test: copy video URL, URL at time, embed iframe, debug info in PiP; wait for ad to end (`waitForPiPAdToEnd`), then open menu and assert clipboard via `expect.poll()`
+- **e2e** — PiP focus test: player has focus when PiP opens; focus returns after click outside (below player); focus not on context menu while open; focus returns after ESC
+- **e2e fixtures** — `playlistVideoPageReady`, `waitForPiPAdToEnd`; constant `PLAYLIST_VIDEO_URL` and `E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS`
+- **e2e selectors** — `MENU_BUTTON`, `PLAYLIST_PANEL`, `PLAYLIST_VIDEO_ITEM`, `CONTEXT_MENU`, `PANEL_MENU_ITEMS`, `AD_PLAYER_OVERLAY`
+
+### Changed
+
+- **e2e** — Context menu copy uses `expect.poll()` for clipboard checks (replacing async `waitForFunction` which did not await the predicate); ad overlay wait before opening menu
+
 ## [2.2.6] - 2026-02-18
 
 ### Changed
@@ -809,6 +823,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.2.7]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.6...refs/tags/v2.2.7
 [2.2.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.5...refs/tags/v2.2.6
 [2.2.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.4...refs/tags/v2.2.5
 [2.2.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.3...refs/tags/v2.2.4
