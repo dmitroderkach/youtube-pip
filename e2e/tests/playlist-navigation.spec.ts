@@ -1,50 +1,132 @@
 /**
- * E2E: Navigation when switching video from mini player playlist.
+ * E2E: Navigation when switching video from playlist inside the PiP popup.
  *
- * Flow: open playlist video (in the middle of playlist) → open mini player (press "i")
- *       → click expand to show playlist list → click another video → assert navigation.
- *
- * PiP is not opened; the test uses only the mini player (our popup contains the same structure).
+ * Flow: open playlist video → open PiP popup → in popup: expand playlist → click another video
+ *       → assert video src in popup changed.
  */
+import type { Page } from '@playwright/test';
 import { E2E_WAIT_TIMEOUT_MS } from '../constants';
 import { test } from '../fixtures';
 import { E2E_SELECTORS } from '../selectors';
 
-test.describe('Playlist navigation in mini player', () => {
-  test('playlist video → open mini player → expand → click another video → video changes', async ({
+async function waitForMiniPlayerVisibleInPip(page: Page): Promise<void> {
+  await page.waitForFunction(
+    (miniPlayerSel: string) => {
+      const pip = window.documentPictureInPicture?.window;
+      const miniPlayer = pip?.document.querySelector(miniPlayerSel);
+      if (!miniPlayer) return false;
+      const style = pip?.document.defaultView?.getComputedStyle(miniPlayer);
+      return style?.display !== 'none' && miniPlayer.getBoundingClientRect().height > 0;
+    },
+    E2E_SELECTORS.MINIPLAYER,
+    { timeout: E2E_WAIT_TIMEOUT_MS }
+  );
+}
+
+function clickExpandInPip(page: Page): Promise<void> {
+  return page.evaluate(
+    ({ miniPlayerSel, btnSel }: { miniPlayerSel: string; btnSel: string }) => {
+      const pip = window.documentPictureInPicture?.window;
+      const miniPlayer = pip?.document.querySelector(miniPlayerSel);
+      const btn = miniPlayer?.querySelector(btnSel);
+      btn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    },
+    { miniPlayerSel: E2E_SELECTORS.MINIPLAYER, btnSel: E2E_SELECTORS.MENU_BUTTON }
+  );
+}
+
+async function waitForPlaylistPanelVisibleInPip(page: Page): Promise<void> {
+  await page.waitForFunction(
+    ({ miniPlayerSel, panelSel }: { miniPlayerSel: string; panelSel: string }) => {
+      const pip = window.documentPictureInPicture?.window;
+      const miniPlayer = pip?.document.querySelector(miniPlayerSel);
+      const panel = miniPlayer?.querySelector(panelSel);
+      if (!panel) return false;
+      const style = pip?.document.defaultView?.getComputedStyle(panel);
+      return style?.display !== 'none' && panel.getBoundingClientRect().height > 0;
+    },
+    {
+      miniPlayerSel: E2E_SELECTORS.MINIPLAYER,
+      panelSel: E2E_SELECTORS.PLAYLIST_PANEL,
+    },
+    { timeout: E2E_WAIT_TIMEOUT_MS }
+  );
+}
+
+function getVideoSrcInPip(page: Page): Promise<string> {
+  return page.evaluate((miniPlayerSel: string) => {
+    const pip = window.documentPictureInPicture?.window;
+    const miniPlayer = pip?.document.querySelector(miniPlayerSel);
+    const v = miniPlayer?.querySelector('video');
+    return v?.getAttribute('src') ?? (v as HTMLVideoElement | undefined)?.currentSrc ?? '';
+  }, E2E_SELECTORS.MINIPLAYER);
+}
+
+function clickPlaylistItemInPip(page: Page, index: number): Promise<void> {
+  return page.evaluate(
+    ({ miniPlayerSel, itemSel, idx }: { miniPlayerSel: string; itemSel: string; idx: number }) => {
+      const pip = window.documentPictureInPicture?.window;
+      const miniPlayer = pip?.document.querySelector(miniPlayerSel);
+      const items = miniPlayer?.querySelectorAll(itemSel);
+      items?.[idx]?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    },
+    {
+      miniPlayerSel: E2E_SELECTORS.MINIPLAYER,
+      itemSel: E2E_SELECTORS.PLAYLIST_VIDEO_ITEM,
+      idx: index,
+    }
+  );
+}
+
+async function waitForPlaylistItemVisibleInPip(page: Page, index: number): Promise<void> {
+  await page.waitForFunction(
+    ({ miniPlayerSel, itemSel, idx }: { miniPlayerSel: string; itemSel: string; idx: number }) => {
+      const pip = window.documentPictureInPicture?.window;
+      const miniPlayer = pip?.document.querySelector(miniPlayerSel);
+      const items = miniPlayer?.querySelectorAll(itemSel);
+      const item = items?.[idx];
+      if (!item) return false;
+      const style = pip?.document.defaultView?.getComputedStyle(item);
+      return item.getBoundingClientRect().height > 0 && style?.display !== 'none';
+    },
+    {
+      miniPlayerSel: E2E_SELECTORS.MINIPLAYER,
+      itemSel: E2E_SELECTORS.PLAYLIST_VIDEO_ITEM,
+      idx: index,
+    },
+    { timeout: E2E_WAIT_TIMEOUT_MS }
+  );
+}
+
+test.describe('Playlist navigation in PiP popup', () => {
+  test.slow();
+
+  test.only('playlist video → open PiP → expand → click another video → video src changes in popup', async ({
     playlistVideoPageReady: page,
+    triggerEnterPictureInPicture,
+    assertPiPWindowHasPlayer,
   }) => {
-    await page.keyboard.press('i');
-    await page
-      .locator(E2E_SELECTORS.MINIPLAYER_HOST)
-      .waitFor({ state: 'visible', timeout: E2E_WAIT_TIMEOUT_MS });
+    await triggerEnterPictureInPicture(page);
+    await assertPiPWindowHasPlayer(page);
 
-    const miniPlayer = page.locator(E2E_SELECTORS.MINIPLAYER_HOST);
-    const expandButton = miniPlayer.locator(E2E_SELECTORS.MENU_BUTTON).first();
-    await expandButton.click();
-    await miniPlayer
-      .locator(E2E_SELECTORS.PLAYLIST_PANEL)
-      .waitFor({ state: 'visible', timeout: E2E_WAIT_TIMEOUT_MS });
+    await waitForMiniPlayerVisibleInPip(page);
+    await clickExpandInPip(page);
+    await waitForPlaylistPanelVisibleInPip(page);
+    await waitForPlaylistItemVisibleInPip(page, 1);
 
-    const playlistItems = miniPlayer.locator(E2E_SELECTORS.PLAYLIST_VIDEO_ITEM);
-    await playlistItems.nth(1).waitFor({ state: 'visible', timeout: E2E_WAIT_TIMEOUT_MS });
-
-    const video = miniPlayer.locator('video').first();
-    const initialSrc =
-      (await video.getAttribute('src')) ??
-      (await video.evaluate((el: HTMLVideoElement) => el.currentSrc || ''));
-
-    await playlistItems.nth(1).click();
+    const initialSrc = await getVideoSrcInPip(page);
+    await clickPlaylistItemInPip(page, 1);
 
     await page.waitForFunction(
-      ({ hostSelector, prevSrc }: { hostSelector: string; prevSrc: string }) => {
-        const container = document.querySelector(hostSelector);
-        const v = container?.querySelector('video');
+      ({ miniPlayerSel, prevSrc }: { miniPlayerSel: string; prevSrc: string }) => {
+        const pip = window.documentPictureInPicture?.window;
+        const miniPlayer = pip?.document.querySelector(miniPlayerSel);
+        const v = miniPlayer?.querySelector('video');
         const current =
           v?.getAttribute('src') ?? (v as HTMLVideoElement | undefined)?.currentSrc ?? '';
         return !!v && current !== prevSrc;
       },
-      { hostSelector: E2E_SELECTORS.MINIPLAYER_HOST, prevSrc: initialSrc },
+      { miniPlayerSel: E2E_SELECTORS.MINIPLAYER, prevSrc: initialSrc },
       { timeout: E2E_WAIT_TIMEOUT_MS }
     );
   });
