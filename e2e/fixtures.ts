@@ -6,6 +6,7 @@ import { test as base, expect, type Page } from '@playwright/test';
 import {
   E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
   E2E_PIP_AD_STABILITY_MS,
+  E2E_PIP_SKIP_AD_POLL_MS,
   E2E_WAIT_TIMEOUT_MS,
 } from './constants';
 import { E2E_SELECTORS } from './selectors';
@@ -181,21 +182,42 @@ export const test = base.extend<{
         return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
       }, E2E_SELECTORS.AD_PLAYER_OVERLAY);
 
+    /** Prefer real (trusted) click if PiP is a separate page; otherwise programmatic click in PiP document. */
+    const tryClickSkipAdInPip = async (page: Page): Promise<boolean> => {
+      const ctx = page.context();
+      const pages = ctx.pages();
+      for (const p of pages) {
+        if (p === page) continue;
+        const loc = p.locator(E2E_SELECTORS.SKIP_AD_BUTTON);
+        const visible = await loc.isVisible().catch(() => false);
+        if (visible) {
+          await loc.click();
+          return true;
+        }
+      }
+      return false;
+    };
+
     const waitFn: WaitForPiPAdToEndFn = async (page) => {
       const timeout = E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS;
       const maxAttempts = 10;
       for (let i = 0; i < maxAttempts; i++) {
-        await page.waitForFunction(
-          (adOverlaySel: string) => {
-            const pip = window.documentPictureInPicture?.window;
-            const overlay = pip?.document.querySelector(adOverlaySel);
-            if (!overlay) return true;
-            const style = pip?.document.defaultView?.getComputedStyle(overlay);
-            return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
-          },
-          E2E_SELECTORS.AD_PLAYER_OVERLAY,
-          { timeout }
-        );
+        const skipPoll = setInterval(() => void tryClickSkipAdInPip(page), E2E_PIP_SKIP_AD_POLL_MS);
+        try {
+          await page.waitForFunction(
+            (adOverlaySel: string) => {
+              const pip = window.documentPictureInPicture?.window;
+              const overlay = pip?.document.querySelector(adOverlaySel);
+              if (!overlay) return true;
+              const style = pip?.document.defaultView?.getComputedStyle(overlay);
+              return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
+            },
+            E2E_SELECTORS.AD_PLAYER_OVERLAY,
+            { timeout }
+          );
+        } finally {
+          clearInterval(skipPoll);
+        }
         await page.waitForTimeout(E2E_PIP_AD_STABILITY_MS);
         if (await isAdOverlayGone(page)) return;
       }

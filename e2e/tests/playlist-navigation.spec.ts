@@ -54,12 +54,15 @@ async function waitForPlaylistPanelVisibleInPip(page: Page): Promise<void> {
 }
 
 function getVideoSrcInPip(page: Page): Promise<string> {
-  return page.evaluate((miniPlayerSel: string) => {
-    const pip = window.documentPictureInPicture?.window;
-    const miniPlayer = pip?.document.querySelector(miniPlayerSel);
-    const v = miniPlayer?.querySelector('video');
-    return v?.getAttribute('src') ?? (v as HTMLVideoElement | undefined)?.currentSrc ?? '';
-  }, E2E_SELECTORS.MINIPLAYER);
+  return page.evaluate(
+    ({ moviePlayerSel, videoSel }: { moviePlayerSel: string; videoSel: string }) => {
+      const pip = window.documentPictureInPicture?.window;
+      const moviePlayer = pip?.document.querySelector(moviePlayerSel);
+      const video = moviePlayer?.querySelector(videoSel);
+      return video?.getAttribute('src') ?? '';
+    },
+    { moviePlayerSel: E2E_SELECTORS.MOVIE_PLAYER, videoSel: E2E_SELECTORS.PLAYER_VIDEO }
+  );
 }
 
 function clickPlaylistItemInPip(page: Page, index: number): Promise<void> {
@@ -101,7 +104,7 @@ async function waitForPlaylistItemVisibleInPip(page: Page, index: number): Promi
 test.describe('Playlist navigation in PiP popup', () => {
   test.slow();
 
-  test('playlist video → open PiP → expand → click another video → video src changes in popup', async ({
+  test.only('playlist video → open PiP → expand → click another video → video src changes in popup', async ({
     playlistVideoPageReady: page,
     triggerEnterPictureInPicture,
     assertPiPWindowHasPlayer,
@@ -122,15 +125,26 @@ test.describe('Playlist navigation in PiP popup', () => {
     await waitForPiPAdToEnd(page);
 
     await page.waitForFunction(
-      ({ miniPlayerSel, prevSrc }: { miniPlayerSel: string; prevSrc: string }) => {
+      ({
+        moviePlayerSel,
+        videoSel,
+        prevSrc,
+      }: {
+        moviePlayerSel: string;
+        videoSel: string;
+        prevSrc: string;
+      }) => {
         const pip = window.documentPictureInPicture?.window;
-        const miniPlayer = pip?.document.querySelector(miniPlayerSel);
-        const v = miniPlayer?.querySelector('video');
-        const current =
-          v?.getAttribute('src') ?? (v as HTMLVideoElement | undefined)?.currentSrc ?? '';
-        return !!v && current !== prevSrc;
+        const moviePlayer = pip?.document.querySelector(moviePlayerSel);
+        const video = moviePlayer?.querySelector(videoSel);
+        const current = video?.getAttribute('src') ?? '';
+        return !!moviePlayer && current !== prevSrc;
       },
-      { miniPlayerSel: E2E_SELECTORS.MINIPLAYER, prevSrc: initialSrc },
+      {
+        moviePlayerSel: E2E_SELECTORS.MOVIE_PLAYER,
+        videoSel: E2E_SELECTORS.PLAYER_VIDEO,
+        prevSrc: initialSrc,
+      },
       { timeout: E2E_WAIT_TIMEOUT_MS }
     );
   });

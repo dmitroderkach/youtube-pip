@@ -3,6 +3,8 @@ export const E2E_SELECTORS = {
   MINIPLAYER: 'ytd-miniplayer',
   MINIPLAYER_HOST: '.ytdMiniplayerComponentHost.ytdMiniplayerComponentVisible',
   MOVIE_PLAYER: '#movie_player',
+  /** <video> element inside the player (query relative to player root) */
+  PLAYER_VIDEO: 'video',
   YTD_APP: 'ytd-app',
   /** Expand button in mini player to show playlist (aria-expanded). */
   MENU_BUTTON: '.yt-spec-button-shape-next[aria-expanded]',
@@ -16,4 +18,6 @@ export const E2E_SELECTORS = {
   PANEL_MENU_ITEMS: '.ytp-panel-menu > .ytp-menuitem',
   /** YouTube ad overlay in player; when absent or hidden, ad has ended. */
   AD_PLAYER_OVERLAY: '.ytp-ad-player-overlay-layout',
+  /** Skip ad button; click when visible to end ad sooner. */
+  SKIP_AD_BUTTON: '.ytp-skip-ad-button',
 } as const;
