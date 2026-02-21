@@ -15,10 +15,10 @@ import { dirname, join } from 'node:path';
 
 const projectRoot = join(process.cwd());
 
-/** Path where cookies + localStorage are saved (for reuse). In CI populated from secret E2E_STORAGE_STATE_BASE64 when missing. */
+/** Path where cookies + localStorage are loaded from (no write-back on test end). When file is missing and E2E_STORAGE_STATE_BASE64 is set, the fixture creates it from the secret. */
 export const E2E_STORAGE_STATE_PATH = join(projectRoot, 'e2e', '.auth', 'storageState.json');
 
-/** Env var with base64-encoded Playwright storage state (GitHub secret). Used when file is missing (e.g. cache miss in CI). */
+/** Env var with base64-encoded Playwright storage state (GitHub secret). Used only when the file does not exist. */
 const E2E_STORAGE_STATE_BASE64_ENV = 'E2E_STORAGE_STATE_BASE64';
 
 /** If storage state file is missing and E2E_STORAGE_STATE_BASE64 is set, decode and write the file. */
@@ -129,12 +129,7 @@ export const test = base.extend<{
     const addInitAndUse = async (ctx: Awaited<ReturnType<typeof browser.newContext>>) => {
       await ctx.addInitScript(initHandlerStub, userscriptBody);
       await use(ctx);
-      try {
-        mkdirSync(dirname(E2E_STORAGE_STATE_PATH), { recursive: true });
-        await ctx.storageState({ path: E2E_STORAGE_STATE_PATH });
-      } finally {
-        await ctx.close();
-      }
+      await ctx.close();
     };
 
     if (authState === true) {

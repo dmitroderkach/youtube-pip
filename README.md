@@ -6,6 +6,7 @@ Smart Picture-in-Picture mode for YouTube with full playback controls, SPA navig
 
 - **[YouTube Internal API Usage](docs/YOUTUBE_INTERNAL_API.md)** - Comprehensive guide on how we interact with YouTube's Kevlar framework
 - **[Resilience Report (Feb 18, 2026 Outage)](docs/RESILIENCE_REPORT.md)** - How the script maintained full functionality during YouTube's global infrastructure failure
+- **[E2E tests (Playwright)](docs/E2E_TESTS.md)** - Implementation details, fixtures, auth flow, and test descriptions
 
 ## Disclaimer
 
@@ -214,8 +215,8 @@ E2E tests run against real YouTube with the built userscript; Document PiP is st
 
 **Auth.** Some tests use `test.use({ authState: true })` (e.g. like-dislike). They need a logged-in YouTube session:
 
-- **Local:** Run e2e once in a browser where you’re logged in; the fixture saves state to `e2e/.auth/storageState.json` and reuses it. Or create that file yourself (Playwright storage state format).
-- **CI:** The workflow passes the `E2E_STORAGE_STATE_BASE64` secret (base64-encoded `storageState.json`) into the e2e step. When the file is missing, the fixture decodes the secret and writes `e2e/.auth/storageState.json` before creating the context. No cache is used; auth state comes only from the secret.
+- **Local:** Create `e2e/.auth/storageState.json` yourself (Playwright storage state format) or export it from a browser session. The fixture does not write state back after the test.
+- **CI:** The workflow passes the `E2E_STORAGE_STATE_BASE64` secret (base64-encoded `storageState.json`) into the e2e step. When the file does not exist, the fixture creates it from the secret; otherwise the existing file is used. No write-back on test end.
 
 ## Tech stack
 
