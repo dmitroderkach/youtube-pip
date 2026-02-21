@@ -34,7 +34,7 @@ function ensureStorageStateFromSecret(): void {
 const scriptPath = join(projectRoot, 'dist/userscript.js');
 
 /** Handler stub: collects mediaSession.setActionHandler, exposes __E2E_PIP__.trigger/has. Runs in browser. */
-export function initHandlerStub(userscriptBody: string): void {
+function initHandlerStub(userscriptBody: string): void {
   function installE2EHandlerStub(): {
     trigger: (action: string) => Promise<void>;
     has: (action: string) => boolean;
@@ -78,7 +78,7 @@ export function initHandlerStub(userscriptBody: string): void {
   eval(userscriptBody);
 }
 
-export function getUserscriptBody(): string {
+function getUserscriptBody(): string {
   if (!existsSync(scriptPath)) {
     throw new Error('Run "npm run build" first. dist/userscript.js not found.');
   }
