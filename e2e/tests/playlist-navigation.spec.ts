@@ -58,7 +58,13 @@ function getVideoSrcInPip(page: Page): Promise<string> {
     ({ moviePlayerSel, videoSel }: { moviePlayerSel: string; videoSel: string }) => {
       const pip = window.documentPictureInPicture?.window;
       const moviePlayer = pip?.document.querySelector(moviePlayerSel);
-      const video = moviePlayer?.querySelector(videoSel);
+      const video = moviePlayer?.querySelector<HTMLVideoElement>(videoSel);
+      console.log({
+        hasVideo: !!video,
+        src: video?.src,
+        srcAttr: video?.getAttribute('src'),
+        currentSrc: video?.getAttribute('currentSrc'),
+      });
       return video?.getAttribute('src') ?? '';
     },
     { moviePlayerSel: E2E_SELECTORS.MOVIE_PLAYER, videoSel: E2E_SELECTORS.PLAYER_VIDEO }
