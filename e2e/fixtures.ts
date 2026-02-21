@@ -110,9 +110,14 @@ const defaultContextOptions = {
 /** true = use E2E_STORAGE_STATE_PATH, false/undefined = isolated context. */
 export type AuthStateOption = true | false | undefined;
 
+/** true = write storage state to file on context close, false/undefined = no write-back. */
+export type StoreAuthStateOption = true | false | undefined;
+
 export const test = base.extend<{
   /** test.use({ authState: true }) to load saved state, false/undefined for isolated context. */
   authState: AuthStateOption;
+  /** test.use({ storeAuthState: true }) to save storage state to e2e/.auth/storageState.json on test end. */
+  storeAuthState: StoreAuthStateOption;
   userscriptBody: string;
   acceptYouTubeConsent: AcceptYouTubeConsentFn;
   videoPageReady: Page;
@@ -124,11 +129,16 @@ export const test = base.extend<{
   waitForPiPAdToEnd: WaitForPiPAdToEndFn;
 }>({
   authState: [undefined, { option: true }],
+  storeAuthState: [undefined, { option: true }],
 
-  context: async ({ userscriptBody, browser, authState }, use) => {
+  context: async ({ userscriptBody, browser, authState, storeAuthState }, use) => {
     const addInitAndUse = async (ctx: Awaited<ReturnType<typeof browser.newContext>>) => {
       await ctx.addInitScript(initHandlerStub, userscriptBody);
       await use(ctx);
+      if (storeAuthState === true) {
+        mkdirSync(dirname(E2E_STORAGE_STATE_PATH), { recursive: true });
+        await ctx.storageState({ path: E2E_STORAGE_STATE_PATH });
+      }
       await ctx.close();
     };
 

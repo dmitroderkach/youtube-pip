@@ -63,11 +63,18 @@ Some tests need a logged-in YouTube session (e.g. like/dislike). The fixture sup
 1. **Option:** `test.use({ authState: true })` — the test requests a context that loads Playwright storage state (cookies + localStorage) from `e2e/.auth/storageState.json`.
 2. **Create from secret when missing:** The fixture calls `ensureStorageStateFromSecret()`: only if the file **does not exist** and the env var `E2E_STORAGE_STATE_BASE64` is set (e.g. in CI from a GitHub secret), it decodes the base64 string and writes `e2e/.auth/storageState.json`. If the file already exists, it is left as is.
 3. **Context:** If the file exists after that, the browser context is created with `storageState: E2E_STORAGE_STATE_PATH`. Otherwise the context is created without storage state (no auth).
-4. **On close:** The fixture does not write storage state back to the file; the file is read-only for the test run.
+4. **On close:** By default the fixture does not write storage state back. If **`storeAuthState: true`** (see below), the fixture writes the context state to `e2e/.auth/storageState.json` before closing.
 
-**Local:** Create `e2e/.auth/storageState.json` yourself (Playwright storage state format) or export it from a browser session. The fixture does not persist state after the test.
+**Local:** Create `e2e/.auth/storageState.json` yourself (Playwright storage state format) or use **`storeAuthState: true`** once (one-off run with `authState: true` + `storeAuthState: true` while logged in) to save state. If the stored state is broken, delete the file and run again with `storeAuthState: true` while logged in to re-login and save a fresh state. Tests that use `authState: true` (e.g. like-dislike) do not set `storeAuthState` by default.
 
 **CI:** The workflow passes the secret `E2E_STORAGE_STATE_BASE64` (base64-encoded `storageState.json`) into the e2e step. The file does not exist in a fresh job, so the fixture creates it from the secret. No write-back on test end.
+
+### storeAuthState (local only)
+
+**`test.use({ storeAuthState: true })`** — when the context closes, the fixture writes the current storage state to `e2e/.auth/storageState.json`. Use this **locally** to:
+
+- **First-time login:** Run any test with `authState: true` and `storeAuthState: true` while logged in to YouTube in that run; the file is created/updated for future runs that use `authState: true`.
+- **Reset broken state:** If the stored state is invalid or expired, delete `e2e/.auth/storageState.json`, then run a test with `storeAuthState: true` (and optionally `authState: true`) while logging in during the run; the new state is saved.
 
 ---
 
@@ -132,7 +139,7 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 ### 6. `like-dislike.spec.ts` — like / dislike in PiP (uses auth)
 
 - **Scenario:** `playlistVideoPageReady` with **`authState: true`** → trigger PiP → assert PiP → in PiP: wait for mini player, expand playlist, wait for playlist panel and first item, wait for like/dislike buttons → then **like → remove like → dislike → remove dislike**, asserting each step via the corresponding YouTube API response.
-- **Auth:** This test uses `test.use({ authState: true })`, so the browser context is created with storage state from `e2e/.auth/storageState.json`. In CI the file is overwritten from the `E2E_STORAGE_STATE_BASE64` secret so the session is logged in.
+- **Auth:** This test uses `test.use({ authState: true })`, so the browser context is created with storage state from `e2e/.auth/storageState.json`. In CI the file is created from the `E2E_STORAGE_STATE_BASE64` secret when missing. The test does not use `storeAuthState`.
 - **Implementation:** All actions run inside the PiP document. Helpers: `waitForLikeButtonsVisibleInPip`, `clickLikeDislikeInPip(page, action)` with `action` in `'LIKE' | 'REMOVE_LIKE' | 'DISLIKE' | 'REMOVE_DISLIKE'`. Before each click, the fixture waits for the correct `aria-pressed` state on the toggle (e.g. like button not pressed before LIKE, pressed before REMOVE_LIKE); after the click it waits for the new state. Clicks are done in PiP via `page.evaluate` (first toggle = like, second = dislike). Network assertions use **`page.waitForResponse(...)`** (not `waitForRequest`) so we wait for the request to complete; URLs: `.../like/like`, `.../like/removelike`, `.../like/dislike`. Each step runs as `Promise.all([waitForResponse(...), clickLikeDislikeInPip(page, action)])`.
 
 ---

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.2.10] - 2026-02-21
+
+### Added
+
+- **e2e fixtures** — `storeAuthState` option (`true` / `false` / `undefined`): when `true`, context storage state is written to `e2e/.auth/storageState.json` on context close. For local use only: log in once and save state (one-off), or reset broken state (delete the file, run a test with `storeAuthState: true` while logged in to re-login and save).
+
 ## [2.2.9] - 2026-02-21
 
 ### Added
@@ -841,6 +847,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **ESLint and Prettier** for code quality
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
+
+[2.2.10]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.9...refs/tags/v2.2.10
 
 [2.2.9]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.8...refs/tags/v2.2.9
 [2.2.8]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.7...refs/tags/v2.2.8
