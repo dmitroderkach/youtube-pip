@@ -49,14 +49,14 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Cache e2e auth state
-        id: cache-e2e-auth
-        uses: actions/cache@v4
-        with:
-          path: e2e/.auth
-          key: ${{ runner.os }}-e2e-auth-v1
-          restore-keys: |
-            ${{ runner.os }}-e2e-auth-
+      # - name: Cache e2e auth state
+      #   id: cache-e2e-auth
+      #   uses: actions/cache@v4
+      #   with:
+      #     path: e2e/.auth
+      #     key: ${{ runner.os }}-e2e-auth-v1
+      #     restore-keys: |
+      #       ${{ runner.os }}-e2e-auth-
 
       - name: Run e2e tests
         id: e2e
