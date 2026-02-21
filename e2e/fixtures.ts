@@ -141,7 +141,14 @@ export const test = base.extend<{
       const existedBefore = existsSync(E2E_STORAGE_STATE_PATH);
       ensureStorageStateFromSecret();
       const existsAfter = existsSync(E2E_STORAGE_STATE_PATH);
-      console.log('[e2e auth] authState=true, file existedBefore=', existedBefore, 'existsAfter=', existsAfter, 'path=', E2E_STORAGE_STATE_PATH);
+      console.log(
+        '[e2e auth] authState=true, file existedBefore=',
+        existedBefore,
+        'existsAfter=',
+        existsAfter,
+        'path=',
+        E2E_STORAGE_STATE_PATH
+      );
       if (existsAfter) {
         try {
           const stat = statSync(E2E_STORAGE_STATE_PATH);
@@ -149,7 +156,14 @@ export const test = base.extend<{
           const parsed = JSON.parse(raw) as { cookies?: unknown[]; origins?: unknown[] };
           const cookieCount = parsed.cookies?.length ?? 0;
           const originsCount = parsed.origins?.length ?? 0;
-          console.log('[e2e auth] storageState.json: size=', stat.size, 'bytes, cookies=', cookieCount, 'origins=', originsCount);
+          console.log(
+            '[e2e auth] storageState.json: size=',
+            stat.size,
+            'bytes, cookies=',
+            cookieCount,
+            'origins=',
+            originsCount
+          );
         } catch (err) {
           console.log('[e2e auth] storageState.json read/parse error:', err);
         }
