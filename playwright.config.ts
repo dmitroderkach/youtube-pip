@@ -21,6 +21,9 @@ export default defineConfig({
         colorScheme: 'dark',
         viewport: null,
         deviceScaleFactor: undefined,
+        launchOptions: {
+          args: ['--disable-blink-features=AutomationControlled'],
+        },
       },
     },
   ],

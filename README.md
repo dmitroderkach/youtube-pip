@@ -6,6 +6,7 @@ Smart Picture-in-Picture mode for YouTube with full playback controls, SPA navig
 
 - **[YouTube Internal API Usage](docs/YOUTUBE_INTERNAL_API.md)** - Comprehensive guide on how we interact with YouTube's Kevlar framework
 - **[Resilience Report (Feb 18, 2026 Outage)](docs/RESILIENCE_REPORT.md)** - How the script maintained full functionality during YouTube's global infrastructure failure
+- **[E2E tests (Playwright)](docs/E2E_TESTS.md)** - Implementation details, fixtures, auth flow, and test descriptions
 
 ## Disclaimer
 
@@ -142,15 +143,19 @@ youtube-pip/
 │       ├── youtube.ts       # YouTubePlayer, VideoData, NavigationState, YouTubeAppElement
 │       └── global.d.ts      # Document PiP, extended MediaSession types
 │
-├── e2e/                     # Playwright E2E (Document PiP stub, real app on YouTube)
-│   ├── fixtures.ts          # PiP/handler stubs, videoPageReady, assertPiPWindowHasPlayer
-│   ├── constants.ts         # E2E_WAIT_TIMEOUT_MS
-│   ├── selectors.ts         # E2E_SELECTORS (mini player, movie player, ytd-app)
+├── e2e/                     # Playwright E2E (Document PiP stub, real YouTube)
+│   ├── fixtures.ts          # PiP/handler stubs, authState, videoPageReady, playlistVideoPageReady, assertPiPWindowHasPlayer
+│   ├── constants.ts         # E2E_WAIT_TIMEOUT_MS, etc.
+│   ├── selectors.ts         # E2E_SELECTORS (mini player, playlist, context menu, like/dislike)
 │   ├── global.d.ts          # E2E types, MediaSession stub
 │   ├── tsconfig.json
 │   └── tests/
-│       ├── pip-stub.spec.ts # Happy flow: open PiP → assert → close → player back
-│       └── mini-player.spec.ts  # Press "i" → mini player → PiP → close → mini player visible
+│       ├── pip-stub.spec.ts         # Open PiP → assert → close → player back
+│       ├── mini-player.spec.ts      # Press "i" → mini player → PiP → close
+│       ├── pip-focus.spec.ts        # Focus in PiP and after close
+│       ├── playlist-navigation.spec.ts  # PiP → expand playlist → switch video
+│       ├── context-menu-copy.spec.ts    # Context menu copy (URL, time, embed) in PiP
+│       └── like-dislike.spec.ts     # Like/remove/dislike/remove in PiP (auth, network)
 │
 ├── docs/
 │   ├── YOUTUBE_INTERNAL_API.md  # Kevlar API documentation
@@ -200,6 +205,18 @@ youtube-pip/
 Userscript `@version` is taken from `package.json` during build.
 
 **Release workflow (squash merge):** Run `version:patch`, add code + CHANGELOG + `package.json` to PR, squash merge. On `main`, run `release:tag` so the tag points at the merge commit.
+
+## E2E tests (Playwright)
+
+E2E tests run against real YouTube with the built userscript; Document PiP is stubbed so the flow can be automated.
+
+- **Run:** `npm run test:e2e` (Chromium). Install browsers once: `npx playwright install chromium`.
+- **Debug:** `npm run test:e2e:ui` for the Playwright UI.
+
+**Auth.** Some tests use `test.use({ authState: true })` (e.g. like-dislike). They need a logged-in YouTube session:
+
+- **Local:** Create `e2e/.auth/storageState.json` yourself (Playwright storage state format) or export it from a browser session. The fixture does not write state back after the test.
+- **CI:** The workflow passes the `E2E_STORAGE_STATE_BASE64` secret (base64-encoded `storageState.json`) into the e2e step. When the file does not exist, the fixture creates it from the secret; otherwise the existing file is used. No write-back on test end.
 
 ## Tech stack
 

@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.2.9] - 2026-02-21
+
+### Added
+
+- **e2e** — Auth state from GitHub secret: when the file is missing and `E2E_STORAGE_STATE_BASE64` is set, `ensureStorageStateFromSecret()` decodes and writes `e2e/.auth/storageState.json` so tests using `authState: true` work on CI
+- **e2e** — `authState` fixture option and `E2E_STORAGE_STATE_PATH` export; context uses `defaultContextOptions`; no write-back of storage state on test end
+- **e2e** — Like/dislike test in PiP (like → remove like → dislike → remove dislike; asserts via network responses; uses `authState: true`)
+- **e2e selectors** — `LIKE_BUTTON`, `BUTTON_SHAPE` for like/dislike tests
+
+### Changed
+
+- **CI (build.yml)** — Pass `E2E_STORAGE_STATE_BASE64` from secrets into e2e step; auth state is taken only from the secret (no cache)
+
 ## [2.2.8] - 2026-02-21
 
 ### Changed
@@ -829,6 +842,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.2.9]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.8...refs/tags/v2.2.9
 [2.2.8]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.7...refs/tags/v2.2.8
 [2.2.7]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.6...refs/tags/v2.2.7
 [2.2.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.5...refs/tags/v2.2.6

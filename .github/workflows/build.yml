@@ -51,6 +51,8 @@ jobs:
 
       - name: Run e2e tests
         id: e2e
+        env:
+          E2E_STORAGE_STATE_BASE64: ${{ secrets.E2E_STORAGE_STATE_BASE64 }}
         run: npm run test:e2e
 
       - name: Upload Playwright report
