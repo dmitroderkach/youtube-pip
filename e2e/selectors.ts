@@ -9,7 +9,7 @@ export const E2E_SELECTORS = {
   /** Playlist panel container in mini player. */
   PLAYLIST_PANEL: '.ytdMiniplayerComponentPlaylistPanel',
   /** Single video row in mini player playlist panel. */
-  PLAYLIST_VIDEO_ITEM: 'ytd-playlist-panel-video-renderer',
+  PLAYLIST_VIDEO_ITEM: 'ytd-playlist-panel-video-renderer > a',
   /** Context menu popup (YouTube player). */
   CONTEXT_MENU: '.ytp-popup.ytp-contextmenu',
   /** Copy menu items container. */

@@ -28,8 +28,8 @@ function clickExpandInPip(page: Page): Promise<void> {
     ({ miniPlayerSel, btnSel }: { miniPlayerSel: string; btnSel: string }) => {
       const pip = window.documentPictureInPicture?.window;
       const miniPlayer = pip?.document.querySelector(miniPlayerSel);
-      const btn = miniPlayer?.querySelector(btnSel);
-      btn?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const btn = miniPlayer?.querySelector<HTMLElement>(btnSel);
+      btn?.click();
     },
     { miniPlayerSel: E2E_SELECTORS.MINIPLAYER, btnSel: E2E_SELECTORS.MENU_BUTTON }
   );
@@ -67,8 +67,8 @@ function clickPlaylistItemInPip(page: Page, index: number): Promise<void> {
     ({ miniPlayerSel, itemSel, idx }: { miniPlayerSel: string; itemSel: string; idx: number }) => {
       const pip = window.documentPictureInPicture?.window;
       const miniPlayer = pip?.document.querySelector(miniPlayerSel);
-      const items = miniPlayer?.querySelectorAll(itemSel);
-      items?.[idx]?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      const items = miniPlayer?.querySelectorAll<HTMLElement>(itemSel);
+      items?.[idx]?.click();
     },
     {
       miniPlayerSel: E2E_SELECTORS.MINIPLAYER,
