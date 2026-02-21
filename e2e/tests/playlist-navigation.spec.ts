@@ -117,7 +117,7 @@ test.describe('Playlist navigation in PiP popup', () => {
     await waitForPlaylistItemVisibleInPip(page, 1);
 
     const initialSrc = await getVideoSrcInPip(page);
-    await clickPlaylistItemInPip(page, 1);
+    await clickPlaylistItemInPip(page, 3);
 
     await page.waitForFunction(
       ({ miniPlayerSel, prevSrc }: { miniPlayerSel: string; prevSrc: string }) => {
