@@ -3,7 +3,12 @@
  * Stub implementation lives here; no Playwright scripts in scripts/.
  */
 import { test as base, expect, type Page } from '@playwright/test';
-import { E2E_WAIT_TIMEOUT_MS } from './constants';
+import {
+  E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
+  E2E_PIP_AD_STABILITY_MS,
+  E2E_PIP_SKIP_AD_POLL_MS,
+  E2E_WAIT_TIMEOUT_MS,
+} from './constants';
 import { E2E_SELECTORS } from './selectors';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -66,18 +71,28 @@ function getUserscriptBody(): string {
 
 const VIDEO_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
+/** Video in a playlist (mix/radio) so mini player shows playlist and expand works. */
+export const PLAYLIST_VIDEO_URL =
+  'https://www.youtube.com/watch?v=c9R9VsK54ZQ&list=RDc9R9VsK54ZQ&start_radio=1';
+
 type AcceptYouTubeConsentFn = (page: Page) => Promise<void>;
 
 type TriggerEnterPictureInPictureFn = (page: Page) => Promise<void>;
 
 type AssertPiPWindowHasPlayerFn = (page: Page) => Promise<void>;
 
+type WaitForPiPAdToEndFn = (page: Page) => Promise<void>;
+
 export const test = base.extend<{
   userscriptBody: string;
   acceptYouTubeConsent: AcceptYouTubeConsentFn;
   videoPageReady: Page;
+  /** Page on playlist video URL (video in middle of playlist) — for playlist navigation tests. */
+  playlistVideoPageReady: Page;
   triggerEnterPictureInPicture: TriggerEnterPictureInPictureFn;
   assertPiPWindowHasPlayer: AssertPiPWindowHasPlayerFn;
+  /** Wait until ad overlay is gone in PiP (so context menu etc. are available). */
+  waitForPiPAdToEnd: WaitForPiPAdToEndFn;
 }>({
   context: async ({ browser, userscriptBody }, use) => {
     const ctx = await browser.newContext();
@@ -120,6 +135,16 @@ export const test = base.extend<{
     await use(page);
   },
 
+  /** Page on playlist video URL (video in middle of playlist). Same as videoPageReady but for playlist flow. */
+  playlistVideoPageReady: async ({ page, acceptYouTubeConsent }, use) => {
+    await page.goto(PLAYLIST_VIDEO_URL, { waitUntil: 'domcontentloaded' });
+    await acceptYouTubeConsent(page);
+    await page.waitForFunction(() => window.__E2E_PIP__?.has('enterpictureinpicture'), {
+      timeout: E2E_WAIT_TIMEOUT_MS,
+    });
+    await use(page);
+  },
+
   /** Triggers the enterpictureinpicture action on the given page (calls __E2E_PIP__.trigger). */
   triggerEnterPictureInPicture: async ({}, use) => {
     const trigger: TriggerEnterPictureInPictureFn = (page) =>
@@ -144,6 +169,60 @@ export const test = base.extend<{
       );
     };
     await use(assertFn);
+  },
+
+  /** Wait until ad overlay is gone in PiP (all ads ended; YouTube may show 2+ in a row). */
+  waitForPiPAdToEnd: async ({}, use) => {
+    const isAdOverlayGone = (page: Page) =>
+      page.evaluate((adOverlaySel: string) => {
+        const pip = window.documentPictureInPicture?.window;
+        const overlay = pip?.document.querySelector(adOverlaySel);
+        if (!overlay) return true;
+        const style = pip?.document.defaultView?.getComputedStyle(overlay);
+        return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
+      }, E2E_SELECTORS.AD_PLAYER_OVERLAY);
+
+    /** Prefer real (trusted) click if PiP is a separate page; otherwise programmatic click in PiP document. */
+    const tryClickSkipAdInPip = async (page: Page): Promise<boolean> => {
+      const ctx = page.context();
+      const pages = ctx.pages();
+      for (const p of pages) {
+        if (p === page) continue;
+        const loc = p.locator(E2E_SELECTORS.SKIP_AD_BUTTON);
+        const visible = await loc.isVisible().catch(() => false);
+        if (visible) {
+          await loc.click();
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const waitFn: WaitForPiPAdToEndFn = async (page) => {
+      const timeout = E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS;
+      const maxAttempts = 10;
+      for (let i = 0; i < maxAttempts; i++) {
+        const skipPoll = setInterval(() => void tryClickSkipAdInPip(page), E2E_PIP_SKIP_AD_POLL_MS);
+        try {
+          await page.waitForFunction(
+            (adOverlaySel: string) => {
+              const pip = window.documentPictureInPicture?.window;
+              const overlay = pip?.document.querySelector(adOverlaySel);
+              if (!overlay) return true;
+              const style = pip?.document.defaultView?.getComputedStyle(overlay);
+              return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
+            },
+            E2E_SELECTORS.AD_PLAYER_OVERLAY,
+            { timeout }
+          );
+        } finally {
+          clearInterval(skipPoll);
+        }
+        await page.waitForTimeout(E2E_PIP_AD_STABILITY_MS);
+        if (await isAdOverlayGone(page)) return;
+      }
+    };
+    await use(waitFn);
   },
 });
 
