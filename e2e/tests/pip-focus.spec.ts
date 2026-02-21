@@ -4,7 +4,7 @@
  */
 import type { Page } from '@playwright/test';
 import { E2E_WAIT_TIMEOUT_MS } from '../constants';
-import { test, expect } from '../fixtures';
+import { test, expect, openContextMenuInPip } from '../fixtures';
 import { E2E_SELECTORS } from '../selectors';
 
 function isPlayerFocusedInPip(page: Page): Promise<boolean> {
@@ -54,16 +54,6 @@ function clickOutsidePlayerInPip(page: Page): Promise<void> {
     } else {
       doc.body.click();
     }
-  }, E2E_SELECTORS.MOVIE_PLAYER);
-}
-
-function openContextMenuInPip(page: Page): Promise<void> {
-  return page.evaluate((playerSel: string) => {
-    const pip = window.documentPictureInPicture?.window;
-    const player = pip?.document.querySelector(playerSel);
-    player?.dispatchEvent(
-      new MouseEvent('contextmenu', { bubbles: true, button: 2, clientX: 0, clientY: 0 })
-    );
   }, E2E_SELECTORS.MOVIE_PLAYER);
 }
 
