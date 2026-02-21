@@ -182,7 +182,7 @@ export const test = base.extend<{
         return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
       }, E2E_SELECTORS.AD_PLAYER_OVERLAY);
 
-    /** Prefer real (trusted) click if PiP is a separate page; otherwise programmatic click in PiP document. */
+    /** Click Skip ad only when PiP is a separate page (real/trusted click via locator). */
     const tryClickSkipAdInPip = async (page: Page): Promise<boolean> => {
       const ctx = page.context();
       const pages = ctx.pages();
