@@ -5,6 +5,7 @@ Smart Picture-in-Picture mode for YouTube with full playback controls, SPA navig
 ## 📚 Documentation
 
 - **[YouTube Internal API Usage](docs/YOUTUBE_INTERNAL_API.md)** - Comprehensive guide on how we interact with YouTube's Kevlar framework
+- **[Resilience Report (Feb 18, 2026 Outage)](docs/RESILIENCE_REPORT.md)** - How the script maintained full functionality during YouTube's global infrastructure failure
 
 ## Disclaimer
 
@@ -152,7 +153,8 @@ youtube-pip/
 │       └── mini-player.spec.ts  # Press "i" → mini player → PiP → close → mini player visible
 │
 ├── docs/
-│   └── YOUTUBE_INTERNAL_API.md  # Kevlar API documentation
+│   ├── YOUTUBE_INTERNAL_API.md  # Kevlar API documentation
+│   └── RESILIENCE_REPORT.md     # Feb 18, 2026 outage resilience report
 │
 ├── .github/
 │   └── workflows/
