@@ -15,7 +15,7 @@ import { dirname, join } from 'node:path';
 
 const projectRoot = join(process.cwd());
 
-/** Path where cookies + localStorage are saved (for reuse). Cached in CI; fallback from secret E2E_STORAGE_STATE_BASE64. */
+/** Path where cookies + localStorage are saved (for reuse). In CI populated from secret E2E_STORAGE_STATE_BASE64 when missing. */
 export const E2E_STORAGE_STATE_PATH = join(projectRoot, 'e2e', '.auth', 'storageState.json');
 
 /** Env var with base64-encoded Playwright storage state (GitHub secret). Used when file is missing (e.g. cache miss in CI). */

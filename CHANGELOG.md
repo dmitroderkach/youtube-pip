@@ -9,13 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 ### Added
 
-- **e2e** — Auth state from GitHub secret when file missing: `ensureStorageStateFromSecret()` reads `E2E_STORAGE_STATE_BASE64`, decodes and writes `e2e/.auth/storageState.json` so tests using `authState: true` work on CI without local login
+- **e2e** — Auth state from GitHub secret when file missing: `ensureStorageStateFromSecret()` reads `E2E_STORAGE_STATE_BASE64`, decodes and writes `e2e/.auth/storageState.json` so tests using `authState: true` work on CI
 - **e2e** — `authState` fixture option and `E2E_STORAGE_STATE_PATH` export; context uses `defaultContextOptions` and persists storage state on close
-- **e2e selectors** — `LIKE_BUTTON`, `BUTTON_SHAPE` for like/dislike e2e tests
+- **e2e** — Like/dislike test in PiP (like → remove like → dislike → remove dislike; asserts via network responses; uses `authState: true`)
+- **e2e selectors** — `LIKE_BUTTON`, `BUTTON_SHAPE` for like/dislike tests
 
 ### Changed
 
-- **CI (build.yml)** — Cache `e2e/.auth` (key `e2e-auth-v1`); pass `E2E_STORAGE_STATE_BASE64` from secrets into e2e step so cache miss is bootstrapped from default state
+- **CI (build.yml)** — Pass `E2E_STORAGE_STATE_BASE64` from secrets into e2e step; auth state is taken only from the secret (no cache)
 
 ## [2.2.8] - 2026-02-21
 

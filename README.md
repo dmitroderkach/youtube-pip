@@ -142,15 +142,19 @@ youtube-pip/
 │       ├── youtube.ts       # YouTubePlayer, VideoData, NavigationState, YouTubeAppElement
 │       └── global.d.ts      # Document PiP, extended MediaSession types
 │
-├── e2e/                     # Playwright E2E (Document PiP stub, real app on YouTube)
-│   ├── fixtures.ts          # PiP/handler stubs, videoPageReady, assertPiPWindowHasPlayer
-│   ├── constants.ts         # E2E_WAIT_TIMEOUT_MS
-│   ├── selectors.ts         # E2E_SELECTORS (mini player, movie player, ytd-app)
+├── e2e/                     # Playwright E2E (Document PiP stub, real YouTube)
+│   ├── fixtures.ts          # PiP/handler stubs, authState, videoPageReady, playlistVideoPageReady, assertPiPWindowHasPlayer
+│   ├── constants.ts         # E2E_WAIT_TIMEOUT_MS, etc.
+│   ├── selectors.ts         # E2E_SELECTORS (mini player, playlist, context menu, like/dislike)
 │   ├── global.d.ts          # E2E types, MediaSession stub
 │   ├── tsconfig.json
 │   └── tests/
-│       ├── pip-stub.spec.ts # Happy flow: open PiP → assert → close → player back
-│       └── mini-player.spec.ts  # Press "i" → mini player → PiP → close → mini player visible
+│       ├── pip-stub.spec.ts         # Open PiP → assert → close → player back
+│       ├── mini-player.spec.ts      # Press "i" → mini player → PiP → close
+│       ├── pip-focus.spec.ts        # Focus in PiP and after close
+│       ├── playlist-navigation.spec.ts  # PiP → expand playlist → switch video
+│       ├── context-menu-copy.spec.ts    # Context menu copy (URL, time, embed) in PiP
+│       └── like-dislike.spec.ts     # Like/remove/dislike/remove in PiP (auth, network)
 │
 ├── docs/
 │   ├── YOUTUBE_INTERNAL_API.md  # Kevlar API documentation
@@ -200,6 +204,18 @@ youtube-pip/
 Userscript `@version` is taken from `package.json` during build.
 
 **Release workflow (squash merge):** Run `version:patch`, add code + CHANGELOG + `package.json` to PR, squash merge. On `main`, run `release:tag` so the tag points at the merge commit.
+
+## E2E tests (Playwright)
+
+E2E tests run against real YouTube with the built userscript; Document PiP is stubbed so the flow can be automated.
+
+- **Run:** `npm run test:e2e` (Chromium). Install browsers once: `npx playwright install chromium`.
+- **Debug:** `npm run test:e2e:ui` for the Playwright UI.
+
+**Auth.** Some tests use `test.use({ authState: true })` (e.g. like-dislike). They need a logged-in YouTube session:
+
+- **Local:** Run e2e once in a browser where you’re logged in; the fixture saves state to `e2e/.auth/storageState.json` and reuses it. Or create that file yourself (Playwright storage state format).
+- **CI:** The workflow passes the `E2E_STORAGE_STATE_BASE64` secret (base64-encoded `storageState.json`) into the e2e step. When the file is missing, the fixture decodes the secret and writes `e2e/.auth/storageState.json` before creating the context. No cache is used; auth state comes only from the secret.
 
 ## Tech stack
 
