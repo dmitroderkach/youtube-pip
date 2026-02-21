@@ -36,18 +36,18 @@ The userscript body is read from `dist/userscript.js` (without the UserScript he
 
 ### Ready pages
 
-| Fixture | Description |
-|---------|-------------|
-| `videoPageReady` | Opens a fixed video URL (`VIDEO_URL`), accepts consent (skipped on CI), waits until the userscript has registered `enterpictureinpicture`. |
-| `playlistVideoPageReady` | Same for a playlist URL (`PLAYLIST_VIDEO_URL`) — used for playlist navigation tests in PiP. |
+| Fixture                  | Description                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `videoPageReady`         | Opens a fixed video URL (`VIDEO_URL`), accepts consent (skipped on CI), waits until the userscript has registered `enterpictureinpicture`. |
+| `playlistVideoPageReady` | Same for a playlist URL (`PLAYLIST_VIDEO_URL`) — used for playlist navigation tests in PiP.                                                |
 
 ### PiP helpers
 
-| Fixture | Description |
-|---------|-------------|
-| `triggerEnterPictureInPicture(page)` | Calls `__E2E_PIP__.trigger('enterpictureinpicture')` in the page context to open the PiP popup (invokes the handler registered by the userscript). |
-| `assertPiPWindowHasPlayer(page)` | Waits until `documentPictureInPicture.window` contains `ytd-app` and `#movie_player`. |
-| `waitForPiPAdToEnd(page)` | Waits for ads in PiP to finish: checks that the overlay `.ytp-ad-player-overlay-layout` is gone. If the "Skip ad" button (`.ytp-skip-ad-button`) is present and PiP is a separate page in `context.pages()`, periodically tries to click it (real/trusted click only). Handles multiple ads in a row (stability check after overlay disappears). |
+| Fixture                              | Description                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `triggerEnterPictureInPicture(page)` | Calls `__E2E_PIP__.trigger('enterpictureinpicture')` in the page context to open the PiP popup (invokes the handler registered by the userscript).                                                                                                                                                                                               |
+| `assertPiPWindowHasPlayer(page)`     | Waits until `documentPictureInPicture.window` contains `ytd-app` and `#movie_player`.                                                                                                                                                                                                                                                            |
+| `waitForPiPAdToEnd(page)`            | Waits for ads in PiP to finish: checks that the overlay `.ytp-ad-player-overlay-layout` is gone. If the "Skip ad" button (`.ytp-skip-ad-button`) is present and PiP is a separate page in `context.pages()`, periodically tries to click it (real/trusted click only). Handles multiple ads in a row (stability check after overlay disappears). |
 
 ### Consent
 
