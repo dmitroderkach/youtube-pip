@@ -10,7 +10,7 @@ import {
   E2E_WAIT_TIMEOUT_MS,
 } from './constants';
 import { E2E_SELECTORS } from './selectors';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 const projectRoot = join(process.cwd());
@@ -138,15 +138,31 @@ export const test = base.extend<{
     };
 
     if (authState === true) {
+      const existedBefore = existsSync(E2E_STORAGE_STATE_PATH);
       ensureStorageStateFromSecret();
-      if (existsSync(E2E_STORAGE_STATE_PATH)) {
+      const existsAfter = existsSync(E2E_STORAGE_STATE_PATH);
+      console.log('[e2e auth] authState=true, file existedBefore=', existedBefore, 'existsAfter=', existsAfter, 'path=', E2E_STORAGE_STATE_PATH);
+      if (existsAfter) {
+        try {
+          const stat = statSync(E2E_STORAGE_STATE_PATH);
+          const raw = readFileSync(E2E_STORAGE_STATE_PATH, 'utf8');
+          const parsed = JSON.parse(raw) as { cookies?: unknown[]; origins?: unknown[] };
+          const cookieCount = parsed.cookies?.length ?? 0;
+          const originsCount = parsed.origins?.length ?? 0;
+          console.log('[e2e auth] storageState.json: size=', stat.size, 'bytes, cookies=', cookieCount, 'origins=', originsCount);
+        } catch (err) {
+          console.log('[e2e auth] storageState.json read/parse error:', err);
+        }
+        console.log('[e2e auth] Creating context with storageState:', E2E_STORAGE_STATE_PATH);
         const ctx = await browser.newContext({
           storageState: E2E_STORAGE_STATE_PATH,
           ...defaultContextOptions,
         });
+        console.log('[e2e auth] Context created with storageState');
         await addInitAndUse(ctx);
         return;
       }
+      console.log('[e2e auth] No storage state file, creating context without auth');
     }
 
     const ctx = await browser.newContext(defaultContextOptions);
