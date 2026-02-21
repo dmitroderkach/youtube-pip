@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.2.11] - 2026-02-21
+
+### Added
+
+- **e2e fixtures** — Modular `e2e/fixtures/` folder: `auth.ts`, `handler-stub.ts`, `pip-playlist.ts`, `pip-like-dislike.ts`, `pip-context-menu.ts`, `index.ts`; shared PiP helpers moved from specs into fixtures and re-exported from index
+
+### Changed
+
+- **e2e** — Replaced single `fixtures.ts` with `fixtures/`; playlist-navigation, like-dislike, context-menu-copy, pip-focus now import shared helpers from `../fixtures`; README and docs updated for new structure
+
+### Removed
+
+- **e2e** — `e2e/fixtures.ts` (logic moved into `e2e/fixtures/` modules)
+
 ## [2.2.10] - 2026-02-21
 
 ### Added
@@ -848,6 +862,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.2.11]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.10...refs/tags/v2.2.11
 [2.2.10]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.9...refs/tags/v2.2.10
 [2.2.9]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.8...refs/tags/v2.2.9
 [2.2.8]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.7...refs/tags/v2.2.8

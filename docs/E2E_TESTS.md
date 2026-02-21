@@ -9,7 +9,13 @@ End-to-end tests verify the YouTube PiP userscript on the real YouTube page usin
 ```
 e2e/
 ├── constants.ts      # Timeouts and intervals
-├── fixtures.ts       # Playwright fixtures (context, pages, auth, helpers)
+├── fixtures/         # Playwright fixtures (modular)
+│   ├── index.ts      # test.extend, page fixtures, re-exports
+│   ├── auth.ts       # Storage state path, ensureStorageStateFromSecret, auth options
+│   ├── handler-stub.ts # initHandlerStub, getUserscriptBody (browser stub)
+│   ├── pip-playlist.ts   # Mini player, expand, panel, items (playlist-navigation, like-dislike)
+│   ├── pip-like-dislike.ts # Like/dislike buttons and clicks (like-dislike.spec)
+│   └── pip-context-menu.ts # Open menu, wait item visible, click item (context-menu-copy, pip-focus)
 ├── selectors.ts      # CSS selectors for YouTube/PiP (no import from src/)
 └── tests/
     ├── pip-stub.spec.ts           # Basic flow: open PiP → close
@@ -22,9 +28,9 @@ e2e/
 
 ---
 
-## Fixtures (`fixtures.ts`)
+## Fixtures (`fixtures/`)
 
-Fixtures set up the environment for each test: they inject the userscript, open YouTube pages, and provide PiP helpers.
+Fixtures are split into modules. Entry point is `fixtures/index.ts`: it defines `test.extend(...)`, page fixtures (e.g. `videoPageReady`, `playlistVideoPageReady`), and PiP helpers (`triggerEnterPictureInPicture`, `assertPiPWindowHasPlayer`, `waitForPiPAdToEnd`). It also re-exports shared helpers from `pip-playlist`, `pip-like-dislike`, and `pip-context-menu` so tests can `import { test, waitForMiniPlayerVisibleInPip, clickExpandInPip, ... } from '../fixtures'`. Other modules: **auth.ts** (storage state, secret), **handler-stub.ts** (browser stub), **pip-playlist.ts** (mini player, expand, panel, items), **pip-like-dislike.ts** (like/dislike actions), **pip-context-menu.ts** (open menu, wait/click item).
 
 ### Userscript injection and handler stub
 

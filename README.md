@@ -144,7 +144,7 @@ youtube-pip/
 │       └── global.d.ts      # Document PiP, extended MediaSession types
 │
 ├── e2e/                     # Playwright E2E (Document PiP stub, real YouTube)
-│   ├── fixtures.ts          # PiP/handler stubs, authState, videoPageReady, playlistVideoPageReady, assertPiPWindowHasPlayer
+│   ├── fixtures/            # Modular fixtures (index, auth, handler-stub, pip-playlist, pip-like-dislike, pip-context-menu)
 │   ├── constants.ts         # E2E_WAIT_TIMEOUT_MS, etc.
 │   ├── selectors.ts         # E2E_SELECTORS (mini player, playlist, context menu, like/dislike)
 │   ├── global.d.ts          # E2E types, MediaSession stub
