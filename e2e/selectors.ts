@@ -22,4 +22,8 @@ export const E2E_SELECTORS = {
   AD_PLAYER_OVERLAY: '.ytp-ad-player-overlay-layout',
   /** Skip ad button; click when visible to end ad sooner. */
   SKIP_AD_BUTTON: '.ytp-skip-ad-button',
+  /** Like/dislike toggle wrapper (first = like, second = dislike). Same as src/selectors.LIKE_BUTTON. */
+  LIKE_BUTTON: 'ytd-slim-metadata-toggle-button-renderer',
+  /** Clickable button inside toggle. Same as src/selectors.BUTTON_SHAPE. */
+  BUTTON_SHAPE: '.yt-spec-button-shape-next',
 } as const;

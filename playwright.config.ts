@@ -9,7 +9,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
   use: {
     baseURL: 'https://www.youtube.com',
-    trace: 'on-first-retry',
+    trace: 'on',
     video: 'on-first-retry',
     actionTimeout: E2E_WAIT_TIMEOUT_MS,
   },
@@ -21,6 +21,9 @@ export default defineConfig({
         colorScheme: 'dark',
         viewport: null,
         deviceScaleFactor: undefined,
+        launchOptions: {
+          args: ['--disable-blink-features=AutomationControlled'],
+        },
       },
     },
   ],

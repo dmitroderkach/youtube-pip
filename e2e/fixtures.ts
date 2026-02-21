@@ -10,14 +10,31 @@ import {
   E2E_WAIT_TIMEOUT_MS,
 } from './constants';
 import { E2E_SELECTORS } from './selectors';
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 
 const projectRoot = join(process.cwd());
+
+/** Path where cookies + localStorage are saved (for reuse). Cached in CI; fallback from secret E2E_STORAGE_STATE_BASE64. */
+export const E2E_STORAGE_STATE_PATH = join(projectRoot, 'e2e', '.auth', 'storageState.json');
+
+/** Env var with base64-encoded Playwright storage state (GitHub secret). Used when file is missing (e.g. cache miss in CI). */
+const E2E_STORAGE_STATE_BASE64_ENV = 'E2E_STORAGE_STATE_BASE64';
+
+/** If storage state file is missing and E2E_STORAGE_STATE_BASE64 is set, decode and write the file. */
+function ensureStorageStateFromSecret(): void {
+  if (existsSync(E2E_STORAGE_STATE_PATH)) return;
+  const base64 = process.env[E2E_STORAGE_STATE_BASE64_ENV];
+  if (!base64 || typeof base64 !== 'string') return;
+  mkdirSync(dirname(E2E_STORAGE_STATE_PATH), { recursive: true });
+  const decoded = Buffer.from(base64, 'base64').toString('utf8');
+  writeFileSync(E2E_STORAGE_STATE_PATH, decoded, 'utf8');
+}
+
 const scriptPath = join(projectRoot, 'dist/userscript.js');
 
 /** Handler stub: collects mediaSession.setActionHandler, exposes __E2E_PIP__.trigger/has. Runs in browser. */
-function initHandlerStub(userscriptBody: string): void {
+export function initHandlerStub(userscriptBody: string): void {
   function installE2EHandlerStub(): {
     trigger: (action: string) => Promise<void>;
     has: (action: string) => boolean;
@@ -61,7 +78,7 @@ function initHandlerStub(userscriptBody: string): void {
   eval(userscriptBody);
 }
 
-function getUserscriptBody(): string {
+export function getUserscriptBody(): string {
   if (!existsSync(scriptPath)) {
     throw new Error('Run "npm run build" first. dist/userscript.js not found.');
   }
@@ -83,7 +100,19 @@ type AssertPiPWindowHasPlayerFn = (page: Page) => Promise<void>;
 
 type WaitForPiPAdToEndFn = (page: Page) => Promise<void>;
 
+const defaultContextOptions = {
+  viewport: null,
+  colorScheme: 'dark' as const,
+  deviceScaleFactor: undefined,
+  baseURL: 'https://www.youtube.com',
+};
+
+/** true = use E2E_STORAGE_STATE_PATH, false/undefined = isolated context. */
+export type AuthStateOption = true | false | undefined;
+
 export const test = base.extend<{
+  /** test.use({ authState: true }) to load saved state, false/undefined for isolated context. */
+  authState: AuthStateOption;
   userscriptBody: string;
   acceptYouTubeConsent: AcceptYouTubeConsentFn;
   videoPageReady: Page;
@@ -94,11 +123,34 @@ export const test = base.extend<{
   /** Wait until ad overlay is gone in PiP (so context menu etc. are available). */
   waitForPiPAdToEnd: WaitForPiPAdToEndFn;
 }>({
-  context: async ({ browser, userscriptBody }, use) => {
-    const ctx = await browser.newContext();
-    await ctx.addInitScript(initHandlerStub, userscriptBody);
-    await use(ctx);
-    await ctx.close();
+  authState: [undefined, { option: true }],
+
+  context: async ({ userscriptBody, browser, authState }, use) => {
+    const addInitAndUse = async (ctx: Awaited<ReturnType<typeof browser.newContext>>) => {
+      await ctx.addInitScript(initHandlerStub, userscriptBody);
+      await use(ctx);
+      try {
+        mkdirSync(dirname(E2E_STORAGE_STATE_PATH), { recursive: true });
+        await ctx.storageState({ path: E2E_STORAGE_STATE_PATH });
+      } finally {
+        await ctx.close();
+      }
+    };
+
+    if (authState === true) {
+      ensureStorageStateFromSecret();
+      if (existsSync(E2E_STORAGE_STATE_PATH)) {
+        const ctx = await browser.newContext({
+          storageState: E2E_STORAGE_STATE_PATH,
+          ...defaultContextOptions,
+        });
+        await addInitAndUse(ctx);
+        return;
+      }
+    }
+
+    const ctx = await browser.newContext(defaultContextOptions);
+    await addInitAndUse(ctx);
   },
 
   /** Userscript body (without header). Requires build. */
