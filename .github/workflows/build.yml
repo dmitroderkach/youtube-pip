@@ -49,14 +49,28 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      # - name: Cache e2e auth state
-      #   id: cache-e2e-auth
-      #   uses: actions/cache@v4
-      #   with:
-      #     path: e2e/.auth
-      #     key: ${{ runner.os }}-e2e-auth-v1
-      #     restore-keys: |
-      #       ${{ runner.os }}-e2e-auth-
+      - name: Cache e2e auth state
+        id: cache-e2e-auth
+        uses: actions/cache@v4
+        with:
+          path: e2e/.auth
+          key: ${{ runner.os }}-e2e-auth-v1
+          restore-keys: |
+            ${{ runner.os }}-e2e-auth-
+
+      - name: Debug e2e auth cache
+        run: |
+          echo "=== Cache hit: ${{ steps.cache-e2e-auth.outputs.cache-hit }} ==="
+          echo "=== Contents of e2e/.auth ==="
+          ls -la e2e/.auth 2>/dev/null || echo "(folder missing or empty)"
+          echo "=== storageState.json: size and first 600 chars (no cookies) ==="
+          if [ -f e2e/.auth/storageState.json ]; then
+            wc -c < e2e/.auth/storageState.json
+            head -c 600 e2e/.auth/storageState.json
+            echo ""
+          else
+            echo "(file missing)"
+          fi
 
       - name: Run e2e tests
         id: e2e
