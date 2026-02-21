@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.2.8] - 2026-02-21
+
+### Changed
+
+- **e2e fixtures** — `waitForPiPAdToEnd`: comment updated for Skip ad click — only real/trusted click when PiP is a separate page (no programmatic fallback)
+
 ## [2.2.7] - 2026-02-21
 
 ### Added
@@ -823,6 +829,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.2.8]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.7...refs/tags/v2.2.8
 [2.2.7]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.6...refs/tags/v2.2.7
 [2.2.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.5...refs/tags/v2.2.6
 [2.2.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.4...refs/tags/v2.2.5
