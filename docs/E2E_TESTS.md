@@ -75,6 +75,18 @@ Some tests need a logged-in YouTube session (e.g. like/dislike). The fixture sup
 
 **CI:** The workflow passes the secret `E2E_STORAGE_STATE_BASE64` (base64-encoded `storageState.json`) into the e2e step. The file does not exist in a fresh job, so the fixture creates it from the secret. No write-back on test end.
 
+### Why we use a frozen storage state (no refresh in CI)
+
+We intentionally **do not** refresh or update the storage state from CI (no `storeAuthState` in CI, no re-login in the datacenter). The state is created once from a “normal” environment (e.g. local machine / home or office IP) and then reused as-is (frozen).
+
+**Reason:** Google often treats datacenter IPs (CI runners, cloud providers) as suspicious: they may block, rate-limit, or require extra verification. In practice:
+
+- The **first** use of a freshly created/updated state from a CI IP can work.
+- After that, the session may get tightly bound to that IP or environment; using the same (updated) state again from CI can then fail — Google may reject or challenge the session.
+- If we never update the state from the datacenter, the session stays tied to the IP where it was originally created (e.g. a residential or office IP). CI only **loads** that pre-saved state and does not perform login or state write-back, so Google does not associate the session with datacenter IPs.
+
+So we use a **frozen** storage state: capture it once from a trusted environment, store it in the secret, and reuse it in CI until the auth cookies expire (on the order of a year). When the state eventually expires, re-capture it again from a normal IP (local run with `storeAuthState: true`) and update the secret; do not refresh it from CI.
+
 ### storeAuthState (local only)
 
 **`test.use({ storeAuthState: true })`** — when the context closes, the fixture writes the current storage state to `e2e/.auth/storageState.json`. Use this **locally** to:
