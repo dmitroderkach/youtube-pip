@@ -143,4 +143,4 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 - **Browser:** Playwright with Chromium (in CI: `npx playwright install --with-deps chromium`).
 - **Command:** `npm run test:e2e` (or `npx playwright test` from project root with e2e config).
 
-Tests run against real YouTube; on CI you may see flakiness due to ads, consent, or bot detection. The playlist-navigation test uses the `selected` assertion instead of video load to reduce dependence on the player fully loading. Tests that use `authState: true` (like-dislike, playlist-navigation, context-menu-copy) require a valid storage state; in CI it is provided only via the `E2E_STORAGE_STATE_BASE64` secret.
+Tests run against real YouTube; on CI you may see flakiness due to ads, consent, or bot detection. The playlist-navigation test uses the `selected` assertion instead of video load to reduce dependence on the player fully loading. Tests that use `authState: true` (like-dislike) require a valid storage state; in CI it is provided only via the `E2E_STORAGE_STATE_BASE64` secret.
