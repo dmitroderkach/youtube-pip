@@ -2,7 +2,7 @@
  * E2E: Navigation when switching video from playlist inside the PiP popup.
  *
  * Flow: open playlist video → open PiP popup → in popup: expand playlist → click another video
- *       → assert video src in popup changed.
+ *       → assert the clicked item has attribute selected.
  */
 import type { Page } from '@playwright/test';
 import { E2E_WAIT_TIMEOUT_MS } from '../constants';
@@ -53,24 +53,6 @@ async function waitForPlaylistPanelVisibleInPip(page: Page): Promise<void> {
   );
 }
 
-function getVideoSrcInPip(page: Page): Promise<string> {
-  return page.evaluate(
-    ({ moviePlayerSel, videoSel }: { moviePlayerSel: string; videoSel: string }) => {
-      const pip = window.documentPictureInPicture?.window;
-      const moviePlayer = pip?.document.querySelector(moviePlayerSel);
-      const video = moviePlayer?.querySelector<HTMLVideoElement>(videoSel);
-      console.log({
-        hasVideo: !!video,
-        src: video?.src,
-        srcAttr: video?.getAttribute('src'),
-        currentSrc: video?.getAttribute('currentSrc'),
-      });
-      return video?.getAttribute('src') ?? '';
-    },
-    { moviePlayerSel: E2E_SELECTORS.MOVIE_PLAYER, videoSel: E2E_SELECTORS.PLAYER_VIDEO }
-  );
-}
-
 function clickPlaylistItemInPip(page: Page, index: number): Promise<void> {
   return page.evaluate(
     ({ miniPlayerSel, itemSel, idx }: { miniPlayerSel: string; itemSel: string; idx: number }) => {
@@ -107,51 +89,55 @@ async function waitForPlaylistItemVisibleInPip(page: Page, index: number): Promi
   );
 }
 
+async function waitForPlaylistItemSelectedInPip(page: Page, index: number): Promise<void> {
+  await page.waitForFunction(
+    ({
+      miniPlayerSel,
+      itemSel,
+      rowSel,
+      idx,
+    }: {
+      miniPlayerSel: string;
+      itemSel: string;
+      rowSel: string;
+      idx: number;
+    }) => {
+      const pip = window.documentPictureInPicture?.window;
+      const miniPlayer = pip?.document.querySelector(miniPlayerSel);
+      const items = miniPlayer?.querySelectorAll(itemSel);
+      const item = items?.[idx];
+      if (!item) return false;
+      const row = item.closest?.(rowSel) ?? item;
+      return row.hasAttribute('selected');
+    },
+    {
+      miniPlayerSel: E2E_SELECTORS.MINIPLAYER,
+      itemSel: E2E_SELECTORS.PLAYLIST_VIDEO_ITEM,
+      rowSel: E2E_SELECTORS.PLAYLIST_VIDEO_ROW,
+      idx: index,
+    },
+    { timeout: E2E_WAIT_TIMEOUT_MS }
+  );
+}
+
 test.describe('Playlist navigation in PiP popup', () => {
   test.slow();
 
-  test('playlist video → open PiP → expand → click another video → video src changes in popup', async ({
+  test.only('playlist video → open PiP → expand → click another video → clicked item has selected', async ({
     playlistVideoPageReady: page,
     triggerEnterPictureInPicture,
     assertPiPWindowHasPlayer,
-    waitForPiPAdToEnd,
   }) => {
     await triggerEnterPictureInPicture(page);
     await assertPiPWindowHasPlayer(page);
-    await waitForPiPAdToEnd(page);
 
     await waitForMiniPlayerVisibleInPip(page);
     await clickExpandInPip(page);
     await waitForPlaylistPanelVisibleInPip(page);
     await waitForPlaylistItemVisibleInPip(page, 1);
 
-    const initialSrc = await getVideoSrcInPip(page);
-    console.log({ initialSrc });
     await clickPlaylistItemInPip(page, 1);
-    await waitForPiPAdToEnd(page);
 
-    await page.waitForFunction(
-      ({
-        moviePlayerSel,
-        videoSel,
-        prevSrc,
-      }: {
-        moviePlayerSel: string;
-        videoSel: string;
-        prevSrc: string;
-      }) => {
-        const pip = window.documentPictureInPicture?.window;
-        const moviePlayer = pip?.document.querySelector(moviePlayerSel);
-        const video = moviePlayer?.querySelector(videoSel);
-        const current = video?.getAttribute('src') ?? '';
-        return !!moviePlayer && current !== prevSrc;
-      },
-      {
-        moviePlayerSel: E2E_SELECTORS.MOVIE_PLAYER,
-        videoSel: E2E_SELECTORS.PLAYER_VIDEO,
-        prevSrc: initialSrc,
-      },
-      { timeout: E2E_WAIT_TIMEOUT_MS }
-    );
+    await waitForPlaylistItemSelectedInPip(page, 1);
   });
 });

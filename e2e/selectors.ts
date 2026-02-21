@@ -10,7 +10,9 @@ export const E2E_SELECTORS = {
   MENU_BUTTON: '.yt-spec-button-shape-next[aria-expanded]',
   /** Playlist panel container in mini player. */
   PLAYLIST_PANEL: '.ytdMiniplayerComponentPlaylistPanel',
-  /** Single video row in mini player playlist panel. */
+  /** Single video row in mini player playlist panel (host element; has selected when active). */
+  PLAYLIST_VIDEO_ROW: 'ytd-playlist-panel-video-renderer',
+  /** Link inside playlist row (use for click). */
   PLAYLIST_VIDEO_ITEM: 'ytd-playlist-panel-video-renderer > a',
   /** Context menu popup (YouTube player). */
   CONTEXT_MENU: '.ytp-popup.ytp-contextmenu',
