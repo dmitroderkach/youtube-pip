@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.2.12] - 2026-02-23
+
+### Changed
+
+- **Userscript metadata**: Added `@noframes` directive to prevent script execution in iframes
+  - Ensures script runs only in the main YouTube page context
+  - Prevents unnecessary initialization in embedded YouTube players on external sites
+  - Improves performance and avoids potential conflicts in iframe contexts
+
 ## [2.2.11] - 2026-02-21
 
 ### Added
@@ -862,6 +871,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.2.12]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.11...refs/tags/v2.2.12
 [2.2.11]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.10...refs/tags/v2.2.11
 [2.2.10]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.9...refs/tags/v2.2.10
 [2.2.9]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.8...refs/tags/v2.2.9
