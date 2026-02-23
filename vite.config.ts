@@ -12,6 +12,7 @@ const userscriptHeader = `// ==UserScript==
 // @description  Smart Picture-in-Picture mode with all YouTube controls and functions
 // @author       Dmytro Derkach
 // @match        https://www.youtube.com/*
+// @noframes
 // @grant        none
 // @homepageURL  https://github.com/dmitroderkach/youtube-pip
 // @supportURL   https://github.com/dmitroderkach/youtube-pip/issues
