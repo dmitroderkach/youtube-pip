@@ -12,6 +12,7 @@ export {
 
 export {
   YOUTUBE_SHORT_BASE,
+  YOUTUBE_SHORTS_PAGE_BASE,
   YOUTUBE_EMBED_BASE,
   COPY_PAYLOAD_QUERY,
   IFRAME_TITLE_QUOT,
@@ -21,6 +22,7 @@ export {
 
 export {
   PLAYER_STATES,
+  isPlayingState,
   YT_EVENTS,
   YT_ACTION_NAMES,
   YT_LIKE_ACTIONS,

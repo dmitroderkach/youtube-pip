@@ -6,13 +6,16 @@ import { AsyncLock } from '../utils/AsyncLock';
 import { MiniPlayerController } from '../ui/MiniPlayerController';
 import { PlayerManager } from './PlayerManager';
 import { YtdAppProvider } from './YtdAppProvider';
+import { YtdShortsProvider } from './YtdShortsProvider';
 import { PipWindowProvider } from './PipWindowProvider';
 import { DEFAULT_DIMENSIONS, TIMEOUTS } from '../constants';
 import { SELECTORS } from '../selectors';
 import type { Nullable, PiPCleanupCallback } from '../types/app';
+import type { YouTubeShortsElement } from '../types/youtube';
 import { PiPError } from '../errors/PiPError';
 import { PiPCriticalError } from '../errors/PiPCriticalError';
 import { PiPWindowHandlers } from './PiPWindowHandlers';
+import { PipShortsWindowHandlers } from './PipShortsWindowHandlers';
 import { inject, injectable } from '../di';
 
 /**
@@ -26,14 +29,17 @@ export class PiPManager {
 
   private onBeforeReturn: Nullable<PiPCleanupCallback> = null;
 
+  private isShortsMode = false;
+
   private readonly asyncLock = new AsyncLock();
 
   private close = async (): Promise<void> => {
-    return this.asyncLock
-      .withLock(() => this.returnPlayerToMain())
-      .catch((e) => {
-        this.logger.error('Unhandled error in returnPlayerToMain:', e);
-      });
+    const returnMethod = this.isShortsMode
+      ? () => this.returnShortsPlayerToMain()
+      : () => this.returnPlayerToMain();
+    return this.asyncLock.withLock(returnMethod).catch((e) => {
+      this.logger.error('Unhandled error in return to main:', e);
+    });
   };
 
   constructor(
@@ -41,8 +47,11 @@ export class PiPManager {
     @inject(MiniPlayerController) private readonly miniPlayerController: MiniPlayerController,
     @inject(PlayerManager) private readonly playerManager: PlayerManager,
     @inject(YtdAppProvider) private readonly ytdAppProvider: YtdAppProvider,
+    @inject(YtdShortsProvider) private readonly ytdShortsProvider: YtdShortsProvider,
     @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider,
-    @inject(PiPWindowHandlers) private readonly pipWindowHandlers: PiPWindowHandlers
+    @inject(PiPWindowHandlers) private readonly pipWindowHandlers: PiPWindowHandlers,
+    @inject(PipShortsWindowHandlers)
+    private readonly pipShortsWindowHandlers: PipShortsWindowHandlers
   ) {
     this.logger = loggerFactory.create('PiPManager');
   }
@@ -74,14 +83,30 @@ export class PiPManager {
 
       this.logger.log('Opening PiP window');
 
+      this.isShortsMode = (() => {
+        if (!this.ytdShortsProvider.isShortsVisible()) return false;
+        const mainPlayer = this.playerManager.getPlayer();
+        const mainPlaying = this.playerManager.isPlaying(mainPlayer);
+        const shortsPlaying = this.ytdShortsProvider.isShortsPlayerPlaying();
+        if (shortsPlaying && !mainPlaying) return true;
+        if (mainPlaying) return false;
+        return true;
+      })();
+
       try {
-        await this.movePlayerToPIP();
+        if (this.isShortsMode) {
+          this.logger.debug('Opening PiP window for Shorts');
+          await this.moveShortsPlayerToPip();
+        } else {
+          this.logger.debug('Opening PiP window for Player');
+          await this.movePlayerToPIP();
+        }
 
         const pipWindow = this.pipWindowProvider.getWindow();
         if (pipWindow) {
-          const result = await this.pipWindowHandlers.initialize(
-            this.miniPlayerController.getMiniplayer()
-          );
+          const result = this.isShortsMode
+            ? await this.pipShortsWindowHandlers.initialize()
+            : await this.pipWindowHandlers.initialize(this.miniPlayerController.getMiniplayer());
           if (typeof result === 'function') {
             this.onBeforeReturn = result;
           }
@@ -96,7 +121,7 @@ export class PiPManager {
   }
 
   /**
-   * Move player to PiP window
+   * Move player to PiP window (miniplayer flow)
    */
   private async movePlayerToPIP(): Promise<void> {
     const miniplayer = this.miniPlayerController.getMiniplayer();
@@ -105,10 +130,12 @@ export class PiPManager {
     this.playerManager.setWasMiniPlayerActiveBeforePiP(this.miniPlayerController.isVisible());
 
     if (!this.playerManager.getWasMiniPlayerActiveBeforePiP()) {
+      this.playerManager.saveMainPlayerTimeBeforeOpenPiP();
       this.miniPlayerController.toggleMiniPlayer();
 
       // Wait for mini player container
       await DOMUtils.waitForElementSelector(SELECTORS.MINIPLAYER_CONTAINER);
+      this.playerManager.restoreMainPlayerIfShortsStolePlayback();
       this.logger.debug('Mini player container ready');
     }
 
@@ -178,7 +205,73 @@ export class PiPManager {
   }
 
   /**
-   * Return player to main window
+   * Move Shorts player to PiP window
+   */
+  private async moveShortsPlayerToPip(): Promise<void> {
+    this.playerManager.setWasMiniPlayerActiveBeforePiP(false);
+    const dpp = window.documentPictureInPicture;
+    if (!dpp) {
+      throw new PiPError('Document Picture-in-Picture API not available');
+    }
+
+    const ytdApp = this.ytdAppProvider.getApp();
+    const shorts = document.querySelector<YouTubeShortsElement>(SELECTORS.YTD_SHORTS);
+    if (!shorts) {
+      throw new PiPError('ytd-shorts element not found');
+    }
+    this.ytdShortsProvider.setShorts(shorts);
+    this.ytdShortsProvider.hideAllEngagementPanelSections();
+    const aspectRatio = Number(shorts.getAspectRatio?.().split(': ')?.[1]);
+    let width = DEFAULT_DIMENSIONS.PIP_SHORTS_WIDTH;
+    if (!isNaN(aspectRatio)) {
+      width = aspectRatio * DEFAULT_DIMENSIONS.PIP_SHORTS_HEIGHT;
+      this.logger.debug(`Setting width to ${width} based on aspect ratio ${aspectRatio}`);
+    }
+
+    const pipWindow = await dpp.requestWindow({
+      width,
+      height: DEFAULT_DIMENSIONS.PIP_SHORTS_HEIGHT,
+    });
+    this.pipWindowProvider.setWindow(pipWindow);
+
+    setTimeout(() => {
+      void this.asyncLock.withLock(async () => {
+        const win = this.pipWindowProvider.getWindow();
+        if (win?.closed) {
+          this.logger.warn('phantom window detected, closing');
+          this.pipWindowProvider.setWindow(null);
+          void this.close();
+          return;
+        }
+      });
+    }, TIMEOUTS.PHANTOM_WINDOW_CHECK);
+    pipWindow.addEventListener('pagehide', this.close);
+    this.logger.log('PiP window opened');
+
+    const pipDoc = pipWindow.document;
+
+    DOMUtils.copyAttributes(document.documentElement, pipDoc.documentElement);
+    DOMUtils.copyAttributes(document.body, pipDoc.body);
+    StyleUtils.copyStyles(document, pipDoc);
+    StyleUtils.injectCSSFixes(pipDoc);
+
+    const pipApp = pipDoc.createElement(SELECTORS.YTD_APP);
+    DOMUtils.copyAttributes(ytdApp, pipApp);
+    pipDoc.body.appendChild(pipApp);
+
+    this.placeholder = DOMUtils.createPlaceholder('shorts_placeholder');
+    DOMUtils.insertPlaceholderBefore(shorts, this.placeholder);
+
+    pipApp.appendChild(shorts);
+    if (!shorts.dispatch) {
+      this.logger.warn('shorts.dispatch not found');
+      return;
+    }
+    shorts.dispatch({ payload: { shortsLayout: 0 }, type: 'SET_SHORTS_LAYOUT' });
+  }
+
+  /**
+   * Return player to main window (miniplayer flow)
    */
   private async returnPlayerToMain(): Promise<void> {
     this.logger.log('Returning player to main window');
@@ -206,6 +299,43 @@ export class PiPManager {
     } catch (error) {
       this.logger.error('Error returning player to main window:', error);
     }
+
+    this.pipWindowProvider.setWindow(null);
+  }
+
+  /**
+   * Return Shorts player to main window
+   */
+  private async returnShortsPlayerToMain(): Promise<void> {
+    this.logger.log('Returning Shorts player to main window');
+
+    if (!this.placeholder) {
+      this.logger.warn('Placeholder not found for Shorts return');
+      this.pipWindowProvider.setWindow(null);
+      return;
+    }
+
+    if (this.onBeforeReturn) {
+      try {
+        await this.onBeforeReturn();
+      } catch (e) {
+        this.logger.error('Error in onBeforeReturn:', e);
+      }
+      this.onBeforeReturn = null;
+    }
+
+    const shorts = this.ytdShortsProvider.getShorts();
+
+    if (shorts) {
+      DOMUtils.restoreElementFromPlaceholder(shorts, this.placeholder);
+      shorts.player?.setSize?.();
+      shorts.player?.setInternalSize?.();
+      await this.ytdShortsProvider.reinitShortsLifeCycle();
+    } else {
+      throw new PiPCriticalError('Shorts element not found in PiP window');
+    }
+    this.placeholder = null;
+    this.ytdShortsProvider.setShorts(null);
 
     this.pipWindowProvider.setWindow(null);
   }

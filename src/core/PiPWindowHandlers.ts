@@ -29,7 +29,7 @@ export class PiPWindowHandlers {
     this.navigationHandler.initialize();
     this.resizeTracker.start(miniplayer);
     void this.menuObserver.start();
-    void this.contextMenuHandler.initialize();
+    this.contextMenuHandler.initialize();
     this.seekHandler.initialize();
     this.likeButtonHandler.initialize();
     this.documentFocusHandler.initialize();

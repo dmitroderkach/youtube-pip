@@ -30,13 +30,26 @@ export interface PlayerSize {
 }
 
 /**
- * YouTube player interface
+ * Video data returned by player
  */
-export interface YouTubePlayer extends HTMLElement {
+export interface VideoData {
+  video_id: string;
+  author?: string;
+  title?: string;
+  list?: string;
+}
+
+/**
+ * YouTube player API
+ */
+export interface YouTubePlayerAPI {
   getPlayerState?(): PlayerState;
   playVideo?(): void;
   pauseVideo?(): void;
+  stopVideo?(): void;
   seekTo?(seconds: number, allowSeekAhead: boolean): void;
+  /** Load and play the video from the given start time (seconds). Use to restore playback at saved position. */
+  loadVideoById?(videoId: string, startSeconds?: number): void;
   getDuration?(): number;
   getCurrentTime?(): number;
   setInternalSize?(): void;
@@ -47,20 +60,24 @@ export interface YouTubePlayer extends HTMLElement {
 }
 
 /**
+ * YouTube player interface (element + player API)
+ */
+export interface YouTubePlayer extends HTMLElement, YouTubePlayerAPI {}
+
+/**
+ * YouTube Shorts container element (ytd-shorts)
+ */
+export interface YouTubeShortsElement extends HTMLElement {
+  dispatch?(payload: unknown): void;
+  player?: YouTubePlayerAPI;
+  getAspectRatio?(): string;
+}
+
+/**
  * Notification topbar button renderer (shows notification count)
  */
 export interface NotificationTopbarButtonRenderer extends HTMLElement {
   showNotificationCount?: number;
-}
-
-/**
- * Video data returned by player
- */
-export interface VideoData {
-  video_id: string;
-  author?: string;
-  title?: string;
-  list?: string;
 }
 
 /**

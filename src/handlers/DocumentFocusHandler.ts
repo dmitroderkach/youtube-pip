@@ -1,15 +1,14 @@
 import type { Nullable } from '../types/app';
 import type { Logger } from '../logger';
 import { LoggerFactory } from '../logger';
-import { PlayerManager } from '../core/PlayerManager';
 import { PipWindowProvider } from '../core/PipWindowProvider';
 import { ContextMenuHandler } from '../ui/ContextMenuHandler';
 import { inject, injectable } from '../di';
+import { YtdAppProvider } from '../core/YtdAppProvider';
 
 /**
- * Listens to capture click on body and keyup on document (any key except Tab).
- * Returns focus to player when it moves outside the player, but only when context
- * menu is closed. Uses setTimeout(0) so focus runs after other handlers.
+ * Miniplayer: listens to click on body and keyup on document; returns focus to player when it moves outside, unless context menu is open.
+ * Shorts: listens to keydown/keyup on document and dispatches synthetic events to #shorts-container and ytd-app so keyboard (e.g. arrows) works.
  */
 @injectable()
 export class DocumentFocusHandler {
@@ -18,31 +17,31 @@ export class DocumentFocusHandler {
   private isContextMenuOpen = false;
   private unsubscribeContextMenu: (() => void) | null = null;
 
-  private returnFocusToPlayerIfNeeded(): void {
-    if (!this.pipWindow || this.isContextMenuOpen) return;
-
-    const active = this.pipWindow.document.activeElement;
-    const player = this.playerManager.getPlayer();
-    if (!active || active === player) return;
-
-    if (typeof player.focus === 'function') {
-      this.logger.debug('Returning focus to player');
-      setTimeout(() => player.focus(), 0);
-    }
-  }
-
-  private readonly onBodyClick = (): void => this.returnFocusToPlayerIfNeeded();
-
-  private readonly onKeyUp = (e: KeyboardEvent): void => {
-    if (e.key === 'Tab') return;
-    this.returnFocusToPlayerIfNeeded();
+  private readonly onKey = (e: KeyboardEvent): void => {
+    if (!e.isTrusted) return;
+    if (e.key === 'Tab' || e.key === 'Escape') return;
+    if (this.isContextMenuOpen) return;
+    const ytdApp = this.ytdAppProvider.getApp();
+    const opts: KeyboardEventInit = {
+      key: e.key,
+      code: e.code,
+      keyCode: e.keyCode,
+      which: e.which,
+      bubbles: true,
+      cancelable: true,
+      view: e.view,
+    };
+    ytdApp.dispatchEvent(new KeyboardEvent(e.type, opts));
+    this.logger.debug('Dispatched synthetic keyboard event', { type: e.type, key: e.key });
+    e.preventDefault();
+    e.stopPropagation();
   };
 
   constructor(
     @inject(LoggerFactory) loggerFactory: LoggerFactory,
-    @inject(PlayerManager) private readonly playerManager: PlayerManager,
     @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider,
-    @inject(ContextMenuHandler) private readonly contextMenuHandler: ContextMenuHandler
+    @inject(ContextMenuHandler) private readonly contextMenuHandler: ContextMenuHandler,
+    @inject(YtdAppProvider) private readonly ytdAppProvider: YtdAppProvider
   ) {
     this.logger = loggerFactory.create('DocumentFocusHandler');
   }
@@ -57,15 +56,12 @@ export class DocumentFocusHandler {
       return;
     }
 
+    this.pipWindow.document.addEventListener('keydown', this.onKey, true);
+    this.pipWindow.document.addEventListener('keyup', this.onKey, true);
     this.unsubscribeContextMenu = this.contextMenuHandler.subscribeContextMenu((visible) => {
       this.isContextMenuOpen = visible;
-      if (!visible) {
-        this.returnFocusToPlayerIfNeeded();
-      }
     });
 
-    this.pipWindow.document.body.addEventListener('click', this.onBodyClick, true);
-    this.pipWindow.document.addEventListener('keyup', this.onKeyUp, true);
     this.logger.debug('Document focus handler initialized');
   }
 
@@ -75,9 +71,10 @@ export class DocumentFocusHandler {
   public cleanup(): void {
     this.unsubscribeContextMenu?.();
     this.unsubscribeContextMenu = null;
-    if (this.pipWindow?.document?.body) {
-      this.pipWindow.document.body.removeEventListener('click', this.onBodyClick, true);
-      this.pipWindow.document.removeEventListener('keyup', this.onKeyUp, true);
+    const doc = this.pipWindow?.document;
+    if (doc) {
+      doc.removeEventListener('keydown', this.onKey, true);
+      doc.removeEventListener('keyup', this.onKey, true);
     }
     this.pipWindow = null;
     this.isContextMenuOpen = false;
