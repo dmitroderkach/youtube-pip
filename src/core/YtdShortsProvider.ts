@@ -4,7 +4,7 @@ import type { Logger } from '../logger';
 import { LoggerFactory } from '../logger';
 import { inject, injectable } from '../di';
 import { SELECTORS } from '../selectors';
-import { PLAYER_STATES } from '../constants';
+import { isPlayingState } from '../constants';
 import { DOMUtils } from '../utils/DOMUtils';
 import { ShortsInfoPanelHandler } from '../handlers/ShortsInfoPanelHandler';
 
@@ -56,6 +56,36 @@ export class YtdShortsProvider {
   }
 
   /**
+   * Check if the Shorts container (ytd-shorts) is visible in the current document.
+   * Used to decide whether PiP should use Shorts or main player flow.
+   */
+  public isShortsVisible(): boolean {
+    const el = document.querySelector(SELECTORS.YTD_SHORTS);
+    if (el == null) return false;
+    const style = document.defaultView?.getComputedStyle(el);
+    return style?.display !== 'none' && el.getBoundingClientRect().height !== 0;
+  }
+
+  /**
+   * Get the Shorts player element from the current document (main window).
+   * Does not require setShorts to have been called. Use when checking if Shorts stole playback.
+   */
+  public getShortsPlayerFromDocument(): Nullable<YouTubePlayer> {
+    const el = document.querySelector(SELECTORS.YTD_SHORTS);
+    return el?.querySelector<YouTubePlayer>(SELECTORS.SHORTS_PLAYER) ?? null;
+  }
+
+  /**
+   * Check if the Shorts player in the current document is currently playing.
+   * Similar to PlayerManager.isPlaying but for the Shorts player from document.
+   */
+  public isShortsPlayerPlaying(): boolean {
+    const player = this.getShortsPlayerFromDocument();
+    if (!player || typeof player.getPlayerState !== 'function') return false;
+    return isPlayingState(player.getPlayerState());
+  }
+
+  /**
    * Reinitialize the shorts life cycle: temporarily remove ytd-shorts from the DOM and restore it
    * when the tab becomes active.
    *
@@ -84,7 +114,7 @@ export class YtdShortsProvider {
         this.logger.debug('reinitShortsLifeCycle: tab active, running remove/restore');
 
         const parent = shorts.parentElement;
-        const isPlaying = shorts.player?.getPlayerState?.() === PLAYER_STATES.PLAYING;
+        const isPlaying = isPlayingState(shorts.player?.getPlayerState?.() ?? -1);
         if (!parent) {
           this.logger.warn('reinitShortsLifeCycle: shorts parent element not found');
           resolve();

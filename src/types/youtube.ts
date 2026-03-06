@@ -46,7 +46,10 @@ export interface YouTubePlayerAPI {
   getPlayerState?(): PlayerState;
   playVideo?(): void;
   pauseVideo?(): void;
+  stopVideo?(): void;
   seekTo?(seconds: number, allowSeekAhead: boolean): void;
+  /** Load and play the video from the given start time (seconds). Use to restore playback at saved position. */
+  loadVideoById?(videoId: string, startSeconds?: number): void;
   getDuration?(): number;
   getCurrentTime?(): number;
   setInternalSize?(): void;

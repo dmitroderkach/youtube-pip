@@ -22,6 +22,7 @@ export {
 
 export {
   PLAYER_STATES,
+  isPlayingState,
   YT_EVENTS,
   YT_ACTION_NAMES,
   YT_LIKE_ACTIONS,

@@ -12,6 +12,14 @@ export const PLAYER_STATES = {
   CUED: 5,
 } as const;
 
+/** States that mean playback is active (playing or buffering). */
+const PLAYING_STATES: number[] = [PLAYER_STATES.PLAYING, PLAYER_STATES.BUFFERING];
+
+/** True if the given player state means video is playing (or buffering). */
+export function isPlayingState(state: number): boolean {
+  return PLAYING_STATES.includes(state);
+}
+
 /** YouTube event names */
 export const YT_EVENTS = {
   ACTION: 'yt-action',

@@ -110,8 +110,9 @@ describe('DocumentFocusHandler', () => {
   });
 
   it('onKey does nothing when key is Tab', () => {
-    const pipDoc = document.implementation.createHTMLDocument();
-    mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));
+    mockPipProvider.getWindow.mockReturnValue(
+      createFakeWindow({ document: document.implementation.createHTMLDocument() })
+    );
     const ytdApp = createFakeYtdApp({});
     mockYtdAppProvider.getApp.mockReturnValue(ytdApp);
     const dispatched: Event[] = [];
@@ -119,16 +120,27 @@ describe('DocumentFocusHandler', () => {
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
 
     handler.initialize();
-    const keyEvent = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true });
-    pipDoc.dispatchEvent(keyEvent);
+    const keyEvent = {
+      isTrusted: true,
+      key: 'Tab',
+      type: 'keydown',
+      code: 'Tab',
+      keyCode: 9,
+      which: 9,
+      view: null,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+    handler['onKey'](keyEvent);
 
     expect(dispatched).toHaveLength(0);
     handler.cleanup();
   });
 
   it('onKey does nothing when key is Escape', () => {
-    const pipDoc = document.implementation.createHTMLDocument();
-    mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));
+    mockPipProvider.getWindow.mockReturnValue(
+      createFakeWindow({ document: document.implementation.createHTMLDocument() })
+    );
     const ytdApp = createFakeYtdApp({});
     mockYtdAppProvider.getApp.mockReturnValue(ytdApp);
     const dispatched: Event[] = [];
@@ -136,8 +148,18 @@ describe('DocumentFocusHandler', () => {
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
 
     handler.initialize();
-    const keyEvent = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
-    pipDoc.dispatchEvent(keyEvent);
+    const keyEvent = {
+      isTrusted: true,
+      key: 'Escape',
+      type: 'keydown',
+      code: 'Escape',
+      keyCode: 27,
+      which: 27,
+      view: null,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+    handler['onKey'](keyEvent);
 
     expect(dispatched).toHaveLength(0);
     handler.cleanup();

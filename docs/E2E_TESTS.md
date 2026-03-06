@@ -15,12 +15,11 @@ e2e/
 │   ├── handler-stub.ts # initHandlerStub, getUserscriptBody (browser stub)
 │   ├── pip-playlist.ts   # Mini player, expand, panel, items (playlist-navigation, like-dislike)
 │   ├── pip-like-dislike.ts # Like/dislike buttons and clicks (like-dislike.spec)
-│   └── pip-context-menu.ts # Open menu, wait item visible, click item (context-menu-copy, pip-focus)
+│   └── pip-context-menu.ts # Open menu, wait item visible, click item (context-menu-copy)
 ├── selectors.ts      # CSS selectors for YouTube/PiP (no import from src/)
 └── tests/
     ├── pip-stub.spec.ts           # Basic flow: open PiP → close
     ├── mini-player.spec.ts        # PiP from mini player (key "i")
-    ├── pip-focus.spec.ts          # Focus in PiP (player, click outside, ESC)
     ├── context-menu-copy.spec.ts  # Copy from context menu (URL, embed, debug)
     ├── playlist-navigation.spec.ts # Switching video from playlist in PiP
     └── like-dislike.spec.ts       # Like / remove like / dislike / remove dislike in PiP (auth, network)
@@ -138,23 +137,18 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 - **Scenario:** On the video page, press "i" → wait for mini player (`.ytdMiniplayerComponentHost`) → trigger PiP → assert PiP → close PiP → wait for PiP to close → assert mini player is visible again.
 - **Goal:** Verify the flow "mini player on page → open PiP → close → mini player remains".
 
-### 3. `pip-focus.spec.ts` — focus in PiP
-
-- **Scenario:** After opening PiP, assert focus is on `#movie_player`; click "outside" (below the player) — focus should return to the page; open context menu — focus is not on the menu (menu is not focused); after ESC — focus is back on the player.
-- **Implementation:** Helpers run in PiP context: check `document.activeElement` against player/menu, click outside via `elementFromPoint` and `dispatchEvent(MouseEvent)`, open context menu via `contextmenu` on the player.
-
-### 4. `context-menu-copy.spec.ts` — copy from context menu
+### 3. `context-menu-copy.spec.ts` — copy from context menu
 
 - **Scenario:** Open PiP, wait for ads to end, then for each item (Copy video URL, Copy URL at time, Copy embed iframe, Copy debug info): wait for the item to be visible, click it, assert clipboard content via `expect.poll(() => navigator.clipboard.readText())`.
 - **Details:** Longer timeout for menu items (ads); before asserting "URL at time", a short delay so `currentTime` updates; for debug info, assert clipboard contains valid JSON.
 - **Menu access:** Context menu is opened in PiP via `dispatchEvent(contextmenu)` on the player; items are selected by index using `.ytp-panel-menu > .ytp-menuitem`.
 
-### 5. `playlist-navigation.spec.ts` — playlist navigation in PiP
+### 4. `playlist-navigation.spec.ts` — playlist navigation in PiP
 
 - **Scenario:** `playlistVideoPageReady` (video in a playlist) → trigger PiP → assert PiP → wait for ad end → in PiP: wait for mini player, expand playlist (click expand button), wait for playlist panel and second list item to be visible → click second item → wait for ad end if shown → assert the clicked item has the `selected` attribute.
 - **Implementation:** All PiP actions run via `page.evaluate` with access to `documentPictureInPicture.window.document`; selectors target mini player, expand button, playlist panel, rows (`PLAYLIST_VIDEO_ROW`) and links (`PLAYLIST_VIDEO_ITEM`). Success is defined as the corresponding `ytd-playlist-panel-video-renderer` having the `selected` attribute (checked with `item.closest(rowSel).hasAttribute('selected')`), without relying on `video.src`, so the test does not fail on CI when video loading is blocked (e.g. "Sign in to confirm you're not a bot").
 
-### 6. `like-dislike.spec.ts` — like / dislike in PiP (uses auth)
+### 5. `like-dislike.spec.ts` — like / dislike in PiP (uses auth)
 
 - **Scenario:** `playlistVideoPageReady` with **`authState: true`** → trigger PiP → assert PiP → in PiP: wait for mini player, expand playlist, wait for playlist panel and first item, wait for like/dislike buttons → then **like → remove like → dislike → remove dislike**, asserting each step via the corresponding YouTube API response.
 - **Auth:** This test uses `test.use({ authState: true })`, so the browser context is created with storage state from `e2e/.auth/storageState.json`. In CI the file is created from the `E2E_STORAGE_STATE_BASE64` secret when missing. The test does not use `storeAuthState`.

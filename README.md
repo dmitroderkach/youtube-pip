@@ -170,7 +170,6 @@ youtube-pip/
 │   └── tests/
 │       ├── pip-stub.spec.ts         # Open PiP → assert → close → player back
 │       ├── mini-player.spec.ts      # Press "i" → mini player → PiP → close
-│       ├── pip-focus.spec.ts        # Focus in PiP and after close
 │       ├── playlist-navigation.spec.ts  # PiP → expand playlist → switch video
 │       ├── context-menu-copy.spec.ts    # Context menu copy (URL, time, embed) in PiP
 │       └── like-dislike.spec.ts     # Like/remove/dislike/remove in PiP (auth, network)

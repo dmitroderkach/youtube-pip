@@ -83,11 +83,14 @@ export class PiPManager {
 
       this.logger.log('Opening PiP window');
 
-      const shortsEl = document.querySelector(SELECTORS.YTD_SHORTS);
       this.isShortsMode = (() => {
-        if (!shortsEl) return false;
-        const style = document.defaultView?.getComputedStyle(shortsEl);
-        return style?.display !== 'none' && shortsEl.getBoundingClientRect().height !== 0;
+        if (!this.ytdShortsProvider.isShortsVisible()) return false;
+        const mainPlayer = this.playerManager.getPlayer();
+        const mainPlaying = this.playerManager.isPlaying(mainPlayer);
+        const shortsPlaying = this.ytdShortsProvider.isShortsPlayerPlaying();
+        if (shortsPlaying && !mainPlaying) return true;
+        if (mainPlaying) return false;
+        return true;
       })();
 
       try {
@@ -127,10 +130,12 @@ export class PiPManager {
     this.playerManager.setWasMiniPlayerActiveBeforePiP(this.miniPlayerController.isVisible());
 
     if (!this.playerManager.getWasMiniPlayerActiveBeforePiP()) {
+      this.playerManager.saveMainPlayerTimeBeforeOpenPiP();
       this.miniPlayerController.toggleMiniPlayer();
 
       // Wait for mini player container
       await DOMUtils.waitForElementSelector(SELECTORS.MINIPLAYER_CONTAINER);
+      this.playerManager.restoreMainPlayerIfShortsStolePlayback();
       this.logger.debug('Mini player container ready');
     }
 
