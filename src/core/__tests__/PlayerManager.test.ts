@@ -335,5 +335,52 @@ describe('PlayerManager', () => {
       m.saveMainPlayerTimeBeforeOpenPiP();
       expect(() => m.restoreMainPlayerIfShortsStolePlayback()).not.toThrow();
     });
+
+    it('does not call stopVideo when Shorts player has no stopVideo', async () => {
+      const shortsPlayer = document.createElement(
+        'div'
+      ) as unknown as import('../../types/youtube').YouTubePlayer;
+      shortsPlayer.getPlayerState = vi.fn().mockReturnValue(PLAYER_STATES.PLAYING);
+      delete (shortsPlayer as { stopVideo?: unknown }).stopVideo;
+      const mockYtdShortsProvider = mock<YtdShortsProvider>();
+      mockYtdShortsProvider.getShortsPlayerFromDocument.mockReturnValue(shortsPlayer);
+      const c = createTestContainer();
+      c.bind(YtdShortsProvider).toInstance(mockYtdShortsProvider);
+      c.bind(PlayerManager).toSelf();
+      const m = c.get(PlayerManager) as PlayerManager;
+      const { DOMUtils } = await import('../../utils/DOMUtils');
+      vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(document.createElement('div'));
+      await m.initialize();
+      const mainPlayer = createMockPlayer();
+      (mainPlayer as unknown as { loadVideoById: ReturnType<typeof vi.fn> }).loadVideoById =
+        vi.fn();
+      Object.assign(m.getPlayer(), mainPlayer);
+      m.saveMainPlayerTimeBeforeOpenPiP();
+      m.restoreMainPlayerIfShortsStolePlayback();
+      expect(
+        (m.getPlayer() as unknown as { loadVideoById: ReturnType<typeof vi.fn> }).loadVideoById
+      ).toHaveBeenCalledWith('abc', 42);
+    });
+
+    it('does not call loadVideoById when main player has no loadVideoById', async () => {
+      const shortsPlayer = document.createElement(
+        'div'
+      ) as unknown as import('../../types/youtube').YouTubePlayer;
+      shortsPlayer.getPlayerState = vi.fn().mockReturnValue(PLAYER_STATES.PLAYING);
+      shortsPlayer.stopVideo = vi.fn();
+      const mockYtdShortsProvider = mock<YtdShortsProvider>();
+      mockYtdShortsProvider.getShortsPlayerFromDocument.mockReturnValue(shortsPlayer);
+      const c = createTestContainer();
+      c.bind(YtdShortsProvider).toInstance(mockYtdShortsProvider);
+      c.bind(PlayerManager).toSelf();
+      const m = c.get(PlayerManager) as PlayerManager;
+      const { DOMUtils } = await import('../../utils/DOMUtils');
+      vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(document.createElement('div'));
+      await m.initialize();
+      Object.assign(m.getPlayer(), createMockPlayer());
+      m.saveMainPlayerTimeBeforeOpenPiP();
+      m.restoreMainPlayerIfShortsStolePlayback();
+      expect(shortsPlayer.stopVideo).toHaveBeenCalled();
+    });
   });
 });

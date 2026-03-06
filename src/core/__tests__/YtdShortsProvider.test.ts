@@ -4,7 +4,7 @@ import { createTestContainer } from '../../test-utils/test-container';
 import { YtdShortsProvider } from '../YtdShortsProvider';
 import { ShortsInfoPanelHandler } from '../../handlers/ShortsInfoPanelHandler';
 import { SELECTORS } from '../../selectors';
-import { PLAYER_STATES } from '../../constants';
+import { PLAYER_STATES, TIMEOUTS } from '../../constants';
 import type { YouTubeShortsElement } from '../../types/youtube';
 
 vi.mock('../../utils/DOMUtils', () => ({
@@ -141,6 +141,20 @@ describe('YtdShortsProvider', () => {
     el.remove();
   });
 
+  it('isShortsVisible returns false when element has zero height', () => {
+    const el = document.createElement(SELECTORS.YTD_SHORTS);
+    el.getBoundingClientRect = vi.fn().mockReturnValue({ height: 0, width: 200 });
+    document.body.appendChild(el);
+    expect(provider.isShortsVisible()).toBe(false);
+    el.remove();
+  });
+
+  it('getShortsPlayerFromDocument returns null when ytd-shorts not in document', () => {
+    vi.spyOn(document, 'querySelector').mockReturnValue(null);
+    expect(provider.getShortsPlayerFromDocument()).toBeNull();
+    vi.mocked(document.querySelector).mockRestore();
+  });
+
   it('getShortsPlayerFromDocument returns player when ytd-shorts and shorts-player exist', () => {
     const shortsEl = document.createElement(SELECTORS.YTD_SHORTS);
     const playerEl = document.createElement('div');
@@ -166,6 +180,67 @@ describe('YtdShortsProvider', () => {
     vi.spyOn(document, 'querySelector').mockReturnValue(shortsEl);
     vi.spyOn(shortsEl, 'querySelector').mockReturnValue(playerEl);
     expect(provider.isShortsPlayerPlaying()).toBe(true);
+  });
+
+  it('isShortsPlayerPlaying returns false when player has no getPlayerState', () => {
+    const shortsEl = document.createElement(SELECTORS.YTD_SHORTS);
+    const playerEl = document.createElement('div');
+    shortsEl.appendChild(playerEl);
+    vi.spyOn(document, 'querySelector').mockReturnValue(shortsEl);
+    vi.spyOn(shortsEl, 'querySelector').mockReturnValue(playerEl);
+    expect(provider.isShortsPlayerPlaying()).toBe(false);
+  });
+
+  it('lockLoadVideo does nothing when shorts is null', () => {
+    expect(provider.getShorts()).toBeNull();
+    provider.lockLoadVideo();
+  });
+
+  it('lockLoadVideo does nothing when already locked', () => {
+    const shorts = document.createElement(SELECTORS.YTD_SHORTS) as YouTubeShortsElement;
+    const originalLoadVideo = vi.fn();
+    shorts.loadVideo = originalLoadVideo;
+    provider.setShorts(shorts);
+    provider.lockLoadVideo();
+    provider.lockLoadVideo();
+    expect(shorts.loadVideo).not.toBe(originalLoadVideo);
+    vi.advanceTimersByTime(TIMEOUTS.SHORTS_LOAD_VIDEO_RESTORE_AFTER_MS);
+    expect(shorts.loadVideo).toBe(originalLoadVideo);
+  });
+
+  it('lockLoadVideo replaces loadVideo and restores after 500ms without calls', async () => {
+    const shorts = document.createElement(SELECTORS.YTD_SHORTS) as YouTubeShortsElement;
+    const originalLoadVideo = vi.fn();
+    shorts.loadVideo = originalLoadVideo;
+    provider.setShorts(shorts);
+    provider.lockLoadVideo();
+    expect(shorts.loadVideo).not.toBe(originalLoadVideo);
+    expect(typeof shorts.loadVideo).toBe('function');
+    await vi.advanceTimersByTimeAsync(TIMEOUTS.SHORTS_LOAD_VIDEO_RESTORE_AFTER_MS);
+    expect(shorts.loadVideo).toBe(originalLoadVideo);
+  });
+
+  it('lockLoadVideo intercepted loadVideo calls scheduleRestore and resets timer', async () => {
+    const shorts = document.createElement(SELECTORS.YTD_SHORTS) as YouTubeShortsElement;
+    const originalLoadVideo = vi.fn();
+    shorts.loadVideo = originalLoadVideo;
+    provider.setShorts(shorts);
+    provider.lockLoadVideo();
+    (shorts.loadVideo as (i: number) => void)(0);
+    await vi.advanceTimersByTimeAsync(TIMEOUTS.SHORTS_LOAD_VIDEO_RESTORE_AFTER_MS - 1);
+    expect(shorts.loadVideo).not.toBe(originalLoadVideo);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(shorts.loadVideo).toBe(originalLoadVideo);
+  });
+
+  it('lockLoadVideo when shorts has no loadVideo restores undefined', async () => {
+    const shorts = document.createElement(SELECTORS.YTD_SHORTS) as YouTubeShortsElement;
+    expect(shorts.loadVideo).toBeUndefined();
+    provider.setShorts(shorts);
+    provider.lockLoadVideo();
+    expect(typeof shorts.loadVideo).toBe('function');
+    await vi.advanceTimersByTimeAsync(TIMEOUTS.SHORTS_LOAD_VIDEO_RESTORE_AFTER_MS);
+    expect(shorts.loadVideo).toBeUndefined();
   });
 
   it('reinitShortsLifeCycle when parent null resolves after warn', async () => {

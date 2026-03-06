@@ -262,6 +262,7 @@ export class PiPManager {
     this.placeholder = DOMUtils.createPlaceholder('shorts_placeholder');
     DOMUtils.insertPlaceholderBefore(shorts, this.placeholder);
 
+    this.ytdShortsProvider.lockLoadVideo();
     pipApp.appendChild(shorts);
     if (!shorts.dispatch) {
       this.logger.warn('shorts.dispatch not found');
@@ -327,6 +328,7 @@ export class PiPManager {
     const shorts = this.ytdShortsProvider.getShorts();
 
     if (shorts) {
+      this.ytdShortsProvider.lockLoadVideo();
       DOMUtils.restoreElementFromPlaceholder(shorts, this.placeholder);
       shorts.player?.setSize?.();
       shorts.player?.setInternalSize?.();

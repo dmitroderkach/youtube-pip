@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.3.1] - 2026-03-06
+
+### Fixed
+
+- **Shorts PiP — current reel preserved**: When moving Shorts into the PiP window or when returning them to the main tab, the visible reel no longer resets to the first one.
+  - **lockLoadVideo** in `YtdShortsProvider`: before `appendChild`, `loadVideo` on the Shorts element is replaced with a no-op so YouTube’s internal logic (e.g. IntersectionObserver) does not call it and change the reel. If `loadVideo` is not called for 500ms, the original method is restored automatically.
+  - PiPManager calls `lockLoadVideo()` before moving the Shorts element into the PiP document and before restoring it to the main window.
+
 ## [2.3.0] 🚀 The Shorts Revolution - 2026-03-06
 
 ### Added
@@ -887,6 +895,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.3.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.0...refs/tags/v2.3.1
 [2.3.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.12...refs/tags/v2.3.0
 [2.2.12]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.11...refs/tags/v2.2.12
 [2.2.11]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.10...refs/tags/v2.2.11

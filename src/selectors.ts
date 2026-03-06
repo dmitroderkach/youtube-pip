@@ -12,6 +12,8 @@ export const SELECTORS = {
   PLAYER_VIDEO: 'video',
   YTD_APP: 'ytd-app',
   YTD_SHORTS: 'ytd-shorts',
+  /** Scroll container inside ytd-shorts; use to preserve scrollTop when moving to PiP. */
+  SHORTS_CONTAINER: '#shorts-container',
   /** Shorts video title (prevent default click to avoid navigation) */
   SHORTS_VIDEO_TITLE: '.ytShortsVideoTitleViewModelShortsVideoTitle',
   YT_DRAGGABLE: 'yt-draggable',

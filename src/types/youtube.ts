@@ -71,6 +71,7 @@ export interface YouTubeShortsElement extends HTMLElement {
   dispatch?(payload: unknown): void;
   player?: YouTubePlayerAPI;
   getAspectRatio?(): string;
+  loadVideo?(index: number): void;
 }
 
 /**
