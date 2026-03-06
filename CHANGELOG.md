@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 ### Fixed
 
 - **Shorts PiP — current reel preserved**: When moving Shorts into the PiP window or when returning them to the main tab, the visible reel no longer resets to the first one.
-  - **lockLoadVideo** in `YtdShortsProvider`: before `appendChild`, `loadVideo` on the Shorts element is replaced with a no-op so YouTube’s internal logic (e.g. IntersectionObserver) does not call it and change the reel. If `loadVideo` is not called for 500ms, the original method is restored automatically.
+  - **lockLoadVideo** in `YtdShortsProvider`: before `appendChild`, `loadVideo` on the Shorts element is replaced with a no-op so YouTube’s internal logic (e.g. IntersectionObserver) does not call it and change the reel. If `loadVideo` is not called for 200ms, the original method is restored automatically.
   - PiPManager calls `lockLoadVideo()` before moving the Shorts element into the PiP document and before restoring it to the main window.
 
 ## [2.3.0] 🚀 The Shorts Revolution - 2026-03-06
