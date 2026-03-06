@@ -6,6 +6,7 @@ import { inject, injectable } from '../di';
 import { SELECTORS } from '../selectors';
 import { isPlayingState } from '../constants';
 import { DOMUtils } from '../utils/DOMUtils';
+import { TIMEOUTS } from '../constants';
 import { ShortsInfoPanelHandler } from '../handlers/ShortsInfoPanelHandler';
 
 /**
@@ -16,6 +17,9 @@ export class YtdShortsProvider {
   private readonly logger: Logger;
   private shorts: Nullable<YouTubeShortsElement> = null;
   private player: Nullable<YouTubePlayer> = null;
+  private originalLoadVideo: Nullable<(index: number) => void> = null;
+  private lockedShortsRef: Nullable<YouTubeShortsElement> = null;
+  private restoreLoadVideoAfterId: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     @inject(LoggerFactory) loggerFactory: LoggerFactory,
@@ -83,6 +87,53 @@ export class YtdShortsProvider {
     const player = this.getShortsPlayerFromDocument();
     if (!player || typeof player.getPlayerState !== 'function') return false;
     return isPlayingState(player.getPlayerState());
+  }
+
+  /**
+   * Replace loadVideo on the current shorts element with a no-op that only logs.
+   * If loadVideo is not called for 500ms, the original method is restored automatically.
+   */
+  public lockLoadVideo(): void {
+    const shorts = this.getShorts();
+    if (!shorts) {
+      this.logger.debug('lockLoadVideo: no shorts');
+      return;
+    }
+    if (this.lockedShortsRef != null) {
+      this.logger.debug('lockLoadVideo: already locked');
+      return;
+    }
+    this.lockedShortsRef = shorts;
+    this.originalLoadVideo = shorts.loadVideo ?? null;
+
+    const scheduleRestore = (): void => {
+      if (this.restoreLoadVideoAfterId != null) {
+        clearTimeout(this.restoreLoadVideoAfterId);
+      }
+      this.restoreLoadVideoAfterId = setTimeout(() => {
+        this.restoreLoadVideoAfterId = null;
+        this.restoreLoadVideoLock();
+      }, TIMEOUTS.SHORTS_LOAD_VIDEO_RESTORE_AFTER_MS);
+    };
+
+    shorts.loadVideo = (index: number): void => {
+      this.logger.debug('loadVideo intercepted', { index });
+      scheduleRestore();
+    };
+    scheduleRestore();
+    this.logger.debug('lockLoadVideo: loadVideo replaced, will restore after 500ms without calls');
+  }
+
+  private restoreLoadVideoLock(): void {
+    if (this.lockedShortsRef == null) return;
+    if (this.restoreLoadVideoAfterId != null) {
+      clearTimeout(this.restoreLoadVideoAfterId);
+      this.restoreLoadVideoAfterId = null;
+    }
+    this.lockedShortsRef.loadVideo = this.originalLoadVideo ?? undefined;
+    this.logger.debug('lockLoadVideo: original loadVideo restored');
+    this.lockedShortsRef = null;
+    this.originalLoadVideo = null;
   }
 
   /**
