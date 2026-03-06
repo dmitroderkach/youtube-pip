@@ -91,7 +91,7 @@ export class YtdShortsProvider {
 
   /**
    * Replace loadVideo on the current shorts element with a no-op that only logs.
-   * If loadVideo is not called for 500ms, the original method is restored automatically.
+   * If loadVideo is not called after idle, the original method is restored automatically.
    */
   public lockLoadVideo(): void {
     const shorts = this.getShorts();
@@ -121,7 +121,7 @@ export class YtdShortsProvider {
       scheduleRestore();
     };
     scheduleRestore();
-    this.logger.debug('lockLoadVideo: loadVideo replaced, will restore after 500ms without calls');
+    this.logger.debug('lockLoadVideo: loadVideo replaced, will restore after idle');
   }
 
   private restoreLoadVideoLock(): void {
