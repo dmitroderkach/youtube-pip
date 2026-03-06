@@ -178,6 +178,7 @@ export class YtdShortsProvider {
           isPlaying,
         });
         requestAnimationFrame(() => {
+          this.lockLoadVideo();
           DOMUtils.restoreElementFromPlaceholder(shorts, placeholder);
           if (isPlaying) {
             shorts.player?.playVideo?.();
