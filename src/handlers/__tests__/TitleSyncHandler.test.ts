@@ -5,6 +5,7 @@ import { createFakeNotifyRenderer, createFakeWindow } from '../../test-utils/tes
 import { TitleSyncHandler } from '../TitleSyncHandler';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
 import { YtdAppProvider } from '../../core/YtdAppProvider';
+import { YtdShortsProvider } from '../../core/YtdShortsProvider';
 import { PlayerManager } from '../../core/PlayerManager';
 import { SELECTORS } from '../../selectors';
 import type { YouTubePlayer } from '../../types/youtube';
@@ -13,6 +14,7 @@ describe('TitleSyncHandler', () => {
   let handler: TitleSyncHandler;
   let mockPipProvider: MockProxy<PipWindowProvider>;
   let mockYtdAppProvider: MockProxy<YtdAppProvider>;
+  let mockYtdShortsProvider: MockProxy<YtdShortsProvider>;
   let mockPlayerManager: MockProxy<PlayerManager>;
   let mockPlayer: YouTubePlayer & HTMLElement;
   let videoEl: HTMLVideoElement;
@@ -25,6 +27,7 @@ describe('TitleSyncHandler', () => {
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     mockYtdAppProvider = mock<YtdAppProvider>();
     mockYtdAppProvider.getNotifyRenderer.mockReturnValue(null);
+    mockYtdShortsProvider = mock<YtdShortsProvider>();
     mockPlayerManager = mock<PlayerManager>();
     videoEl = document.createElement('video');
     mockPlayer = document.createElement('div') as YouTubePlayer & HTMLElement;
@@ -37,6 +40,7 @@ describe('TitleSyncHandler', () => {
     const c = createTestContainer();
     c.bind(PipWindowProvider).toInstance(mockPipProvider);
     c.bind(YtdAppProvider).toInstance(mockYtdAppProvider);
+    c.bind(YtdShortsProvider).toInstance(mockYtdShortsProvider);
     c.bind(PlayerManager).toInstance(mockPlayerManager);
     c.bind(TitleSyncHandler).toSelf();
     handler = c.get(TitleSyncHandler);

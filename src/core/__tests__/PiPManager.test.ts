@@ -13,6 +13,8 @@ import { PlayerManager } from '../PlayerManager';
 import { YtdAppProvider } from '../YtdAppProvider';
 import { PipWindowProvider } from '../PipWindowProvider';
 import { PiPWindowHandlers } from '../PiPWindowHandlers';
+import { PipShortsWindowHandlers } from '../PipShortsWindowHandlers';
+import { YtdShortsProvider } from '../YtdShortsProvider';
 import { SELECTORS } from '../../selectors';
 import { TIMEOUTS } from '../../constants';
 import { PiPError } from '../../errors/PiPError';
@@ -35,8 +37,10 @@ describe('PiPManager', () => {
     c.bind(MiniPlayerController).toInstance(mocks.miniPlayerController);
     c.bind(PlayerManager).toInstance(mocks.playerManager);
     c.bind(YtdAppProvider).toInstance(mocks.ytdAppProvider);
+    c.bind(YtdShortsProvider).toInstance(mocks.ytdShortsProvider);
     c.bind(PipWindowProvider).toInstance(mocks.pipProvider);
     c.bind(PiPWindowHandlers).toInstance(mocks.pipWindowHandlers);
+    c.bind(PipShortsWindowHandlers).toInstance(mocks.pipShortsWindowHandlers);
     c.bind(PiPManager).toSelf();
     manager = c.get(PiPManager);
   });
@@ -156,8 +160,10 @@ describe('PiPManager', () => {
     c.bind(MiniPlayerController).toInstance(mocks.miniPlayerController);
     c.bind(PlayerManager).toInstance(mocks.playerManager);
     c.bind(YtdAppProvider).toInstance(mocks.ytdAppProvider);
+    c.bind(YtdShortsProvider).toInstance(mocks.ytdShortsProvider);
     c.bind(PipWindowProvider).toInstance(mocks.pipProvider);
     c.bind(PiPWindowHandlers).toInstance(mocks.pipWindowHandlers);
+    c.bind(PipShortsWindowHandlers).toInstance(mocks.pipShortsWindowHandlers);
     c.bind(LoggerFactory).toInstance(createLoggerFactoryWithLogger(mockLogger));
     c.bind(PiPManager).toSelf();
     const mgr = c.get<PiPManager>(PiPManager);
@@ -168,7 +174,7 @@ describe('PiPManager', () => {
     const close = mgr['close']();
     await expect(close).resolves.toBeUndefined();
     expect(mockLogger.error).toHaveBeenCalledWith(
-      'Unhandled error in returnPlayerToMain:',
+      'Unhandled error in return to main:',
       expect.any(Error)
     );
   });
@@ -382,7 +388,9 @@ describe('PiPManager (integration)', () => {
   let mockMiniController: ReturnType<typeof createPiPManagerMocks>['miniPlayerController'];
   let mockPlayerManager: ReturnType<typeof createPiPManagerMocks>['playerManager'];
   let mockYtdAppProvider: ReturnType<typeof createPiPManagerMocks>['ytdAppProvider'];
+  let mockYtdShortsProvider: ReturnType<typeof createPiPManagerMocks>['ytdShortsProvider'];
   let mockPipHandlers: ReturnType<typeof createPiPManagerMocks>['pipWindowHandlers'];
+  let mockPipShortsHandlers: ReturnType<typeof createPiPManagerMocks>['pipShortsWindowHandlers'];
   let origDpp: typeof window.documentPictureInPicture;
   let pipQuerySelectorRestore: () => void;
 
@@ -422,10 +430,13 @@ describe('PiPManager (integration)', () => {
     document.body.appendChild(ytdAppEl);
     document.body.appendChild(miniplayerEl);
 
-    mockMiniController = createPiPManagerMocks().miniPlayerController;
-    mockPlayerManager = createPiPManagerMocks().playerManager;
-    mockYtdAppProvider = createPiPManagerMocks().ytdAppProvider;
-    mockPipHandlers = createPiPManagerMocks().pipWindowHandlers;
+    const mocks = createPiPManagerMocks();
+    mockMiniController = mocks.miniPlayerController;
+    mockPlayerManager = mocks.playerManager;
+    mockYtdAppProvider = mocks.ytdAppProvider;
+    mockYtdShortsProvider = mocks.ytdShortsProvider;
+    mockPipHandlers = mocks.pipWindowHandlers;
+    mockPipShortsHandlers = mocks.pipShortsWindowHandlers;
 
     mockMiniController.getMiniplayer.mockReturnValue(miniplayerEl as never);
     mockMiniController.isVisible.mockReturnValue(true);
@@ -450,8 +461,10 @@ describe('PiPManager (integration)', () => {
     c.bind(MiniPlayerController).toInstance(mockMiniController);
     c.bind(PlayerManager).toInstance(mockPlayerManager);
     c.bind(YtdAppProvider).toInstance(mockYtdAppProvider);
+    c.bind(YtdShortsProvider).toInstance(mockYtdShortsProvider);
     c.bind(PipWindowProvider).toSelf();
     c.bind(PiPWindowHandlers).toInstance(mockPipHandlers);
+    c.bind(PipShortsWindowHandlers).toInstance(mockPipShortsHandlers);
     c.bind(PiPManager).toSelf();
     manager = c.get(PiPManager);
   });

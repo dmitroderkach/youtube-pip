@@ -11,6 +11,9 @@ This document describes how we interact with YouTube's internal Kevlar framework
 - [What is Kevlar?](#what-is-kevlar)
 - [Kevlar Components We Use](#kevlar-components-we-use)
 - [Kevlar Event System](#kevlar-event-system)
+- [Shorts: SET_SHORTS_LAYOUT dispatch](#shorts-set_shorts_layout-dispatch)
+- [PiP Event Bridge](#pip-event-bridge)
+- [Shorts lifecycle workaround](#shorts-lifecycle-workaround)
 - [Kevlar Command System](#kevlar-command-system)
 - [How We Discovered This API](#how-we-discovered-this-api)
 - [Implementation Examples](#implementation-examples)
@@ -135,6 +138,39 @@ export interface YouTubePlayer extends HTMLElement {
 // src/core/PlayerManager.ts
 const player = document.querySelector<YouTubePlayer>(SELECTORS.MOVIE_PLAYER);
 const state = player.getPlayerState();
+```
+
+---
+
+### 4. `ytd-shorts` - Shorts Feed Component
+
+**Purpose**: YouTube Shorts container. Used when moving the Shorts feed into Document PiP so the user can scroll reels in a floating window.
+
+**TypeScript Interface** (`src/types/youtube.ts`):
+
+```typescript
+export interface YouTubeShortsElement extends HTMLElement {
+  // Polymer-style action dispatch (internal state/layout)
+  dispatch?(payload: unknown): void;
+
+  // Nested player (same API as #movie_player)
+  player?: YouTubePlayerAPI;
+
+  // Returns aspect ratio string, e.g. "9:16"
+  getAspectRatio?(): string;
+}
+```
+
+**Selector**: `'ytd-shorts'`
+
+**Usage in Code**:
+
+```typescript
+// src/core/PiPManager.ts – move Shorts to PiP
+const shorts = document.querySelector<YouTubeShortsElement>(SELECTORS.YTD_SHORTS);
+const aspectRatio = Number(shorts.getAspectRatio?.().split(': ')?.[1]);
+// ... append to PiP document ...
+shorts.dispatch({ payload: { shortsLayout: 0 }, type: 'SET_SHORTS_LAYOUT' });
 ```
 
 ---
@@ -324,6 +360,74 @@ ytdApp.fire('yt-action', {
 ```
 
 - **action** — `"ACTION_REMOVE"` to remove the offline copy.
+
+---
+
+## Shorts: SET_SHORTS_LAYOUT dispatch
+
+**Purpose**: Switch the Shorts UI into “narrow” (mobile-style) layout so controls sit on the video instead of a wide desktop layout. Used when the Shorts feed is moved into the PiP window.
+
+**Component**: `ytd-shorts` (see [ytd-shorts - Shorts Feed Component](#4-ytd-shorts---shorts-feed-component)).
+
+**Method**: Polymer-style `dispatch()` on the `ytd-shorts` element.
+
+**Payload**:
+
+```typescript
+shorts.dispatch({
+  type: 'SET_SHORTS_LAYOUT',
+  payload: { shortsLayout: 0 },
+});
+```
+
+- **shortsLayout: 0** — Narrow layout (compact, mobile-like UI).
+- Other values may exist for wide/desktop layouts (we only use `0` in PiP).
+
+**Usage in Code** (`src/core/PiPManager.ts`):
+
+After appending `ytd-shorts` to the PiP document, we call `dispatch` so the component re-renders in narrow mode. If `shorts.dispatch` is missing, we skip and log a warning.
+
+---
+
+## PiP Event Bridge
+
+When Shorts (or the mini player) run inside the Document PiP window, the PiP document has its own DOM and its own `ytd-app` instance. Navigation and actions triggered inside PiP (e.g. link clicks, buttons) often emit internal custom events (`yt-navigate`, `yt-action`) on the PiP document. To keep the main tab in sync and to perform actions that must run in the main page (e.g. like via `resolveCommand`), we **bridge** those events from the PiP document to the **main window’s** `ytd-app`.
+
+**Implementation**: `src/handlers/PiPEventBridgeHandler.ts`
+
+- Listen on the **PiP window document** for `yt-navigate` and `yt-action` (custom events).
+- On each event, call **main window** `ytdApp.fire(eventName, detail)` with the same `detail` so the main app performs the navigation or action.
+
+```typescript
+// PiP document fires; we forward to main window's ytd-app
+const app = this.ytdAppProvider.getApp(); // main document
+doc.addEventListener(YT_EVENTS.NAVIGATE, (e) => app.fire(YT_EVENTS.NAVIGATE, e.detail));
+doc.addEventListener(YT_EVENTS.ACTION, (e) => app.fire(YT_EVENTS.ACTION, e.detail));
+```
+
+**Note**: `YtdAppProvider.getApp()` returns the main page’s `ytd-app`. The bridge does **not** target the PiP’s `ytd-app`; it forwards into the main page so that state, navigation, and commands (e.g. like) are applied there.
+
+---
+
+## Shorts lifecycle workaround
+
+After moving `ytd-shorts` back from the PiP window to the main page, the Polymer component can misbehave:
+
+1. **Render loop** — The component’s rendering can loop and keep the main thread busy.
+2. **Stale metadata** — Reel metadata (title, author, etc.) may stop updating when switching to the next reel on the main page.
+
+**Workaround**: Reinitialize the component’s lifecycle by briefly removing it from the DOM and restoring it when the tab is visible.
+
+**Implementation**: `src/core/YtdShortsProvider.ts` — `reinitShortsLifeCycle()`
+
+1. Subscribe to `document.visibilitychange`.
+2. When `document.visibilityState === 'visible'`:
+   - Insert a placeholder before the `ytd-shorts` element.
+   - Call `shorts.remove()`.
+   - In the next `requestAnimationFrame`, restore the element from the placeholder and, if it was playing, call `shorts.player?.playVideo?.()`.
+3. Remove the `visibilitychange` listener after running once.
+
+This runs only after the Shorts element has been moved back to the main page (e.g. in `returnShortsPlayerToMain` in PiPManager). Doing the remove/restore when the tab becomes active avoids the render loop and restores correct metadata updates. This is a **workaround** for internal Polymer lifecycle behavior, not a documented API.
 
 ---
 
@@ -911,12 +1015,15 @@ When YouTube updates their internal API:
 
 ### Internal Project Files
 
-- **Type Definitions**: `src/types/youtube.ts`
+- **Type Definitions**: `src/types/youtube.ts` (includes `YouTubeShortsElement`, `YouTubeAppElement`, `YouTubePlayer`)
 - **Constants**: `src/constants.ts`
 - **Selectors**: `src/selectors.ts`
 - **Mini Player Controller**: `src/ui/MiniPlayerController.ts`
 - **Action Sender**: `src/core/YtActionSender.ts`
 - **Navigation Handler**: `src/core/NavigationHandler.ts`
+- **PiP Manager**: `src/core/PiPManager.ts` (Shorts move to PiP, `SET_SHORTS_LAYOUT`, return flow)
+- **Shorts Provider**: `src/core/YtdShortsProvider.ts` (reinit lifecycle workaround, engagement panel)
+- **PiP Event Bridge**: `src/handlers/PiPEventBridgeHandler.ts` (forward `yt-navigate` / `yt-action` from PiP to main app)
 
 ### External Resources
 
@@ -938,5 +1045,5 @@ If you discover new YouTube internal APIs or behaviors:
 
 ---
 
-**Last Updated**: 2026-01-29  
+**Last Updated**: 2026-03-06  
 **Maintainer**: @dmitroderkach

@@ -8,6 +8,7 @@ import {
 import { CopyType } from '../../types/app';
 import {
   YOUTUBE_SHORT_BASE,
+  YOUTUBE_SHORTS_PAGE_BASE,
   YOUTUBE_EMBED_BASE,
   COPY_PAYLOAD_QUERY,
   EMBED_IFRAME_DEFAULTS,
@@ -24,6 +25,21 @@ describe('copyPayload', () => {
   it('buildVideoUrlPayload with playlist', () => {
     expect(buildVideoUrlPayload('v', 'PL123')).toBe(
       `${YOUTUBE_SHORT_BASE}/v?${COPY_PAYLOAD_QUERY.LIST}=PL123`
+    );
+  });
+
+  it('buildVideoUrlPayload shorts format', () => {
+    expect(buildVideoUrlPayload('XK7_nVHZxVY', null, true)).toBe(
+      `${YOUTUBE_SHORTS_PAGE_BASE}/XK7_nVHZxVY?feature=share`
+    );
+  });
+
+  it('buildUrlAtTimePayload shorts format', () => {
+    expect(buildUrlAtTimePayload('XK7_nVHZxVY', null, 7, true)).toBe(
+      `${YOUTUBE_SHORTS_PAGE_BASE}/XK7_nVHZxVY?${COPY_PAYLOAD_QUERY.TIME}=7&feature=share`
+    );
+    expect(buildUrlAtTimePayload('XK7_nVHZxVY', null, 0, true)).toBe(
+      `${YOUTUBE_SHORTS_PAGE_BASE}/XK7_nVHZxVY?feature=share`
     );
   });
 

@@ -24,6 +24,8 @@ export const DEFAULT_DIMENSIONS = {
   PIP_WIDTH: 480,
   PIP_HEIGHT: 270,
   PIP_EXPANDED_HEIGHT: 600,
+  PIP_SHORTS_WIDTH: 337.5,
+  PIP_SHORTS_HEIGHT: 600,
 } as const;
 
 /** Default dimensions for embed iframe (fallback when player size unknown) */

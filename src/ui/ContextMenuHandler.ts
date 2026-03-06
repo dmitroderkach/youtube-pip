@@ -1,12 +1,14 @@
 import type { Logger } from '../logger';
 import { LoggerFactory } from '../logger';
-import { TIMEOUTS, MOUSE_BUTTONS, COPY_MENU_INDICES } from '../constants';
+import { MOUSE_BUTTONS, COPY_MENU_INDICES } from '../constants';
 import { DOMUtils } from '../utils/DOMUtils';
 import { SELECTORS } from '../selectors';
 import { PlayerManager } from '../core/PlayerManager';
 import { YtdAppProvider } from '../core/YtdAppProvider';
+import { YtdShortsProvider } from '../core/YtdShortsProvider';
 import { PipWindowProvider } from '../core/PipWindowProvider';
 import { CopyType, type Nullable } from '../types/app';
+import type { VideoData, PlayerSize, YouTubePlayer } from '../types/youtube';
 import { buildCopyPayload } from '../utils/copyPayload';
 import { inject, injectable } from '../di';
 
@@ -22,9 +24,11 @@ export type ContextMenuVisibilityCallback = (visible: boolean) => void;
 export class ContextMenuHandler {
   private readonly logger: Logger;
   private visibilityObserver: Nullable<MutationObserver> = null;
+  private menuObserver: Nullable<MutationObserver> = null;
   private pipWindow: Nullable<Window> = null;
   private contextMenu: Nullable<HTMLElement> = null;
   private contextMenuPlaceholder: Nullable<Comment> = null;
+  private shortsMode = false;
   private readonly visibilitySubscribers = new Set<ContextMenuVisibilityCallback>();
 
   /**
@@ -46,6 +50,7 @@ export class ContextMenuHandler {
     @inject(LoggerFactory) loggerFactory: LoggerFactory,
     @inject(PlayerManager) private readonly playerManager: PlayerManager,
     @inject(YtdAppProvider) private readonly ytdAppProvider: YtdAppProvider,
+    @inject(YtdShortsProvider) private readonly ytdShortsProvider: YtdShortsProvider,
     @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider
   ) {
     this.logger = loggerFactory.create('ContextMenuHandler');
@@ -80,10 +85,15 @@ export class ContextMenuHandler {
       return;
     }
 
+    if (this.shortsMode && !this.getPlayer()) {
+      this.logger.warn('Shorts player not available, cannot copy');
+      return;
+    }
+
     let text: string;
     switch (copyType) {
       case CopyType.DEBUG_INFO: {
-        text = this.playerManager.getDebugInfo() ?? '';
+        text = this.getDebugInfo() ?? '';
         if (!text) {
           this.logger.warn('Debug info not available, cannot copy');
           return;
@@ -91,16 +101,16 @@ export class ContextMenuHandler {
         break;
       }
       default: {
-        const videoData = this.playerManager.getVideoData();
+        const videoData = this.getVideoData();
         const videoId = videoData?.video_id;
         if (!videoId) {
           this.logger.warn('Video ID not found, cannot copy');
           return;
         }
         const playlistId = videoData?.list ?? null;
-        const currentTime = this.playerManager.getCurrentTime();
+        const currentTime = this.getCurrentTime();
         const title = videoData?.title ?? '';
-        const embedSize = copyType === CopyType.EMBED ? this.playerManager.getPlayerSize() : null;
+        const embedSize = copyType === CopyType.EMBED ? this.getPlayerSize() : null;
         text = this.getCopyPayload({
           videoId,
           playlistId,
@@ -108,6 +118,7 @@ export class ContextMenuHandler {
           title,
           copyType,
           embedSize,
+          shorts: this.shortsMode,
         });
         if (!text) {
           this.logger.warn('Copy click: empty payload', { copyType });
@@ -124,81 +135,105 @@ export class ContextMenuHandler {
   };
 
   /**
-   * Initialize context menu handler
+   * Initialize context menu handler.
+   * Observes body for style changes on any context menu; when any becomes visible in main window, moves it to PiP.
+   * @param shortsMode When true, copy URLs use Shorts format (youtube.com/shorts/ID?feature=share) and data from Shorts player.
    */
-  public async initialize(): Promise<void> {
+  public initialize(shortsMode = false): void {
+    this.shortsMode = shortsMode;
     this.pipWindow = this.pipWindowProvider.getWindow();
-    this.contextMenuPlaceholder = DOMUtils.createPlaceholder('context_menu_placeholder');
-
-    // Wait for context menu to appear
-    try {
-      this.contextMenu = await DOMUtils.waitForElementSelector<HTMLElement>(
-        SELECTORS.CONTEXT_MENU,
-        document,
-        TIMEOUTS.ELEMENT_WAIT_INFINITE,
-        this.pipWindow
-      );
-
-      this.logger.log('Context menu element found, starting visibility monitoring');
-
-      this.startMonitoring();
-      this.setupDismissalHandler();
-      this.setupCopyHandler();
-    } catch (e) {
-      this.logger.warn('Error initializing context menu handler:', e);
+    if (!this.pipWindow) {
+      this.logger.warn('Context menu handler: PiP window not available');
+      return;
     }
+    this.contextMenuPlaceholder = DOMUtils.createPlaceholder('context_menu_placeholder');
+    this.startMonitoring();
+    this.setupDismissalHandler();
+    this.setupCopyHandler();
+    this.logger.log(
+      'Context menu handler initialized (observing body for any context menu display changes)'
+    );
   }
 
   /**
-   * Start monitoring context menu visibility
+   * Observe body; when any context menu's display changes, run move/restore logic.
    */
   private startMonitoring(): void {
-    if (!this.contextMenu || !this.pipWindow) {
+    if (!this.pipWindow) {
       return;
     }
 
     this.visibilityObserver = new MutationObserver(() => {
-      if (!this.contextMenu || !this.pipWindow) {
-        return;
-      }
-
-      const isVisible = this.contextMenu.style.display !== 'none';
-      const isInMainWindow = this.contextMenu.parentNode !== this.pipWindow.document.body;
-
-      if (isVisible && isInMainWindow) {
-        this.logger.log('Context menu opened in main window. Intercepting...');
-
-        if (this.contextMenuPlaceholder) {
-          DOMUtils.insertPlaceholderBefore(this.contextMenu, this.contextMenuPlaceholder);
-        }
-        this.pipWindow.document.body.appendChild(this.contextMenu);
-        this.notifyVisibility(true);
-      } else if (!isVisible && this.contextMenu.parentNode === this.pipWindow.document.body) {
-        this.notifyVisibility(false);
-        if (this.contextMenuPlaceholder?.parentNode) {
-          this.logger.log('Context menu closed in PiP window. Returning to main...');
-          DOMUtils.restoreElementFromPlaceholder(this.contextMenu, this.contextMenuPlaceholder);
-          this.simulateMainContextMenu();
-        }
-      }
+      if (!this.pipWindow) return;
+      this.processContextMenusVisibility();
     });
 
-    // Observe style attribute changes
-    this.visibilityObserver.observe(this.contextMenu, {
+    this.visibilityObserver.observe(document.body, {
       attributes: true,
+      subtree: true,
       attributeFilter: ['style'],
     });
 
-    // Move menu immediately if already visible
-    if (this.contextMenu.style.display !== 'none') {
-      if (this.contextMenuPlaceholder) {
-        DOMUtils.insertPlaceholderBefore(this.contextMenu, this.contextMenuPlaceholder);
+    this.processContextMenusVisibility();
+  }
+
+  /**
+   * Scan all context menus in main document and in PiP; move visible-in-main to PiP, restore hidden-in-PiP to main.
+   */
+  private processContextMenusVisibility(): void {
+    if (!this.pipWindow) return;
+
+    const pipBody = this.pipWindow.document.body;
+
+    if (
+      this.contextMenu &&
+      this.contextMenu.parentNode === pipBody &&
+      this.contextMenu.style.display === 'none'
+    ) {
+      this.notifyVisibility(false);
+      if (this.contextMenuPlaceholder?.parentNode) {
+        this.logger.log('Context menu closed in PiP window. Returning to main...');
+        DOMUtils.restoreElementFromPlaceholder(this.contextMenu, this.contextMenuPlaceholder);
+        this.simulateMainContextMenu();
       }
-      this.pipWindow.document.body.appendChild(this.contextMenu);
-      this.notifyVisibility(true);
+      this.stopObservingMenu();
+      this.contextMenu = null;
+      return;
     }
 
-    // Cleanup is done via PiPManager.onBeforeReturn
+    const menusInMain = Array.from(document.querySelectorAll<HTMLElement>(SELECTORS.CONTEXT_MENU));
+    for (const menu of menusInMain) {
+      if (menu.style.display === 'none') continue;
+      this.logger.log('Context menu opened in main window. Intercepting...');
+      if (this.contextMenuPlaceholder) {
+        DOMUtils.insertPlaceholderBefore(menu, this.contextMenuPlaceholder);
+      }
+      pipBody.appendChild(menu);
+      this.contextMenu = menu;
+      this.observeMenu(menu);
+      this.notifyVisibility(true);
+      return;
+    }
+  }
+
+  /**
+   * Observe the moved menu for style changes (e.g. display:none when closed).
+   */
+  private observeMenu(menu: HTMLElement): void {
+    this.menuObserver?.disconnect();
+    this.menuObserver = new MutationObserver(() => {
+      if (!this.pipWindow) return;
+      this.processContextMenusVisibility();
+    });
+    this.menuObserver.observe(menu, {
+      attributes: true,
+      attributeFilter: ['style'],
+    });
+  }
+
+  private stopObservingMenu(): void {
+    this.menuObserver?.disconnect();
+    this.menuObserver = null;
   }
 
   /**
@@ -248,6 +283,52 @@ export class ContextMenuHandler {
     return null;
   }
 
+  /** Resolve player from Shorts or main window depending on shortsMode. */
+  private getPlayer(): Nullable<YouTubePlayer> {
+    if (this.shortsMode) {
+      return this.ytdShortsProvider.getPlayer();
+    }
+    return this.playerManager.getPlayer();
+  }
+
+  /** Video data from current player source (Shorts or main). */
+  private getVideoData(): Nullable<VideoData> {
+    if (this.shortsMode) {
+      const player = this.ytdShortsProvider.getPlayer();
+      return typeof player?.getVideoData === 'function' ? (player.getVideoData() ?? null) : null;
+    }
+    return this.playerManager.getVideoData();
+  }
+
+  /** Current time in seconds from current player source. */
+  private getCurrentTime(): number {
+    if (this.shortsMode) {
+      const player = this.ytdShortsProvider.getPlayer();
+      return typeof player?.getCurrentTime === 'function' ? player.getCurrentTime() : 0;
+    }
+    return this.playerManager.getCurrentTime();
+  }
+
+  /** Player dimensions for embed; null if not available. */
+  private getPlayerSize(): Nullable<PlayerSize> {
+    if (this.shortsMode) {
+      const player = this.ytdShortsProvider.getPlayer();
+      return typeof player?.getPlayerSize === 'function' ? (player.getPlayerSize() ?? null) : null;
+    }
+    return this.playerManager.getPlayerSize();
+  }
+
+  /** Debug info from current player source. */
+  private getDebugInfo(): Nullable<string> {
+    if (this.shortsMode) {
+      const player = this.ytdShortsProvider.getPlayer();
+      return typeof player?.getDebugText === 'function'
+        ? (player.getDebugText(true) ?? null)
+        : null;
+    }
+    return this.playerManager.getDebugInfo();
+  }
+
   private getCopyPayload(params: {
     videoId: string;
     playlistId: Nullable<string>;
@@ -255,6 +336,7 @@ export class ContextMenuHandler {
     title: string;
     copyType: CopyType;
     embedSize?: Nullable<{ width: number; height: number }>;
+    shorts?: boolean;
   }): string {
     return buildCopyPayload(params);
   }
@@ -285,6 +367,7 @@ export class ContextMenuHandler {
       this.visibilityObserver.disconnect();
       this.visibilityObserver = null;
     }
+    this.stopObservingMenu();
 
     if (this.pipWindow) {
       this.pipWindow.document.removeEventListener('click', this.handleCopyClick, true);
@@ -302,6 +385,7 @@ export class ContextMenuHandler {
       this.simulateMainContextMenu();
     }
 
+    this.contextMenu = null;
     this.pipWindow = null;
     this.logger.debug('Context menu handler stopped');
   }

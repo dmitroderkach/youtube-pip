@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.3.0] 🚀 The Shorts Revolution - 2026-03-06
+
+### Added
+
+- **Full Shorts support in PiP**: Move the entire Shorts feed into Document PiP with infinite scroll preserved
+- **Smart Layout Adaptation**: Automatic switch to "narrow mode" (Layout 0); interaction buttons are compactly placed on the video as in the mobile app
+- **Dynamic Aspect Ratio**: PiP window automatically adjusts to video proportions (9:16), eliminating black bars
+- **Event Bridge**: Proxy system for events (`yt-navigate`, `yt-action`) between the popup and the main page for seamless navigation
+- **Title Sync**: Automatic synchronization of the PiP window title with the current Shorts title
+- **DI Architecture**: Improved modularity with new providers for Shorts and windows
+
+### Fixed
+
+- **Lifecycle Reboot**: Fixed critical Polymer render loop when returning shorts elements to the main page
+- **Visibility Handling**: Element restoration is now synchronized with `visibilitychange` and `requestAnimationFrame` for stability when tabs are inactive
+
 ## [2.2.12] - 2026-02-23
 
 ### Changed
@@ -871,6 +887,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.3.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.12...refs/tags/v2.3.0
 [2.2.12]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.11...refs/tags/v2.2.12
 [2.2.11]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.10...refs/tags/v2.2.11
 [2.2.10]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.2.9...refs/tags/v2.2.10

@@ -7,6 +7,7 @@ import { CopyType } from '../types/app';
 import {
   EMBED_IFRAME_DEFAULTS,
   YOUTUBE_SHORT_BASE,
+  YOUTUBE_SHORTS_PAGE_BASE,
   YOUTUBE_EMBED_BASE,
   COPY_PAYLOAD_QUERY,
   IFRAME_TITLE_QUOT,
@@ -21,25 +22,43 @@ export interface CopyPayloadParams {
   title: string;
   copyType: CopyType;
   embedSize?: Nullable<{ width: number; height: number }>;
+  /** When true, URLs use youtube.com/shorts/VIDEO_ID?feature=share and ?t=N&feature=share */
+  shorts?: boolean;
 }
 
 /**
- * Build payload for "Copy video URL" (with optional playlist).
+ * Build payload for "Copy video URL" (with optional playlist, or Shorts format).
  */
-export function buildVideoUrlPayload(videoId: string, playlistId: Nullable<string>): string {
+export function buildVideoUrlPayload(
+  videoId: string,
+  playlistId: Nullable<string>,
+  shorts?: boolean
+): string {
+  if (shorts) {
+    return `${YOUTUBE_SHORTS_PAGE_BASE}/${videoId}?feature=share`;
+  }
   const base = `${YOUTUBE_SHORT_BASE}/${videoId}`;
   const listPart = playlistId ? `?${COPY_PAYLOAD_QUERY.LIST}=${playlistId}` : '';
   return listPart ? `${base}${listPart}` : base;
 }
 
 /**
- * Build payload for "Copy URL at current time".
+ * Build payload for "Copy URL at current time" (or Shorts format with t=N&feature=share).
  */
 export function buildUrlAtTimePayload(
   videoId: string,
   playlistId: Nullable<string>,
-  currentTime: number
+  currentTime: number,
+  shorts?: boolean
 ): string {
+  if (shorts) {
+    const base = `${YOUTUBE_SHORTS_PAGE_BASE}/${videoId}`;
+    const timePart =
+      currentTime > 0
+        ? `?${COPY_PAYLOAD_QUERY.TIME}=${Math.floor(currentTime)}&feature=share`
+        : '?feature=share';
+    return `${base}${timePart}`;
+  }
   const base = `${YOUTUBE_SHORT_BASE}/${videoId}`;
   const listPart = playlistId ? `?${COPY_PAYLOAD_QUERY.LIST}=${playlistId}` : '';
   const tPart =
@@ -72,12 +91,12 @@ export function buildEmbedPayload(
  * Build copy payload by copy type (used by ContextMenuHandler and tests).
  */
 export function buildCopyPayload(params: CopyPayloadParams): string {
-  const { videoId, playlistId, currentTime, title, copyType, embedSize } = params;
+  const { videoId, playlistId, currentTime, title, copyType, embedSize, shorts } = params;
   switch (copyType) {
     case CopyType.VIDEO_URL:
-      return buildVideoUrlPayload(videoId, playlistId);
+      return buildVideoUrlPayload(videoId, playlistId, shorts);
     case CopyType.URL_AT_TIME:
-      return buildUrlAtTimePayload(videoId, playlistId, currentTime);
+      return buildUrlAtTimePayload(videoId, playlistId, currentTime, shorts);
     case CopyType.EMBED:
       return buildEmbedPayload(videoId, playlistId, title, embedSize);
     default:

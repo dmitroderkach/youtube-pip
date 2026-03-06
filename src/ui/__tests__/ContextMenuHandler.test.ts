@@ -5,8 +5,9 @@ import { createFakeWindow, createFakeYtdApp } from '../../test-utils/test-helper
 import { ContextMenuHandler, type ContextMenuVisibilityCallback } from '../ContextMenuHandler';
 import { PlayerManager } from '../../core/PlayerManager';
 import { YtdAppProvider } from '../../core/YtdAppProvider';
+import { YtdShortsProvider } from '../../core/YtdShortsProvider';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
-import { COPY_MENU_INDICES } from '../../constants';
+import { COPY_MENU_INDICES, YOUTUBE_SHORTS_PAGE_BASE } from '../../constants';
 import { SELECTORS } from '../../selectors';
 import {
   buildVideoUrlPayload,
@@ -22,6 +23,8 @@ const CURRENT_TIME_SEC = 30;
 const STYLE_DISPLAY_BLOCK = 'display: block';
 const STYLE_DISPLAY_NONE = 'display: none';
 const STYLE_DISPLAY_BLOCK_COLOR = 'display: block; color: red';
+/** Class for context menu element to match SELECTORS.CONTEXT_MENU (body > .ytp-popup.ytp-contextmenu) */
+const CONTEXT_MENU_CLASS = 'ytp-popup ytp-contextmenu';
 
 vi.mock('../../utils/DOMUtils', () => ({
   DOMUtils: {
@@ -37,17 +40,20 @@ describe('ContextMenuHandler', () => {
   let handler: ContextMenuHandler;
   let mockPlayerManager: MockProxy<PlayerManager>;
   let mockYtdAppProvider: MockProxy<YtdAppProvider>;
+  let mockYtdShortsProvider: MockProxy<YtdShortsProvider>;
   let mockPipProvider: MockProxy<PipWindowProvider>;
 
   beforeEach(() => {
     mockPlayerManager = mock<PlayerManager>();
     mockYtdAppProvider = mock<YtdAppProvider>();
+    mockYtdShortsProvider = mock<YtdShortsProvider>();
     mockPipProvider = mock<PipWindowProvider>();
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
 
     const c = createTestContainer();
     c.bind(PlayerManager).toInstance(mockPlayerManager);
     c.bind(YtdAppProvider).toInstance(mockYtdAppProvider);
+    c.bind(YtdShortsProvider).toInstance(mockYtdShortsProvider);
     c.bind(PipWindowProvider).toInstance(mockPipProvider);
     c.bind(ContextMenuHandler).toSelf();
     handler = c.get(ContextMenuHandler);
@@ -98,16 +104,12 @@ describe('ContextMenuHandler', () => {
     expect(() => handler['setupDismissalHandler']()).not.toThrow();
   });
 
-  it('initialize sets pipWindow and can be followed by stop', async () => {
+  it('initialize sets pipWindow and can be followed by stop', () => {
     const pipWindow = createFakeWindow({
       document: document.implementation.createHTMLDocument(),
     });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
-    const { DOMUtils } = await import('../../utils/DOMUtils');
-    const menuEl = document.createElement('div');
-    menuEl.style.display = 'none';
-    vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl);
-    await handler.initialize();
+    handler.initialize();
     expect(() => handler.stop()).not.toThrow();
   });
 
@@ -122,20 +124,20 @@ describe('ContextMenuHandler', () => {
     expect(() => handler.stop()).not.toThrow();
   });
 
-  it('initialize with visible menu calls notifyVisibility(true) and subscriber is notified', async () => {
+  it('initialize with visible menu calls notifyVisibility(true) and subscriber is notified', () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
-    const menuEl = pipDoc.createElement('div');
-    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    const menuEl = document.createElement('div');
+    menuEl.className = CONTEXT_MENU_CLASS;
     menuEl.style.display = 'block';
-    pipDoc.body.appendChild(menuEl);
-    const { DOMUtils } = await import('../../utils/DOMUtils');
-    vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
+    document.body.appendChild(menuEl);
     const cb: ContextMenuVisibilityCallback = vi.fn();
     handler.subscribeContextMenu(cb);
-    await handler.initialize();
+    handler.initialize();
+    expect(pipDoc.body.contains(menuEl)).toBe(true);
     expect(cb).toHaveBeenCalledWith(true);
+    menuEl.remove();
     handler.stop();
   });
 
@@ -144,15 +146,14 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const menuEl = document.createElement('div');
-    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.className = CONTEXT_MENU_CLASS;
     menuEl.style.display = 'none';
     document.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
-    vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     vi.mocked(DOMUtils.createPlaceholder).mockReturnValue(null as never);
     const cb: ContextMenuVisibilityCallback = vi.fn();
     handler.subscribeContextMenu(cb);
-    await handler.initialize();
+    handler.initialize();
     menuEl.style.display = 'block';
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(pipDoc.body.contains(menuEl)).toBe(true);
@@ -167,11 +168,10 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const menuEl = document.createElement('div');
-    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.className = CONTEXT_MENU_CLASS;
     menuEl.style.display = 'none';
     document.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
-    vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     vi.mocked(DOMUtils.insertPlaceholderBefore).mockImplementation(
       (element: Node, placeholder: Comment) => {
         element.parentNode?.insertBefore(placeholder, element);
@@ -180,7 +180,7 @@ describe('ContextMenuHandler', () => {
     );
     const cb: ContextMenuVisibilityCallback = vi.fn();
     handler.subscribeContextMenu(cb);
-    await handler.initialize();
+    handler.initialize();
     menuEl.style.display = 'block';
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(pipDoc.body.contains(menuEl)).toBe(true);
@@ -443,6 +443,160 @@ describe('ContextMenuHandler', () => {
     handler.stop();
   });
 
+  it('shorts mode: copy VIDEO_URL uses Shorts URL format', async () => {
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    const pipDoc = document.implementation.createHTMLDocument();
+    const pipWindow = createFakeWindow({ document: pipDoc });
+    mockPipProvider.getWindow.mockReturnValue(pipWindow);
+    const panelMenu = pipDoc.createElement('div');
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
+    for (let i = 0; i < 6; i++) {
+      const item = pipDoc.createElement('div');
+      item.className = SELECTORS.MENU_ITEM.slice(1);
+      panelMenu.appendChild(item);
+    }
+    pipDoc.body.appendChild(panelMenu);
+    const menuEl = pipDoc.createElement('div');
+    menuEl.className = CONTEXT_MENU_CLASS;
+    pipDoc.body.appendChild(menuEl);
+    const shortsPlayer = {
+      getVideoData: () => ({ video_id: 'XK7_nVHZxVY', title: 'Shorts', list: undefined }),
+      getCurrentTime: () => 0,
+      getPlayerSize: () => ({ width: 387, height: 688 }),
+      getDebugText: () => '',
+    };
+    mockYtdShortsProvider.getPlayer.mockReturnValue(shortsPlayer as never);
+    handler.initialize(true);
+    const items = pipDoc.querySelectorAll(SELECTORS.PANEL_MENU_ITEMS);
+    items[COPY_MENU_INDICES.VIDEO_URL].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(DOMUtils.copyViaTextarea).toHaveBeenCalledWith(
+      pipDoc,
+      `${YOUTUBE_SHORTS_PAGE_BASE}/XK7_nVHZxVY?feature=share`
+    );
+    handler.stop();
+  });
+
+  it('shorts mode: copy URL_AT_TIME uses Shorts format with t param', async () => {
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    const pipDoc = document.implementation.createHTMLDocument();
+    const pipWindow = createFakeWindow({ document: pipDoc });
+    mockPipProvider.getWindow.mockReturnValue(pipWindow);
+    const panelMenu = pipDoc.createElement('div');
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
+    for (let i = 0; i < 6; i++) {
+      const item = pipDoc.createElement('div');
+      item.className = SELECTORS.MENU_ITEM.slice(1);
+      panelMenu.appendChild(item);
+    }
+    pipDoc.body.appendChild(panelMenu);
+    const menuEl = pipDoc.createElement('div');
+    menuEl.className = CONTEXT_MENU_CLASS;
+    pipDoc.body.appendChild(menuEl);
+    const shortsPlayer = {
+      getVideoData: () => ({ video_id: 'XK7_nVHZxVY', title: 'Shorts', list: undefined }),
+      getCurrentTime: () => 7,
+      getPlayerSize: () => ({ width: 387, height: 688 }),
+      getDebugText: () => '',
+    };
+    mockYtdShortsProvider.getPlayer.mockReturnValue(shortsPlayer as never);
+    handler.initialize(true);
+    const items = pipDoc.querySelectorAll(SELECTORS.PANEL_MENU_ITEMS);
+    items[COPY_MENU_INDICES.URL_AT_TIME].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(DOMUtils.copyViaTextarea).toHaveBeenCalledWith(
+      pipDoc,
+      buildUrlAtTimePayload('XK7_nVHZxVY', null, 7, true)
+    );
+    handler.stop();
+  });
+
+  it('shorts mode: copy EMBED uses getPlayerSize from Shorts player', async () => {
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    const pipDoc = document.implementation.createHTMLDocument();
+    const pipWindow = createFakeWindow({ document: pipDoc });
+    mockPipProvider.getWindow.mockReturnValue(pipWindow);
+    const panelMenu = pipDoc.createElement('div');
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
+    for (let i = 0; i < 6; i++) {
+      const item = pipDoc.createElement('div');
+      item.className = SELECTORS.MENU_ITEM.slice(1);
+      panelMenu.appendChild(item);
+    }
+    pipDoc.body.appendChild(panelMenu);
+    const menuEl = pipDoc.createElement('div');
+    menuEl.className = CONTEXT_MENU_CLASS;
+    pipDoc.body.appendChild(menuEl);
+    const shortsPlayer = {
+      getVideoData: () => ({ video_id: 'XK7_nVHZxVY', title: 'Shorts Title', list: undefined }),
+      getCurrentTime: () => 0,
+      getPlayerSize: () => ({ width: 387, height: 688 }),
+      getDebugText: () => '',
+    };
+    mockYtdShortsProvider.getPlayer.mockReturnValue(shortsPlayer as never);
+    handler.initialize(true);
+    const items = pipDoc.querySelectorAll(SELECTORS.PANEL_MENU_ITEMS);
+    items[COPY_MENU_INDICES.EMBED].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(DOMUtils.copyViaTextarea).toHaveBeenCalledWith(
+      pipDoc,
+      buildEmbedPayload('XK7_nVHZxVY', null, 'Shorts Title', { width: 387, height: 688 })
+    );
+    handler.stop();
+  });
+
+  it('shorts mode: copy DEBUG_INFO uses getDebugText from Shorts player', async () => {
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    const pipDoc = document.implementation.createHTMLDocument();
+    const pipWindow = createFakeWindow({ document: pipDoc });
+    mockPipProvider.getWindow.mockReturnValue(pipWindow);
+    const panelMenu = pipDoc.createElement('div');
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
+    for (let i = 0; i < 6; i++) {
+      const item = pipDoc.createElement('div');
+      item.className = SELECTORS.MENU_ITEM.slice(1);
+      panelMenu.appendChild(item);
+    }
+    pipDoc.body.appendChild(panelMenu);
+    const menuEl = pipDoc.createElement('div');
+    menuEl.className = CONTEXT_MENU_CLASS;
+    pipDoc.body.appendChild(menuEl);
+    const shortsPlayer = {
+      getVideoData: () => ({}),
+      getCurrentTime: () => 0,
+      getPlayerSize: () => null,
+      getDebugText: (full: boolean) => (full ? 'shorts-debug-full' : ''),
+    };
+    mockYtdShortsProvider.getPlayer.mockReturnValue(shortsPlayer as never);
+    handler.initialize(true);
+    const items = pipDoc.querySelectorAll(SELECTORS.PANEL_MENU_ITEMS);
+    items[COPY_MENU_INDICES.DEBUG_INFO].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(DOMUtils.copyViaTextarea).toHaveBeenCalledWith(pipDoc, 'shorts-debug-full');
+    handler.stop();
+  });
+
+  it('shorts mode: when Shorts player null does not copy', async () => {
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    vi.mocked(DOMUtils.copyViaTextarea).mockClear();
+    const pipDoc = document.implementation.createHTMLDocument();
+    const pipWindow = createFakeWindow({ document: pipDoc });
+    mockPipProvider.getWindow.mockReturnValue(pipWindow);
+    const panelMenu = pipDoc.createElement('div');
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
+    for (let i = 0; i < 6; i++) {
+      const item = pipDoc.createElement('div');
+      item.className = SELECTORS.MENU_ITEM.slice(1);
+      panelMenu.appendChild(item);
+    }
+    pipDoc.body.appendChild(panelMenu);
+    const menuEl = pipDoc.createElement('div');
+    menuEl.className = CONTEXT_MENU_CLASS;
+    pipDoc.body.appendChild(menuEl);
+    mockYtdShortsProvider.getPlayer.mockReturnValue(null);
+    handler.initialize(true);
+    const items = pipDoc.querySelectorAll(SELECTORS.PANEL_MENU_ITEMS);
+    items[COPY_MENU_INDICES.VIDEO_URL].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(DOMUtils.copyViaTextarea).not.toHaveBeenCalled();
+    handler.stop();
+  });
+
   it('copy click on DEBUG_INFO when getDebugInfo empty does not copy', async () => {
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.copyViaTextarea).mockClear();
@@ -491,25 +645,25 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const menuEl = document.createElement('div');
-    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.className = CONTEXT_MENU_CLASS;
     menuEl.setAttribute('style', STYLE_DISPLAY_BLOCK);
     document.body.appendChild(menuEl);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.restoreElementFromPlaceholder).mockClear();
-    vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     vi.mocked(DOMUtils.insertPlaceholderBefore).mockImplementation(
       (element: Node, placeholder: Comment) => {
         element.parentNode?.insertBefore(placeholder, element);
         return true;
       }
     );
-    await handler.initialize();
+    handler.initialize();
     expect(DOMUtils.restoreElementFromPlaceholder).not.toHaveBeenCalled();
     menuEl.setAttribute('style', STYLE_DISPLAY_NONE);
     await vi.waitFor(() => {
       expect(DOMUtils.restoreElementFromPlaceholder).toHaveBeenCalled();
     });
+    menuEl.remove();
     handler.stop();
   });
 
@@ -518,23 +672,23 @@ describe('ContextMenuHandler', () => {
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
     const menuEl = document.createElement('div');
-    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.className = CONTEXT_MENU_CLASS;
     menuEl.setAttribute('style', STYLE_DISPLAY_BLOCK);
     document.body.appendChild(menuEl);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.restoreElementFromPlaceholder).mockClear();
-    vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     vi.mocked(DOMUtils.insertPlaceholderBefore).mockImplementation(
       (element: Node, placeholder: Comment) => {
         element.parentNode?.insertBefore(placeholder, element);
         return true;
       }
     );
-    await handler.initialize();
+    handler.initialize();
     menuEl.setAttribute('style', STYLE_DISPLAY_BLOCK_COLOR);
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(DOMUtils.restoreElementFromPlaceholder).not.toHaveBeenCalled();
+    menuEl.remove();
     handler.stop();
   });
 
@@ -858,21 +1012,22 @@ describe('ContextMenuHandler', () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
-    const menuEl = pipDoc.createElement('div');
-    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    const menuEl = document.createElement('div');
+    menuEl.className = CONTEXT_MENU_CLASS;
     menuEl.style.display = 'block';
-    pipDoc.body.appendChild(menuEl);
+    document.body.appendChild(menuEl);
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
     const { DOMUtils } = await import('../../utils/DOMUtils');
-    vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     vi.mocked(DOMUtils.insertPlaceholderBefore).mockImplementation(
       (element: Node, placeholder: Comment) => {
         element.parentNode?.insertBefore(placeholder, element);
         return true;
       }
     );
-    await handler.initialize();
+    handler.initialize();
+    expect(pipDoc.body.contains(menuEl)).toBe(true);
     handler.stop();
     expect(DOMUtils.restoreElementFromPlaceholder).toHaveBeenCalled();
+    menuEl.remove();
   });
 });

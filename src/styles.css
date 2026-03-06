@@ -66,3 +66,54 @@ video {
 .ytp-next-button {
   display: inline-flex !important;
 }
+
+ytd-shorts {
+  margin-top: 0px !important;
+  --ytd-shorts-masthead-height: 0px !important;
+  position: fixed !important;
+  width: 100vw !important;
+}
+
+.reel-video-in-sequence-new.ytd-shorts,
+ytd-reel-video-renderer {
+  --ytd-shorts-player-width: 100vw !important;
+  --ytd-shorts-player-height: 100vh !important;
+}
+
+ytd-shorts .action-container,
+ytd-shorts #right-controls,
+ytd-shorts .metadata-container button,
+ytd-shorts #anchored-panel {
+  display: none !important;
+}
+
+.reel-video-in-sequence-thumbnail {
+  background-size: contain !important;
+}
+
+.navigation-container.ytd-shorts {
+  transition: opacity 0.1s cubic-bezier(0.4, 0, 1, 1) !important;
+  display: flex !important;
+  opacity: 0 !important;
+}
+
+ytd-shorts:hover .navigation-container.ytd-shorts {
+  opacity: 1 !important;
+}
+
+ytd-shorts #offline-container {
+  width: 100vw;
+  margin-right: 100px;
+}
+
+yt-reel-metapanel-view-model {
+  max-width: unset !important;
+}
+
+#metapanel.ytd-reel-player-overlay-renderer {
+  width: calc(100vw - 32px) !important;
+}
+
+ytd-shorts #shorts-container.ytd-shorts {
+  margin-right: 0px !important;
+}

@@ -1,34 +1,31 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { createTestContainer } from '../../test-utils/test-container';
-import { createFakeWindow } from '../../test-utils/test-helpers';
+import { createFakeWindow, createFakeYtdApp } from '../../test-utils/test-helpers';
 import { DocumentFocusHandler } from '../DocumentFocusHandler';
-import { PlayerManager } from '../../core/PlayerManager';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
 import { ContextMenuHandler } from '../../ui/ContextMenuHandler';
+import { YtdAppProvider } from '../../core/YtdAppProvider';
 
 describe('DocumentFocusHandler', () => {
   let handler: DocumentFocusHandler;
-  let mockPlayerManager: MockProxy<PlayerManager>;
   let mockPipProvider: MockProxy<PipWindowProvider>;
   let mockContextMenuHandler: MockProxy<ContextMenuHandler>;
+  let mockYtdAppProvider: MockProxy<YtdAppProvider>;
 
   beforeEach(() => {
-    mockPlayerManager = mock<PlayerManager>();
     mockPipProvider = mock<PipWindowProvider>();
     mockContextMenuHandler = mock<ContextMenuHandler>();
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
+    mockYtdAppProvider = mock<YtdAppProvider>();
+    mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
 
     const c = createTestContainer();
-    c.bind(PlayerManager).toInstance(mockPlayerManager);
     c.bind(PipWindowProvider).toInstance(mockPipProvider);
     c.bind(ContextMenuHandler).toInstance(mockContextMenuHandler);
+    c.bind(YtdAppProvider).toInstance(mockYtdAppProvider);
     c.bind(DocumentFocusHandler).toSelf();
     handler = c.get(DocumentFocusHandler);
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
   });
 
   it('cleanup when never initialized does not throw', () => {
@@ -55,182 +52,143 @@ describe('DocumentFocusHandler', () => {
     expect(unsubscribe).toHaveBeenCalledOnce();
   });
 
-  it('onBodyClick returns focus to player when activeElement outside player', async () => {
-    vi.useFakeTimers();
+  it('onKey dispatches synthetic keydown to ytdApp and prevents default', () => {
     const pipDoc = document.implementation.createHTMLDocument();
-    const player = pipDoc.createElement('div');
-    const outer = pipDoc.createElement('div');
-    pipDoc.body.appendChild(player);
-    pipDoc.body.appendChild(outer);
-    const focusFn = vi.fn();
-    player.focus = focusFn;
-    mockPlayerManager.getPlayer.mockReturnValue(player as never);
-
-    const pipWindow = createFakeWindow({ document: pipDoc });
-    mockPipProvider.getWindow.mockReturnValue(pipWindow);
+    mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));
+    const ytdApp = createFakeYtdApp({});
+    mockYtdAppProvider.getApp.mockReturnValue(ytdApp);
+    const dispatched: KeyboardEvent[] = [];
+    ytdApp.addEventListener('keydown', (e) => dispatched.push(e as KeyboardEvent));
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
+
     handler.initialize();
-    Object.defineProperty(pipDoc, 'activeElement', { value: outer, configurable: true });
-    pipDoc.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    await vi.runAllTimersAsync();
-    expect(focusFn).toHaveBeenCalled();
+    const keyEvent = {
+      isTrusted: true,
+      key: 'ArrowDown',
+      code: 'ArrowDown',
+      type: 'keydown',
+      keyCode: 40,
+      which: 40,
+      view: null,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+    handler['onKey'](keyEvent);
+
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].key).toBe('ArrowDown');
+    expect(keyEvent.preventDefault).toHaveBeenCalled();
     handler.cleanup();
   });
 
-  it('onBodyClick does nothing when activeElement is player', () => {
+  it('onKey dispatches synthetic keyup to ytdApp', () => {
     const pipDoc = document.implementation.createHTMLDocument();
-    const player = pipDoc.createElement('div');
-    pipDoc.body.appendChild(player);
-    const focusFn = vi.fn();
-    player.focus = focusFn;
-    mockPlayerManager.getPlayer.mockReturnValue(player as never);
-    const pipWindow = createFakeWindow({ document: pipDoc });
-    mockPipProvider.getWindow.mockReturnValue(pipWindow);
+    mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));
+    const ytdApp = createFakeYtdApp({});
+    mockYtdAppProvider.getApp.mockReturnValue(ytdApp);
+    const dispatched: KeyboardEvent[] = [];
+    ytdApp.addEventListener('keyup', (e) => dispatched.push(e as KeyboardEvent));
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
+
     handler.initialize();
-    Object.defineProperty(pipDoc, 'activeElement', { value: player, configurable: true });
-    pipDoc.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(focusFn).not.toHaveBeenCalled();
+    const keyEvent = {
+      isTrusted: true,
+      key: 'a',
+      code: 'KeyA',
+      type: 'keyup',
+      keyCode: 65,
+      which: 65,
+      view: null,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+    handler['onKey'](keyEvent);
+
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].key).toBe('a');
     handler.cleanup();
   });
 
-  it('onBodyClick does nothing when activeElement is inside player', () => {
+  it('onKey does nothing when key is Tab', () => {
     const pipDoc = document.implementation.createHTMLDocument();
-    const player = pipDoc.createElement('div');
-    const inner = pipDoc.createElement('span');
-    player.appendChild(inner);
-    pipDoc.body.appendChild(player);
-    player.focus = vi.fn();
-    mockPlayerManager.getPlayer.mockReturnValue(player as never);
-    const pipWindow = createFakeWindow({ document: pipDoc });
-    mockPipProvider.getWindow.mockReturnValue(pipWindow);
+    mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));
+    const ytdApp = createFakeYtdApp({});
+    mockYtdAppProvider.getApp.mockReturnValue(ytdApp);
+    const dispatched: Event[] = [];
+    ytdApp.addEventListener('keydown', (e: Event) => dispatched.push(e));
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
+
     handler.initialize();
-    Object.defineProperty(pipDoc, 'activeElement', { value: inner, configurable: true });
-    pipDoc.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(player.focus).not.toHaveBeenCalled();
+    const keyEvent = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true });
+    pipDoc.dispatchEvent(keyEvent);
+
+    expect(dispatched).toHaveLength(0);
     handler.cleanup();
   });
 
-  it('onBodyClick does nothing when context menu open', () => {
+  it('onKey does nothing when key is Escape', () => {
     const pipDoc = document.implementation.createHTMLDocument();
-    const player = pipDoc.createElement('div');
-    const outer = pipDoc.createElement('div');
-    pipDoc.body.appendChild(player);
-    pipDoc.body.appendChild(outer);
-    player.focus = vi.fn();
-    mockPlayerManager.getPlayer.mockReturnValue(player as never);
-    const pipWindow = createFakeWindow({ document: pipDoc });
-    mockPipProvider.getWindow.mockReturnValue(pipWindow);
+    mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));
+    const ytdApp = createFakeYtdApp({});
+    mockYtdAppProvider.getApp.mockReturnValue(ytdApp);
+    const dispatched: Event[] = [];
+    ytdApp.addEventListener('keydown', (e: Event) => dispatched.push(e));
+    mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
+
+    handler.initialize();
+    const keyEvent = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+    pipDoc.dispatchEvent(keyEvent);
+
+    expect(dispatched).toHaveLength(0);
+    handler.cleanup();
+  });
+
+  it('onKey does nothing when context menu is open', () => {
+    const pipDoc = document.implementation.createHTMLDocument();
+    mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));
+    const ytdApp = createFakeYtdApp({});
+    mockYtdAppProvider.getApp.mockReturnValue(ytdApp);
+    const dispatched: Event[] = [];
+    ytdApp.addEventListener('keydown', (e: Event) => dispatched.push(e));
     let visibilityCb: (visible: boolean) => void = () => {};
     mockContextMenuHandler.subscribeContextMenu.mockImplementation((cb) => {
       visibilityCb = cb;
       return () => {};
     });
+
     handler.initialize();
     visibilityCb(true);
-    Object.defineProperty(pipDoc, 'activeElement', { value: outer, configurable: true });
-    pipDoc.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(player.focus).not.toHaveBeenCalled();
+    const keyEvent = new KeyboardEvent('keydown', { key: 'a', bubbles: true });
+    pipDoc.dispatchEvent(keyEvent);
+
+    expect(dispatched).toHaveLength(0);
     handler.cleanup();
   });
 
-  it('onBodyClick does nothing when activeElement is null', () => {
+  it('onKey does nothing when event is not trusted', () => {
     const pipDoc = document.implementation.createHTMLDocument();
-    const player = pipDoc.createElement('div');
-    pipDoc.body.appendChild(player);
-    player.focus = vi.fn();
-    mockPlayerManager.getPlayer.mockReturnValue(player as never);
-    const pipWindow = createFakeWindow({ document: pipDoc });
-    mockPipProvider.getWindow.mockReturnValue(pipWindow);
+    mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));
+    const ytdApp = createFakeYtdApp({});
+    mockYtdAppProvider.getApp.mockReturnValue(ytdApp);
+    const dispatched: Event[] = [];
+    ytdApp.addEventListener('keydown', (e: Event) => dispatched.push(e));
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
-    handler.initialize();
-    Object.defineProperty(pipDoc, 'activeElement', { value: null, configurable: true });
-    pipDoc.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(player.focus).not.toHaveBeenCalled();
-    handler.cleanup();
-  });
 
-  it('onBodyClick does nothing when player.focus is not a function', () => {
-    const pipDoc = document.implementation.createHTMLDocument();
-    const player = pipDoc.createElement('div');
-    const outer = pipDoc.createElement('div');
-    pipDoc.body.appendChild(player);
-    pipDoc.body.appendChild(outer);
-    Object.defineProperty(player, 'focus', { value: undefined, configurable: true });
-    mockPlayerManager.getPlayer.mockReturnValue(player as never);
-    const pipWindow = createFakeWindow({ document: pipDoc });
-    mockPipProvider.getWindow.mockReturnValue(pipWindow);
-    mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
     handler.initialize();
-    Object.defineProperty(pipDoc, 'activeElement', { value: outer, configurable: true });
-    expect(() =>
-      pipDoc.body.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-    ).not.toThrow();
-    handler.cleanup();
-  });
+    const fakeEvent = {
+      isTrusted: false,
+      key: 'a',
+      type: 'keydown',
+      code: 'KeyA',
+      keyCode: 65,
+      which: 65,
+      view: null,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+    handler['onKey'](fakeEvent);
 
-  it('onKeyUp returns focus to player when activeElement outside and key is not Tab', async () => {
-    vi.useFakeTimers();
-    const pipDoc = document.implementation.createHTMLDocument();
-    const player = pipDoc.createElement('div');
-    const outer = pipDoc.createElement('div');
-    pipDoc.body.appendChild(player);
-    pipDoc.body.appendChild(outer);
-    const focusFn = vi.fn();
-    player.focus = focusFn;
-    mockPlayerManager.getPlayer.mockReturnValue(player as never);
-
-    const pipWindow = createFakeWindow({ document: pipDoc });
-    mockPipProvider.getWindow.mockReturnValue(pipWindow);
-    mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
-    handler.initialize();
-    Object.defineProperty(pipDoc, 'activeElement', { value: outer, configurable: true });
-    pipDoc.dispatchEvent(new KeyboardEvent('keyup', { key: 'a', bubbles: true }));
-    await vi.runAllTimersAsync();
-    expect(focusFn).toHaveBeenCalled();
-    handler.cleanup();
-  });
-
-  it('onKeyUp does nothing when key is Tab', () => {
-    const pipDoc = document.implementation.createHTMLDocument();
-    const player = pipDoc.createElement('div');
-    const outer = pipDoc.createElement('div');
-    pipDoc.body.appendChild(player);
-    pipDoc.body.appendChild(outer);
-    player.focus = vi.fn();
-    mockPlayerManager.getPlayer.mockReturnValue(player as never);
-    const pipWindow = createFakeWindow({ document: pipDoc });
-    mockPipProvider.getWindow.mockReturnValue(pipWindow);
-    mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
-    handler.initialize();
-    Object.defineProperty(pipDoc, 'activeElement', { value: outer, configurable: true });
-    pipDoc.dispatchEvent(new KeyboardEvent('keyup', { key: 'Tab', bubbles: true }));
-    expect(player.focus).not.toHaveBeenCalled();
-    handler.cleanup();
-  });
-
-  it('subscribe callback with false calls onBodyClick and returns focus', async () => {
-    vi.useFakeTimers();
-    const pipDoc = document.implementation.createHTMLDocument();
-    const player = pipDoc.createElement('div');
-    const outer = pipDoc.createElement('div');
-    pipDoc.body.appendChild(player);
-    pipDoc.body.appendChild(outer);
-    player.focus = vi.fn();
-    mockPlayerManager.getPlayer.mockReturnValue(player as never);
-    const pipWindow = createFakeWindow({ document: pipDoc });
-    mockPipProvider.getWindow.mockReturnValue(pipWindow);
-    let visibilityCb: (visible: boolean) => void = () => {};
-    mockContextMenuHandler.subscribeContextMenu.mockImplementation((cb) => {
-      visibilityCb = cb;
-      return () => {};
-    });
-    handler.initialize();
-    Object.defineProperty(pipDoc, 'activeElement', { value: outer, configurable: true });
-    visibilityCb(false);
-    await vi.runAllTimersAsync();
-    expect(player.focus).toHaveBeenCalled();
+    expect(dispatched).toHaveLength(0);
     handler.cleanup();
   });
 });

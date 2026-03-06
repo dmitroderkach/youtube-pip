@@ -6,6 +6,8 @@ import { PlayerManager } from '../core/PlayerManager';
 import { SELECTORS } from '../selectors';
 import type { YouTubePlayer } from '../types/youtube';
 import { inject, injectable } from '../di';
+import { Nullable } from '../types/app';
+import { YtdShortsProvider } from '../core/YtdShortsProvider';
 
 /**
  * Syncs PiP window title when the player's video element src or the notify renderer DOM changes.
@@ -16,12 +18,14 @@ import { inject, injectable } from '../di';
 export class TitleSyncHandler {
   private readonly logger: Logger;
   private mutationObserver: MutationObserver | null = null;
+  private shortsMode: boolean = false;
 
   constructor(
     @inject(LoggerFactory) loggerFactory: LoggerFactory,
     @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider,
     @inject(YtdAppProvider) private readonly ytdAppProvider: YtdAppProvider,
-    @inject(PlayerManager) private readonly playerManager: PlayerManager
+    @inject(PlayerManager) private readonly playerManager: PlayerManager,
+    @inject(YtdShortsProvider) private readonly ytdShortsProvider: YtdShortsProvider
   ) {
     this.logger = loggerFactory.create('TitleSyncHandler');
   }
@@ -30,7 +34,8 @@ export class TitleSyncHandler {
    * Start observing the player's video element (src) and the notify renderer element (DOM changes) and sync title.
    * Call when PiP window is open. Skips sync when PiP was opened from mini player (from PlayerManager).
    */
-  public initialize(): void {
+  public initialize(shortsMode: boolean = false): void {
+    this.shortsMode = shortsMode;
     if (this.playerManager.getWasMiniPlayerActiveBeforePiP()) {
       this.logger.debug('Title sync skipped (e.g. PiP opened from mini player)');
       return;
@@ -42,7 +47,7 @@ export class TitleSyncHandler {
       return;
     }
 
-    const player = this.playerManager.getPlayer() as YouTubePlayer;
+    const player = this.getPlayer() as YouTubePlayer;
     const video = player.querySelector(SELECTORS.PLAYER_VIDEO);
     if (!video) {
       this.logger.warn('Video element not found inside player');
@@ -73,6 +78,10 @@ export class TitleSyncHandler {
       });
     }
     this.logger.debug('Title sync observing video src and notify renderer subtree');
+  }
+
+  private getPlayer(): Nullable<YouTubePlayer> {
+    return this.shortsMode ? this.ytdShortsProvider.getPlayer() : this.playerManager.getPlayer();
   }
 
   private setWindowsTitle(title: string): void {

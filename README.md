@@ -4,6 +4,7 @@ Smart Picture-in-Picture mode for YouTube with full playback controls, SPA navig
 
 ## 📚 Documentation
 
+- **[Architecture Decisions & Design Patterns](docs/ARCHITECTURE_DECISIONS.md)** - Why the script is built this way: DI, AsyncLock, Shorts reinit, menu swapping, event bridge, sourcemap plugin, MenuObserver
 - **[YouTube Internal API Usage](docs/YOUTUBE_INTERNAL_API.md)** - Comprehensive guide on how we interact with YouTube's Kevlar framework
 - **[Resilience Report (Feb 18, 2026 Outage)](docs/RESILIENCE_REPORT.md)** - How the script maintained full functionality during YouTube's global infrastructure failure
 - **[E2E tests (Playwright)](docs/E2E_TESTS.md)** - Implementation details, fixtures, auth flow, and test descriptions
@@ -48,6 +49,23 @@ This project is **not affiliated with, endorsed by, or officially connected to**
 3. In Tampermonkey: **Create new script** → remove the default template → paste the contents of `dist/userscript.js` → save.
 
 4. Open [YouTube](https://www.youtube.com/), play a video, and use the media controls or the script’s logic to open PiP (e.g. Media Session “Enter Picture-in-Picture” when available).
+
+## Development (live reload from local build)
+
+To develop without copying `dist/userscript.js` into Tampermonkey after every change, use a **dev script** that loads the built file via `file://`. Run `npm run watch` in the repo so the bundle rebuilds on save, then add a separate script in Tampermonkey with this header (replace the path with your local clone):
+
+```greasemonkey
+// ==UserScript==
+// @name         YouTube PiP Dev
+// @match        https://www.youtube.com/*
+// @require      file:///path/to/your/youtube-pip/dist/userscript.js
+// @grant        none
+// ==/UserScript==
+```
+
+Tampermonkey will reload the script when the file changes (after each `watch` rebuild). Use this only for local development; the path is machine-specific.
+
+**Chrome:** In Tampermonkey extension settings, enable **Allow access to file URLs** (or similar) so `@require file://` can load the local script.
 
 ## Debug mode
 
@@ -185,22 +203,23 @@ youtube-pip/
 
 ## Scripts
 
-| Command                 | Description                                          |
-| ----------------------- | ---------------------------------------------------- |
-| `npm run build`         | Type-check + production build → `dist/userscript.js` |
-| `npm run build:debug`   | Debug build (no minify, header via plugin)           |
-| `npm run type-check`    | `tsc --noEmit`                                       |
-| `npm run test`          | Vitest unit tests (run + coverage)                   |
-| `npm run test:e2e`      | Playwright e2e tests (Chromium, YouTube + PiP stub)  |
-| `npm run test:e2e:ui`   | Playwright e2e with UI (debug)                       |
-| `npm run lint`          | ESLint                                               |
-| `npm run lint:fix`      | ESLint with `--fix`                                  |
-| `npm run prettier`      | Prettier check                                       |
-| `npm run prettier:fix`  | Prettier write                                       |
-| `npm run version:patch` | Bump patch in `package.json` only (no commit/tag)    |
-| `npm run version:minor` | Bump minor in `package.json` only                    |
-| `npm run version:major` | Bump major in `package.json` only                    |
-| `npm run release:tag`   | Create tag `v{VERSION}` from `package.json`, push    |
+| Command                 | Description                                            |
+| ----------------------- | ------------------------------------------------------ |
+| `npm run build`         | Type-check + production build → `dist/userscript.js`   |
+| `npm run watch`         | Rebuild userscript on source file changes (Vite watch) |
+| `npm run build:debug`   | Debug build (no minify, header via plugin)             |
+| `npm run type-check`    | `tsc --noEmit`                                         |
+| `npm run test`          | Vitest unit tests (run + coverage)                     |
+| `npm run test:e2e`      | Playwright e2e tests (Chromium, YouTube + PiP stub)    |
+| `npm run test:e2e:ui`   | Playwright e2e with UI (debug)                         |
+| `npm run lint`          | ESLint                                                 |
+| `npm run lint:fix`      | ESLint with `--fix`                                    |
+| `npm run prettier`      | Prettier check                                         |
+| `npm run prettier:fix`  | Prettier write                                         |
+| `npm run version:patch` | Bump patch in `package.json` only (no commit/tag)      |
+| `npm run version:minor` | Bump minor in `package.json` only                      |
+| `npm run version:major` | Bump major in `package.json` only                      |
+| `npm run release:tag`   | Create tag `v{VERSION}` from `package.json`, push      |
 
 Userscript `@version` is taken from `package.json` during build.
 
