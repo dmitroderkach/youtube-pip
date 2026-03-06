@@ -31,7 +31,7 @@ Smart Picture-in-Picture mode for YouTube with full playback controls and naviga
 
 <img src="https://raw.githubusercontent.com/dmitroderkach/youtube-pip/main/screenshots/pip-window.png" alt="YouTube PiP Window" width="320" />
 
-### Shorts PiP
+<h3 id="shorts-pip">Shorts PiP</h3>
 
 <img src="https://raw.githubusercontent.com/dmitroderkach/youtube-pip/main/screenshots/shorts-pip-window.png" alt="YouTube Shorts PiP Window" width="320" />
 
