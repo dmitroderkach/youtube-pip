@@ -2,7 +2,7 @@
 
 Smart Picture-in-Picture mode for YouTube with full playback controls and navigation.
 
-**🆕 NEW: YouTube Shorts in PiP** — Watch Shorts in a floating window with infinite scroll, keyboard navigation, and an **optimized narrow layout** (mobile-style UI) so controls stay compact on the video. [See screenshot below](#shorts-pip).
+**🆕 NEW: YouTube Shorts in PiP** — Watch Shorts in a floating window with infinite scroll, keyboard navigation, and an **optimized narrow layout** (mobile-style UI) so controls stay compact on the video. See screenshots below.
 
 ## ✨ Features
 
