@@ -25,7 +25,7 @@ export class PipShortsWindowHandlers {
     this.contextMenuHandler.initialize(true);
     this.pipEventBridgeHandler.initialize();
     this.pipLinkFocusHandler.initialize();
-    this.documentFocusHandler.initialize();
+    this.documentFocusHandler.initialize(true);
     this.shortsInfoPanelHandler.initialize();
     this.titleSyncHandler.initialize(true);
     return () => {

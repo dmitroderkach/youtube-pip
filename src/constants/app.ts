@@ -13,7 +13,7 @@ export const TIMEOUTS = {
   MENU_RETRY_DELAY: 100,
   PHANTOM_WINDOW_CHECK: 500,
   /** If loadVideo is not called for this long after lockLoadVideo, original is restored. */
-  SHORTS_LOAD_VIDEO_RESTORE_AFTER_MS: 200,
+  IDLE_TIMEOUT: 200,
 } as const;
 
 /** Retry counts */
