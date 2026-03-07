@@ -424,7 +424,7 @@ After moving `ytd-shorts` back from the PiP window to the main page, the Polymer
 2. When `document.visibilityState === 'visible'`:
    - Insert a placeholder before the `ytd-shorts` element.
    - Call `shorts.remove()`.
-   - In the next `requestAnimationFrame`, restore the element from the placeholder and, if it was playing, call `shorts.player?.playVideo?.()`.
+   - Schedule restore via `requestIdleCallback` (with a timeout) when available, otherwise `requestAnimationFrame`. In the callback: call `lockLoadVideo()`, restore the element from the placeholder, and if it was playing, call `shorts.player?.playVideo?.()`.
 3. Remove the `visibilitychange` listener after running once.
 
 This runs only after the Shorts element has been moved back to the main page (e.g. in `returnShortsPlayerToMain` in PiPManager). Doing the remove/restore when the tab becomes active avoids the render loop and restores correct metadata updates. This is a **workaround** for internal Polymer lifecycle behavior, not a documented API.

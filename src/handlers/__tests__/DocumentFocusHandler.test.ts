@@ -6,12 +6,14 @@ import { DocumentFocusHandler } from '../DocumentFocusHandler';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
 import { ContextMenuHandler } from '../../ui/ContextMenuHandler';
 import { YtdAppProvider } from '../../core/YtdAppProvider';
+import { PlayerManager } from '../../core/PlayerManager';
 
 describe('DocumentFocusHandler', () => {
   let handler: DocumentFocusHandler;
   let mockPipProvider: MockProxy<PipWindowProvider>;
   let mockContextMenuHandler: MockProxy<ContextMenuHandler>;
   let mockYtdAppProvider: MockProxy<YtdAppProvider>;
+  let mockPlayerManager: MockProxy<PlayerManager>;
 
   beforeEach(() => {
     mockPipProvider = mock<PipWindowProvider>();
@@ -19,11 +21,14 @@ describe('DocumentFocusHandler', () => {
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
     mockYtdAppProvider = mock<YtdAppProvider>();
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
+    mockPlayerManager = mock<PlayerManager>();
+    mockPlayerManager.getPlayer.mockReturnValue(document.createElement('div'));
 
     const c = createTestContainer();
     c.bind(PipWindowProvider).toInstance(mockPipProvider);
     c.bind(ContextMenuHandler).toInstance(mockContextMenuHandler);
     c.bind(YtdAppProvider).toInstance(mockYtdAppProvider);
+    c.bind(PlayerManager).toInstance(mockPlayerManager);
     c.bind(DocumentFocusHandler).toSelf();
     handler = c.get(DocumentFocusHandler);
   });
@@ -61,7 +66,7 @@ describe('DocumentFocusHandler', () => {
     ytdApp.addEventListener('keydown', (e) => dispatched.push(e as KeyboardEvent));
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
 
-    handler.initialize();
+    handler.initialize(true);
     const keyEvent = {
       isTrusted: true,
       key: 'ArrowDown',
@@ -90,7 +95,7 @@ describe('DocumentFocusHandler', () => {
     ytdApp.addEventListener('keyup', (e) => dispatched.push(e as KeyboardEvent));
     mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
 
-    handler.initialize();
+    handler.initialize(true);
     const keyEvent = {
       isTrusted: true,
       key: 'a',

@@ -204,7 +204,7 @@ describe('YtdShortsProvider', () => {
     provider.lockLoadVideo();
     provider.lockLoadVideo();
     expect(shorts.loadVideo).not.toBe(originalLoadVideo);
-    vi.advanceTimersByTime(TIMEOUTS.SHORTS_LOAD_VIDEO_RESTORE_AFTER_MS);
+    vi.advanceTimersByTime(TIMEOUTS.IDLE_TIMEOUT);
     expect(shorts.loadVideo).toBe(originalLoadVideo);
   });
 
@@ -216,7 +216,7 @@ describe('YtdShortsProvider', () => {
     provider.lockLoadVideo();
     expect(shorts.loadVideo).not.toBe(originalLoadVideo);
     expect(typeof shorts.loadVideo).toBe('function');
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.SHORTS_LOAD_VIDEO_RESTORE_AFTER_MS);
+    await vi.advanceTimersByTimeAsync(TIMEOUTS.IDLE_TIMEOUT);
     expect(shorts.loadVideo).toBe(originalLoadVideo);
   });
 
@@ -227,7 +227,7 @@ describe('YtdShortsProvider', () => {
     provider.setShorts(shorts);
     provider.lockLoadVideo();
     (shorts.loadVideo as (i: number) => void)(0);
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.SHORTS_LOAD_VIDEO_RESTORE_AFTER_MS - 1);
+    await vi.advanceTimersByTimeAsync(TIMEOUTS.IDLE_TIMEOUT - 1);
     expect(shorts.loadVideo).not.toBe(originalLoadVideo);
     await vi.advanceTimersByTimeAsync(1);
     expect(shorts.loadVideo).toBe(originalLoadVideo);
@@ -239,7 +239,7 @@ describe('YtdShortsProvider', () => {
     provider.setShorts(shorts);
     provider.lockLoadVideo();
     expect(typeof shorts.loadVideo).toBe('function');
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.SHORTS_LOAD_VIDEO_RESTORE_AFTER_MS);
+    await vi.advanceTimersByTimeAsync(TIMEOUTS.IDLE_TIMEOUT);
     expect(shorts.loadVideo).toBeUndefined();
   });
 

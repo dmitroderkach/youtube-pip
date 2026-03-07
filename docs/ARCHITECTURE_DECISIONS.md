@@ -27,8 +27,8 @@ Opening a Document PiP window is an asynchronous operation that requires **Trans
 
 Returning the `ytd-shorts` element from PiP to the main window often triggers a **Render Loop** bug in YouTube's Polymer framework, consuming 100% CPU and breaking metadata updates.
 
-- **Decision**: Briefly remove the element from the DOM and restore it via `requestAnimationFrame` when the tab becomes active.
-- **Why?**: This "hard reset" of the component's lifecycle forces Kevlar to re-attach its internal observers and stop stale rendering cycles. It's a radical but necessary solution for long-term stability.
+- **Decision**: Briefly remove the element from the DOM and restore it when the tab becomes active. Restore is scheduled via `requestIdleCallback` (with a timeout) when available, otherwise via `requestAnimationFrame`.
+- **Why?**: This "hard reset" of the component's lifecycle forces Kevlar to re-attach its internal observers and stop stale rendering cycles. Running restore in the idle phase (when possible) avoids blocking the main thread. It's a radical but necessary solution for long-term stability.
 
 ---
 
@@ -119,3 +119,14 @@ E2E tests need to locate elements on the YouTube page and inside the PiP documen
 
 - **Decision**: All E2E selectors live in **`e2e/selectors.ts`** (`E2E_SELECTORS`). The e2e layer **does not import** from `src/` (no `src/selectors.ts`, no app types in e2e).
 - **Why?**: Keeps e2e decoupled from the app build and from refactors of the app's selectors. If the app changes a selector for implementation reasons, e2e can keep using the same DOM shape for stability, or update only in one place. It also makes it explicit what the tests depend on (real YouTube DOM), not the app's internal naming.
+
+---
+
+## 14. Framework-level Conflict Resolution: The Monkey Patch Guard
+
+When moving complex elements like `ytd-shorts` between the main window and the PiP document, we encounter a fundamental architectural conflict with YouTube's Kevlar engine.
+
+- **Decision**: Implement a temporary **"Safety Shield"** by monkey-patching the Shorts element's `loadVideo` method with a no-op during DOM transitions.
+- **Why?**: YouTube uses internal observers (e.g. `IntersectionObserver`) and lifecycle callbacks that trigger a playback reset when a component is moved in the DOM. To Kevlar, a cross-document move looks like a fresh initialization, causing it to call `loadVideo(index: 0)` repeatedly (up to 100 times/sec). This "log storm" leads to metadata desync (flickering likes/comments) and resets the user's position in the reel.
+
+**The "Idle Detection" logic**: Instead of a fixed timer, we use a **200ms sliding window**. We ignore all reset attempts and only restore the original `loadVideo` method once the framework has "calmed down" (i.e. no new calls detected within the window). This is more resilient than relying solely on `requestIdleCallback`, as it accounts for Kevlar's scheduled microtasks that often trigger after the browser enters an idle state.

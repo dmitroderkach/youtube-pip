@@ -5,6 +5,7 @@ import { PipWindowProvider } from '../core/PipWindowProvider';
 import { ContextMenuHandler } from '../ui/ContextMenuHandler';
 import { inject, injectable } from '../di';
 import { YtdAppProvider } from '../core/YtdAppProvider';
+import { PlayerManager } from '../core/PlayerManager';
 
 /**
  * Miniplayer: listens to click on body and keyup on document; returns focus to player when it moves outside, unless context menu is open.
@@ -15,6 +16,7 @@ export class DocumentFocusHandler {
   private readonly logger: Logger;
   private pipWindow: Nullable<Window> = null;
   private isContextMenuOpen = false;
+  private shortsMode = false;
   private unsubscribeContextMenu: (() => void) | null = null;
 
   private readonly onKey = (e: KeyboardEvent): void => {
@@ -31,7 +33,11 @@ export class DocumentFocusHandler {
       cancelable: true,
       view: e.view,
     };
-    ytdApp.dispatchEvent(new KeyboardEvent(e.type, opts));
+    if (this.shortsMode) {
+      ytdApp.dispatchEvent(new KeyboardEvent(e.type, opts));
+    } else {
+      this.playerManager.getPlayer().dispatchEvent(new KeyboardEvent(e.type, opts));
+    }
     this.logger.debug('Dispatched synthetic keyboard event', { type: e.type, key: e.key });
     e.preventDefault();
     e.stopPropagation();
@@ -41,7 +47,8 @@ export class DocumentFocusHandler {
     @inject(LoggerFactory) loggerFactory: LoggerFactory,
     @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider,
     @inject(ContextMenuHandler) private readonly contextMenuHandler: ContextMenuHandler,
-    @inject(YtdAppProvider) private readonly ytdAppProvider: YtdAppProvider
+    @inject(YtdAppProvider) private readonly ytdAppProvider: YtdAppProvider,
+    @inject(PlayerManager) private readonly playerManager: PlayerManager
   ) {
     this.logger = loggerFactory.create('DocumentFocusHandler');
   }
@@ -49,7 +56,8 @@ export class DocumentFocusHandler {
   /**
    * Initialize focus observer for PiP window
    */
-  public initialize(): void {
+  public initialize(shortsMode: boolean = false): void {
+    this.shortsMode = shortsMode;
     this.pipWindow = this.pipWindowProvider.getWindow();
     if (!this.pipWindow) {
       this.logger.error('PiP window not available for document focus handler');

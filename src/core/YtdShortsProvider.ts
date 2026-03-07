@@ -99,12 +99,6 @@ export class YtdShortsProvider {
       this.logger.debug('lockLoadVideo: no shorts');
       return;
     }
-    if (this.lockedShortsRef != null) {
-      this.logger.debug('lockLoadVideo: already locked');
-      return;
-    }
-    this.lockedShortsRef = shorts;
-    this.originalLoadVideo = shorts.loadVideo ?? null;
 
     const scheduleRestore = (): void => {
       if (this.restoreLoadVideoAfterId != null) {
@@ -113,8 +107,16 @@ export class YtdShortsProvider {
       this.restoreLoadVideoAfterId = setTimeout(() => {
         this.restoreLoadVideoAfterId = null;
         this.restoreLoadVideoLock();
-      }, TIMEOUTS.SHORTS_LOAD_VIDEO_RESTORE_AFTER_MS);
+      }, TIMEOUTS.IDLE_TIMEOUT);
     };
+
+    if (this.lockedShortsRef != null) {
+      this.logger.debug('lockLoadVideo: already locked');
+      scheduleRestore();
+      return;
+    }
+    this.lockedShortsRef = shorts;
+    this.originalLoadVideo = shorts.loadVideo ?? null;
 
     shorts.loadVideo = (index: number): void => {
       this.logger.debug('loadVideo intercepted', { index });
@@ -145,7 +147,8 @@ export class YtdShortsProvider {
    * when switching to the next reel on the main YouTube page.
    *
    * This workaround (remove + restore via placeholder on visibilitychange) restarts the component's
-   * life cycle and fixes both issues: the render loop stops and metadata updates correctly again.
+   * life cycle and fixes both issues. Restore runs in the next idle period via `requestIdleCallback`
+   * (with a timeout fallback) when available, otherwise via `requestAnimationFrame`.
    */
   public async reinitShortsLifeCycle(): Promise<void> {
     await new Promise<void>((resolve) => {
@@ -174,10 +177,10 @@ export class YtdShortsProvider {
         const placeholder = DOMUtils.createPlaceholder('shorts_placeholder');
         DOMUtils.insertPlaceholderBefore(shorts, placeholder);
         shorts.remove();
-        this.logger.debug('reinitShortsLifeCycle: shorts removed, scheduling restore in rAF', {
+        this.logger.debug('reinitShortsLifeCycle: shorts removed, scheduling restore when idle', {
           isPlaying,
         });
-        requestAnimationFrame(() => {
+        const doRestore = (): void => {
           this.lockLoadVideo();
           DOMUtils.restoreElementFromPlaceholder(shorts, placeholder);
           if (isPlaying) {
@@ -187,7 +190,12 @@ export class YtdShortsProvider {
           /** Unhide visible info panel paragraphs when shorts are restored to the main page */
           this.shortsInfoPanelHandler.unhideVisibleInfoPanelParagraphs(shorts);
           resolve();
-        });
+        };
+        if (typeof requestIdleCallback === 'function') {
+          requestIdleCallback(doRestore, { timeout: TIMEOUTS.IDLE_TIMEOUT });
+        } else {
+          requestAnimationFrame(doRestore);
+        }
       };
       if (document.visibilityState === 'visible') {
         runWhenTabActive();

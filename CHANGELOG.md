@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.3.4] - 2026-03-07
+
+### Changed
+
+- **YtdShortsProvider** — `reinitShortsLifeCycle` restore step now uses `requestIdleCallback` (with timeout) when available, otherwise `requestAnimationFrame`; JSDoc and ARCHITECTURE_DECISIONS updated accordingly.
+- **Constants** — `SHORTS_LOAD_VIDEO_RESTORE_AFTER_MS` renamed to `IDLE_TIMEOUT` (200ms); used for lockLoadVideo restore and reinit idle timeout.
+- **PipShortsWindowHandlers** — Shorts PiP document focus handler now initialized with `initialize(true)` (Shorts mode) so keyboard events dispatch to ytd-app.
+- **Docs** — ARCHITECTURE_DECISIONS: Shorts Reinit decision updated for requestIdleCallback; added ADR 14 (Monkey Patch Guard). YOUTUBE_INTERNAL_API: Shorts lifecycle workaround section updated to describe restore via requestIdleCallback (when available) or requestAnimationFrame.
+
+### Fixed
+
+- **Tests** — DocumentFocusHandler tests: added PlayerManager mock and binding; ytdApp dispatch tests use `initialize(true)`.
+
 ## [2.3.3] - 2026-03-06
 
 ### Changed
@@ -907,6 +920,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.3.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.3...refs/tags/v2.3.4
 [2.3.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.2...refs/tags/v2.3.3
 [2.3.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.1...refs/tags/v2.3.2
 [2.3.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.0...refs/tags/v2.3.1
