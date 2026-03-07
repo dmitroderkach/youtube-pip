@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 ### Fixed
 
-- **Tests** — DocumentFocusHandler tests: added PlayerManager mock and binding; ytdApp dispatch tests use `initialize(true)`. PiPManager tests: added ShortsInfoPanelHandler mock and binding.
+- **Tests** — DocumentFocusHandler tests: added PlayerManager mock and binding; ytdApp dispatch tests use `initialize(true)`.
 
 ## [2.3.3] - 2026-03-06
 
