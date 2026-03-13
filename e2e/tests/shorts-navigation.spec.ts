@@ -14,7 +14,7 @@ import { E2E_WAIT_TIMEOUT_MS } from '../constants';
 import { E2E_SELECTORS } from '../selectors';
 
 test.describe('Shorts navigation in PiP', () => {
-  test.slow();
+  test.use({ authState: true });
 
   test('Shorts page → open PiP → scroll to next Short → video src changes', async ({
     shortsPageReady: page,

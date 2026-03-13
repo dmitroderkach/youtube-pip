@@ -20,6 +20,8 @@ const COPY_MENU_INDICES = { VIDEO_URL: 2, URL_AT_TIME: 3, EMBED: 4, DEBUG_INFO: 
 test.describe('Context menu copy in Shorts PiP', () => {
   test.slow();
 
+  test.use({ authState: true });
+
   test('Shorts page → open PiP → context menu copy items work', async ({
     shortsPageReady: page,
     triggerEnterPictureInPicture,

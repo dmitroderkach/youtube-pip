@@ -16,7 +16,7 @@ import {
 import { E2E_WAIT_TIMEOUT_MS } from '../constants';
 
 test.describe('Shorts in PiP popup', () => {
-  test.slow();
+  test.use({ authState: true });
 
   test('Shorts page → open PiP → Shorts player in PiP → close → Shorts player back on page', async ({
     shortsPageReady: page,
