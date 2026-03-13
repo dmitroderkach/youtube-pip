@@ -121,9 +121,11 @@ export const test = base.extend<{
           page.waitForEvent('domcontentloaded', { timeout: E2E_WAIT_TIMEOUT_MS }),
           // Consent dialog button text differs between regular pages and Shorts.
           // Use a single regex that matches both variants.
-          page.getByRole('button', {
-            name: /Accept (the use of cookies and|all)/i,
-          }).click(),
+          page
+            .getByRole('button', {
+              name: /Accept (the use of cookies and|all)/i,
+            })
+            .click(),
         ]);
       } catch {
         // No consent or already accepted
@@ -155,8 +157,7 @@ export const test = base.extend<{
     await acceptYouTubeConsent(page);
     await page.waitForFunction(
       ({ shortsSel }) =>
-        !!window.__E2E_PIP__?.has('enterpictureinpicture') &&
-        !!document.querySelector(shortsSel),
+        !!window.__E2E_PIP__?.has('enterpictureinpicture') && !!document.querySelector(shortsSel),
       { shortsSel: E2E_SELECTORS.YTD_SHORTS },
       { timeout: E2E_WAIT_TIMEOUT_MS }
     );
