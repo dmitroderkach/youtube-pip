@@ -18,18 +18,21 @@ e2e/
 │   └── pip-context-menu.ts # Open menu, wait item visible, click item (context-menu-copy)
 ├── selectors.ts      # CSS selectors for YouTube/PiP (no import from src/)
 └── tests/
-    ├── pip-stub.spec.ts           # Basic flow: open PiP → close
-    ├── mini-player.spec.ts        # PiP from mini player (key "i")
-    ├── context-menu-copy.spec.ts  # Copy from context menu (URL, embed, debug)
-    ├── playlist-navigation.spec.ts # Switching video from playlist in PiP
-    └── like-dislike.spec.ts       # Like / remove like / dislike / remove dislike in PiP (auth, network)
+    ├── pip-stub.spec.ts              # Basic flow: open PiP → close
+    ├── mini-player.spec.ts           # PiP from mini player (key "i")
+    ├── context-menu-copy.spec.ts     # Copy from context menu (URL, embed, debug) for regular videos
+    ├── playlist-navigation.spec.ts   # Switching video from playlist in PiP
+    ├── like-dislike.spec.ts          # Like / remove like / dislike / remove dislike in PiP (auth, network)
+    ├── shorts-pip.spec.ts            # Shorts: open PiP and return Shorts player back to main page
+    ├── shorts-context-menu-copy.spec.ts # Shorts: context menu copy items in PiP (Shorts URLs)
+    └── shorts-navigation.spec.ts     # Shorts: navigate to next reel in PiP (ArrowDown)
 ```
 
 ---
 
 ## Fixtures (`fixtures/`)
 
-Fixtures are split into modules. Entry point is `fixtures/index.ts`: it defines `test.extend(...)`, page fixtures (e.g. `videoPageReady`, `playlistVideoPageReady`), and PiP helpers (`triggerEnterPictureInPicture`, `assertPiPWindowHasPlayer`, `waitForPiPAdToEnd`). It also re-exports shared helpers from `pip-playlist`, `pip-like-dislike`, and `pip-context-menu` so tests can `import { test, waitForMiniPlayerVisibleInPip, clickExpandInPip, ... } from '../fixtures'`. Other modules: **auth.ts** (storage state, secret), **handler-stub.ts** (browser stub), **pip-playlist.ts** (mini player, expand, panel, items), **pip-like-dislike.ts** (like/dislike actions), **pip-context-menu.ts** (open menu, wait/click item).
+Fixtures are split into modules. Entry point is `fixtures/index.ts`: it defines `test.extend(...)`, page fixtures (e.g. `videoPageReady`, `playlistVideoPageReady`, `shortsPageReady`), and PiP helpers (`triggerEnterPictureInPicture`, `assertPiPWindowHasPlayer`, `waitForPiPAdToEnd`). It also re-exports shared helpers from `pip-playlist`, `pip-like-dislike`, `pip-context-menu`, and `pip-shorts` so tests can `import { test, waitForMiniPlayerVisibleInPip, waitForShortsPlayerVisibleInPip, scrollToNextShortInPip, ... } from '../fixtures'`. Other modules: **auth.ts** (storage state, secret), **handler-stub.ts** (browser stub), **pip-playlist.ts** (mini player, expand, panel, items), **pip-like-dislike.ts** (like/dislike actions), **pip-context-menu.ts** (open menu, wait/click item), **pip-shorts.ts** (Shorts player visibility + navigation).
 
 ### Userscript injection and handler stub
 
@@ -42,10 +45,11 @@ The userscript body is read from `dist/userscript.js` (without the UserScript he
 
 ### Ready pages
 
-| Fixture                  | Description                                                                                                                                |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `videoPageReady`         | Opens a fixed video URL (`VIDEO_URL`), accepts consent (skipped on CI), waits until the userscript has registered `enterpictureinpicture`. |
-| `playlistVideoPageReady` | Same for a playlist URL (`PLAYLIST_VIDEO_URL`) — used for playlist navigation tests in PiP.                                                |
+| Fixture                  | Description                                                                                                                                           |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `videoPageReady`         | Opens a fixed video URL (`VIDEO_URL`), accepts consent (skipped on CI), waits until the userscript has registered `enterpictureinpicture`.            |
+| `playlistVideoPageReady` | Same for a playlist URL (`PLAYLIST_VIDEO_URL`) — used for playlist navigation tests in PiP.                                                           |
+| `shortsPageReady`        | Opens the Shorts feed URL (`SHORTS_URL`), accepts consent, waits until the userscript has registered `enterpictureinpicture` and `ytd-shorts` exists. |
 
 ### PiP helpers
 
@@ -54,6 +58,9 @@ The userscript body is read from `dist/userscript.js` (without the UserScript he
 | `triggerEnterPictureInPicture(page)` | Calls `__E2E_PIP__.trigger('enterpictureinpicture')` in the page context to open the PiP popup (invokes the handler registered by the userscript).                                                                                                                                                                                               |
 | `assertPiPWindowHasPlayer(page)`     | Waits until `documentPictureInPicture.window` contains `ytd-app` and `#movie_player`.                                                                                                                                                                                                                                                            |
 | `waitForPiPAdToEnd(page)`            | Waits for ads in PiP to finish: checks that the overlay `.ytp-ad-player-overlay-layout` is gone. If the "Skip ad" button (`.ytp-skip-ad-button`) is present and PiP is a separate page in `context.pages()`, periodically tries to click it (real/trusted click only). Handles multiple ads in a row (stability check after overlay disappears). |
+| `waitForShortsPlayerVisibleInMain`   | Waits until a Shorts player is visible in the main document: `ytd-shorts` with `#shorts-player` and an inner `<video>` element that is displayed and has non-zero height.                                                                                                                                                                        |
+| `waitForShortsPlayerVisibleInPip`    | Same, but inside the PiP window (`documentPictureInPicture.window.document`).                                                                                                                                                                                                                                                                    |
+| `scrollToNextShortInPip(page)`       | Sends a real `ArrowDown` key press to the PiP `Page` (via `context.pages()`) to navigate to the next Shorts reel, matching how keyboard navigation works for Shorts in the popup.                                                                                                                                                                |
 
 ### Consent
 
@@ -61,7 +68,7 @@ The userscript body is read from `dist/userscript.js` (without the UserScript he
 
 ### Auth flow (`authState: true`)
 
-Some tests need a logged-in YouTube session (e.g. like/dislike). The fixture supports this via the **`authState`** option and the **`E2E_STORAGE_STATE_BASE64`** env var.
+Some tests need a logged-in YouTube session (e.g. like/dislike **and all Shorts e2e tests**) to avoid bot detection and extra verification challenges from YouTube. The fixture supports this via the **`authState`** option and the **`E2E_STORAGE_STATE_BASE64`** env var.
 
 **Flow:**
 
@@ -101,7 +108,8 @@ All selectors live in `E2E_SELECTORS` and do not import from `src/`, so e2e does
 
 - YouTube elements: `#movie_player`, `ytd-app`, `ytd-miniplayer`, playlist panel, context menu (`.ytp-popup.ytp-contextmenu`), menu items, ad overlay, Skip ad button;
 - For playlist: row (`ytd-playlist-panel-video-renderer`) and the link inside it;
-- For like/dislike: `LIKE_BUTTON` (`ytd-slim-metadata-toggle-button-renderer`), `BUTTON_SHAPE` (`.yt-spec-button-shape-next`); first toggle = like, second = dislike.
+- For like/dislike: `LIKE_BUTTON` (`ytd-slim-metadata-toggle-button-renderer`), `BUTTON_SHAPE` (`.yt-spec-button-shape-next`); first toggle = like, second = dislike;
+- For Shorts: `YTD_SHORTS` (`ytd-shorts` root), `SHORTS_PLAYER` (`#shorts-player`), and `SHORTS_CONTAINER` (`#shorts-container` used for navigation).
 
 ---
 
@@ -153,6 +161,25 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 - **Scenario:** `playlistVideoPageReady` with **`authState: true`** → trigger PiP → assert PiP → in PiP: wait for mini player, expand playlist, wait for playlist panel and first item, wait for like/dislike buttons → then **like → remove like → dislike → remove dislike**, asserting each step via the corresponding YouTube API response.
 - **Auth:** This test uses `test.use({ authState: true })`, so the browser context is created with storage state from `e2e/.auth/storageState.json`. In CI the file is created from the `E2E_STORAGE_STATE_BASE64` secret when missing. The test does not use `storeAuthState`.
 - **Implementation:** All actions run inside the PiP document. Helpers: `waitForLikeButtonsVisibleInPip`, `clickLikeDislikeInPip(page, action)` with `action` in `'LIKE' | 'REMOVE_LIKE' | 'DISLIKE' | 'REMOVE_DISLIKE'`. Before each click, the fixture waits for the correct `aria-pressed` state on the toggle (e.g. like button not pressed before LIKE, pressed before REMOVE_LIKE); after the click it waits for the new state. Clicks are done in PiP via `page.evaluate` (first toggle = like, second = dislike). Network assertions use **`page.waitForResponse(...)`** (not `waitForRequest`) so we wait for the request to complete; URLs: `.../like/like`, `.../like/removelike`, `.../like/dislike`. Each step runs as `Promise.all([waitForResponse(...), clickLikeDislikeInPip(page, action)])`.
+
+### 6. `shorts-pip.spec.ts` — Shorts player moves into PiP and back
+
+- **Scenario:** `shortsPageReady` (Shorts feed page; **requires logged-in session via `authState: true` to avoid bot detection**) → ensure Shorts player is visible on the main page → trigger PiP via Media Session → assert base PiP window has `ytd-app` and `#movie_player` → assert Shorts player (`ytd-shorts` + `#shorts-player` + `<video>`) is present in PiP → close PiP → assert Shorts player is back on the main page.
+- **Goal:** Verify that Shorts player is correctly moved between the main document and the PiP window without losing the current reel.
+
+### 7. `shorts-context-menu-copy.spec.ts` — context menu copy in Shorts PiP
+
+- **Scenario:** `shortsPageReady` (with **`authState: true` recommended** to bypass bot detection on Shorts) → trigger PiP → wait for Shorts player in PiP → for each menu item (Copy Shorts URL, Copy URL at time, Copy embed iframe, Copy debug info): open context menu in PiP on `#shorts-player`, click item, assert clipboard content via `expect.poll(...)`.
+- **Details:** URL assertions are Shorts-specific:
+  - "Copy video URL" → `https://www.youtube.com/shorts/VIDEO_ID?feature=share`;
+  - "Copy URL at time" → `https://www.youtube.com/shorts/VIDEO_ID?t=N&feature=share`.
+  - Embed and debug checks reuse the same expectations as for regular videos.
+- **Menu access:** Context menu is opened in PiP via `dispatchEvent(contextmenu)` on `#shorts-player`; items are selected by index using `.ytp-panel-menu > .ytp-menuitem`, same indices as in the regular `context-menu-copy` test.
+
+### 8. `shorts-navigation.spec.ts` — Shorts navigation inside PiP (ArrowDown)
+
+- **Scenario:** `shortsPageReady` (again, **best run with `authState: true` to avoid Shorts-specific bot checks**) → trigger PiP → wait for Shorts player in PiP → read current `video.currentSrc || video.src` from `#shorts-player` inside PiP → send a real `ArrowDown` key press to the PiP `Page` via `scrollToNextShortInPip` → poll `video.currentSrc/src` again and assert it differs from the initial value.
+- **Goal:** Verify that keyboard navigation (ArrowDown) inside the PiP window correctly advances to the next Shorts reel and the underlying video source changes.
 
 ---
 

@@ -17,11 +17,12 @@ export function openContextMenuInPip(page: Page, playerSelector?: string): Promi
   }, sel);
 }
 
-/** Wait for context menu to be closed, open it, wait for it visible, then wait for the item at index to be visible. */
+/** Wait for context menu to be closed, open it (on given player), wait for it visible, then wait for the item at index to be visible. */
 export async function waitForContextMenuItemVisible(
   page: Page,
   index: number,
-  timeoutMs: number
+  timeoutMs: number,
+  playerSelector?: string
 ): Promise<void> {
   await page.waitForFunction(
     (menuSel) => {
@@ -31,7 +32,7 @@ export async function waitForContextMenuItemVisible(
     E2E_SELECTORS.CONTEXT_MENU,
     { timeout: E2E_WAIT_TIMEOUT_MS }
   );
-  await openContextMenuInPip(page);
+  await openContextMenuInPip(page, playerSelector);
   await page.waitForFunction(
     (menuSel) => {
       const pip = window.documentPictureInPicture?.window;

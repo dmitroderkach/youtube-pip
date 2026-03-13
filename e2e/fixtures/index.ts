@@ -29,6 +29,9 @@ const defaultContextOptions = {
 
 const VIDEO_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
+/** Shorts feed page with vertical reels. */
+const SHORTS_URL = 'https://www.youtube.com/shorts';
+
 /** Video in a playlist (mix/radio) so mini player shows playlist and expand works. */
 export const PLAYLIST_VIDEO_URL =
   'https://www.youtube.com/watch?v=c9R9VsK54ZQ&list=RDc9R9VsK54ZQ&start_radio=1';
@@ -58,6 +61,11 @@ export {
   openContextMenuInPip,
   waitForContextMenuItemVisible,
 } from './pip-context-menu';
+export {
+  waitForShortsPlayerVisibleInMain,
+  waitForShortsPlayerVisibleInPip,
+  scrollToNextShortInPip,
+} from './pip-shorts';
 
 export const test = base.extend<{
   authState: AuthStateOption;
@@ -66,6 +74,7 @@ export const test = base.extend<{
   acceptYouTubeConsent: AcceptYouTubeConsentFn;
   videoPageReady: Page;
   playlistVideoPageReady: Page;
+  shortsPageReady: Page;
   triggerEnterPictureInPicture: TriggerEnterPictureInPictureFn;
   assertPiPWindowHasPlayer: AssertPiPWindowHasPlayerFn;
   waitForPiPAdToEnd: WaitForPiPAdToEndFn;
@@ -110,7 +119,13 @@ export const test = base.extend<{
       try {
         await Promise.all([
           page.waitForEvent('domcontentloaded', { timeout: E2E_WAIT_TIMEOUT_MS }),
-          page.getByRole('button', { name: 'Accept the use of cookies and' }).click(),
+          // Consent dialog button text differs between regular pages and Shorts.
+          // Use a single regex that matches both variants.
+          page
+            .getByRole('button', {
+              name: /Accept (the use of cookies and|all)/i,
+            })
+            .click(),
         ]);
       } catch {
         // No consent or already accepted
@@ -134,6 +149,18 @@ export const test = base.extend<{
     await page.waitForFunction(() => window.__E2E_PIP__?.has('enterpictureinpicture'), {
       timeout: E2E_WAIT_TIMEOUT_MS,
     });
+    await use(page);
+  },
+
+  shortsPageReady: async ({ page, acceptYouTubeConsent }, use) => {
+    await page.goto(SHORTS_URL, { waitUntil: 'domcontentloaded' });
+    await acceptYouTubeConsent(page);
+    await page.waitForFunction(
+      ({ shortsSel }) =>
+        !!window.__E2E_PIP__?.has('enterpictureinpicture') && !!document.querySelector(shortsSel),
+      { shortsSel: E2E_SELECTORS.YTD_SHORTS },
+      { timeout: E2E_WAIT_TIMEOUT_MS }
+    );
     await use(page);
   },
 

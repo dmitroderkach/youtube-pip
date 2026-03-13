@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.3.5] - 2026-03-13
+
+### Added
+
+- **E2E tests — Shorts**: Added end-to-end coverage for Shorts flows in PiP:
+  - `shorts-pip.spec.ts` — verifies that the Shorts player moves into the PiP window and returns back to the main page without losing the current reel.
+  - `shorts-context-menu-copy.spec.ts` — verifies context menu copy actions in Shorts PiP (Shorts URLs and URLs at time use the `https://www.youtube.com/shorts/VIDEO_ID?feature=share` / `?t=N&feature=share` format).
+  - `shorts-navigation.spec.ts` — verifies navigation between Shorts reels inside PiP via `ArrowDown`, asserting that the underlying video source changes.
+
+### Changed
+
+- **E2E docs** — `docs/E2E_TESTS.md`: documented new Shorts fixtures (`shortsPageReady`, `waitForShortsPlayerVisibleInMain`, `waitForShortsPlayerVisibleInPip`, `scrollToNextShortInPip`) and the three Shorts e2e specs.
+
 ## [2.3.4] - 2026-03-07
 
 ### Changed
@@ -920,6 +933,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.3.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.4...refs/tags/v2.3.5
 [2.3.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.3...refs/tags/v2.3.4
 [2.3.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.2...refs/tags/v2.3.3
 [2.3.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.1...refs/tags/v2.3.2

@@ -6,6 +6,12 @@ export const E2E_SELECTORS = {
   /** <video> element inside the player (query relative to player root) */
   PLAYER_VIDEO: 'video',
   YTD_APP: 'ytd-app',
+  /** Shorts root element on Shorts page/feed. */
+  YTD_SHORTS: 'ytd-shorts',
+  /** Shorts player container inside Shorts. */
+  SHORTS_PLAYER: '#shorts-player',
+  /** Scroll container inside Shorts feed (used to switch reels). */
+  SHORTS_CONTAINER: '#shorts-container',
   /** Expand button in mini player to show playlist (aria-expanded). */
   MENU_BUTTON: '.yt-spec-button-shape-next[aria-expanded]',
   /** Playlist panel container in mini player. */
