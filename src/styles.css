@@ -117,3 +117,7 @@ yt-reel-metapanel-view-model {
 ytd-shorts #shorts-container.ytd-shorts {
   margin-right: 0px !important;
 }
+
+ytd-shorts ytd-info-panel-content-renderer {
+  width: 100vw !important;
+}
