@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.3.6] - 2026-03-13
+
+### Fixed
+
+- **Shorts info panel overlay** — adjusted overlay width in Shorts PiP styles so that the info panel does not overflow or clip content in the narrow layout.
+
 ## [2.3.5] - 2026-03-13
 
 ### Added
@@ -933,6 +939,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.3.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.5...refs/tags/v2.3.6
 [2.3.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.4...refs/tags/v2.3.5
 [2.3.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.3...refs/tags/v2.3.4
 [2.3.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.2...refs/tags/v2.3.3
