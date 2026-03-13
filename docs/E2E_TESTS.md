@@ -68,7 +68,7 @@ The userscript body is read from `dist/userscript.js` (without the UserScript he
 
 ### Auth flow (`authState: true`)
 
-Some tests need a logged-in YouTube session (e.g. like/dislike). The fixture supports this via the **`authState`** option and the **`E2E_STORAGE_STATE_BASE64`** env var.
+Some tests need a logged-in YouTube session (e.g. like/dislike **and all Shorts e2e tests**) to avoid bot detection and extra verification challenges from YouTube. The fixture supports this via the **`authState`** option and the **`E2E_STORAGE_STATE_BASE64`** env var.
 
 **Flow:**
 
@@ -164,12 +164,12 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 
 ### 6. `shorts-pip.spec.ts` — Shorts player moves into PiP and back
 
-- **Scenario:** `shortsPageReady` (Shorts feed page) → ensure Shorts player is visible on the main page → trigger PiP via Media Session → assert base PiP window has `ytd-app` and `#movie_player` → assert Shorts player (`ytd-shorts` + `#shorts-player` + `<video>`) is present in PiP → close PiP → assert Shorts player is back on the main page.
+- **Scenario:** `shortsPageReady` (Shorts feed page; **requires logged-in session via `authState: true` to avoid bot detection**) → ensure Shorts player is visible on the main page → trigger PiP via Media Session → assert base PiP window has `ytd-app` and `#movie_player` → assert Shorts player (`ytd-shorts` + `#shorts-player` + `<video>`) is present in PiP → close PiP → assert Shorts player is back on the main page.
 - **Goal:** Verify that Shorts player is correctly moved between the main document and the PiP window without losing the current reel.
 
 ### 7. `shorts-context-menu-copy.spec.ts` — context menu copy in Shorts PiP
 
-- **Scenario:** `shortsPageReady` → trigger PiP → wait for Shorts player in PiP → for each menu item (Copy Shorts URL, Copy URL at time, Copy embed iframe, Copy debug info): open context menu in PiP on `#shorts-player`, click item, assert clipboard content via `expect.poll(...)`.
+- **Scenario:** `shortsPageReady` (with **`authState: true` recommended** to bypass bot detection on Shorts) → trigger PiP → wait for Shorts player in PiP → for each menu item (Copy Shorts URL, Copy URL at time, Copy embed iframe, Copy debug info): open context menu in PiP on `#shorts-player`, click item, assert clipboard content via `expect.poll(...)`.
 - **Details:** URL assertions are Shorts-specific:
   - "Copy video URL" → `https://www.youtube.com/shorts/VIDEO_ID?feature=share`;
   - "Copy URL at time" → `https://www.youtube.com/shorts/VIDEO_ID?t=N&feature=share`.
@@ -178,7 +178,7 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 
 ### 8. `shorts-navigation.spec.ts` — Shorts navigation inside PiP (ArrowDown)
 
-- **Scenario:** `shortsPageReady` → trigger PiP → wait for Shorts player in PiP → read current `video.currentSrc || video.src` from `#shorts-player` inside PiP → send a real `ArrowDown` key press to the PiP `Page` via `scrollToNextShortInPip` → poll `video.currentSrc/src` again and assert it differs from the initial value.
+- **Scenario:** `shortsPageReady` (again, **best run with `authState: true` to avoid Shorts-specific bot checks**) → trigger PiP → wait for Shorts player in PiP → read current `video.currentSrc || video.src` from `#shorts-player` inside PiP → send a real `ArrowDown` key press to the PiP `Page` via `scrollToNextShortInPip` → poll `video.currentSrc/src` again and assert it differs from the initial value.
 - **Goal:** Verify that keyboard navigation (ArrowDown) inside the PiP window correctly advances to the next Shorts reel and the underlying video source changes.
 
 ---
