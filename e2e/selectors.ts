@@ -23,7 +23,7 @@ export const E2E_SELECTORS = {
   /** Context menu popup (YouTube player). */
   CONTEXT_MENU: '.ytp-popup.ytp-contextmenu',
   /** Copy menu items container. */
-  PANEL_MENU_ITEMS: '.ytp-panel-menu > .ytp-menuitem',
+  PANEL_MENU_ITEMS: '.ytp-contextmenu .ytp-panel-menu > .ytp-menuitem',
   /** YouTube ad overlay in player; when absent or hidden, ad has ended. */
   AD_PLAYER_OVERLAY: '.ytp-ad-player-overlay-layout',
   /** Skip ad button; click when visible to end ad sooner. */
