@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.3.11] - 2026-03-15
+
+### Fixed
+
+- **Playback handoff (Shorts ↔ main)** — When Shorts player is in CUED state, the logic that restores the main player after “Shorts stole playback” now runs instead of returning early, so handoff behaves correctly when Shorts has cued but not yet started playing.
+
 ## [2.3.10] - 2026-03-14
 
 ### Changed
@@ -963,6 +969,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.3.11]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.10...refs/tags/v2.3.11
 [2.3.10]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.9...refs/tags/v2.3.10
 [2.3.9]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.8...refs/tags/v2.3.9
 [2.3.8]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.7...refs/tags/v2.3.8
