@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.3.8] - 2026-03-14
+
+### Changed
+
+- **E2E selectors** — Aligned `PANEL_MENU_ITEMS` in `e2e/selectors.ts` with the app selector (`.ytp-contextmenu .ytp-panel-menu > .ytp-menuitem`) so context menu copy specs target the correct items.
+
 ## [2.3.7] - 2026-03-14
 
 ### Fixed
@@ -945,6 +951,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.3.8]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.7...refs/tags/v2.3.8
 [2.3.7]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.6...refs/tags/v2.3.7
 [2.3.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.5...refs/tags/v2.3.6
 [2.3.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.4...refs/tags/v2.3.5
