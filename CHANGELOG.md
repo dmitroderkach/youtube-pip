@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.3.10] - 2026-03-14
+
+### Changed
+
+- **E2E Shorts navigation** — Wait before scrolling to next Short in PiP (200ms IDLE_TIMEOUT + 50ms buffer) so the test runs after `lockLoadVideo` restores; avoids flakiness.
+
 ## [2.3.9] - 2026-03-14
 
 ### Changed
@@ -957,6 +963,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.3.10]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.9...refs/tags/v2.3.10
 [2.3.9]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.8...refs/tags/v2.3.9
 [2.3.8]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.7...refs/tags/v2.3.8
 [2.3.7]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.6...refs/tags/v2.3.7
