@@ -162,17 +162,27 @@ youtube-pip/
 │       └── global.d.ts      # Document PiP, extended MediaSession types
 │
 ├── e2e/                     # Playwright E2E (Document PiP stub, real YouTube)
-│   ├── fixtures/            # Modular fixtures (index, auth, handler-stub, pip-playlist, pip-like-dislike, pip-context-menu)
-│   ├── constants.ts         # E2E_WAIT_TIMEOUT_MS, etc.
-│   ├── selectors.ts         # E2E_SELECTORS (mini player, playlist, context menu, like/dislike)
+│   ├── fixtures/            # Modular fixtures
+│   │   ├── index.ts         # test.extend, page fixtures (videoPageReady, playlistVideoPageReady, shortsPageReady), PiP helpers
+│   │   ├── auth.ts          # Storage state, E2E_STORAGE_STATE_BASE64, authState / storeAuthState
+│   │   ├── handler-stub.ts  # initHandlerStub, getUserscriptBody (mediaSession stub + eval script)
+│   │   ├── pip-playlist.ts  # Mini player, expand, panel, items (playlist-navigation, like-dislike)
+│   │   ├── pip-like-dislike.ts   # Like/dislike buttons and clicks in PiP
+│   │   ├── pip-context-menu.ts   # Open menu on player/shorts-player, wait item visible, click item
+│   │   └── pip-shorts.ts    # waitForShortsPlayerVisibleInMain/Pip, scrollToNextShortInPip (ArrowDown)
+│   ├── constants.ts         # E2E_WAIT_TIMEOUT_MS, E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS, ad timeouts
+│   ├── selectors.ts         # E2E_SELECTORS (mini player, playlist, context menu, like/dislike, Shorts)
 │   ├── global.d.ts          # E2E types, MediaSession stub
 │   ├── tsconfig.json
 │   └── tests/
-│       ├── pip-stub.spec.ts         # Open PiP → assert → close → player back
-│       ├── mini-player.spec.ts      # Press "i" → mini player → PiP → close
-│       ├── playlist-navigation.spec.ts  # PiP → expand playlist → switch video
-│       ├── context-menu-copy.spec.ts    # Context menu copy (URL, time, embed) in PiP
-│       └── like-dislike.spec.ts     # Like/remove/dislike/remove in PiP (auth, network)
+│       ├── pip-stub.spec.ts              # Open PiP → assert → close → player back
+│       ├── mini-player.spec.ts           # Press "i" → mini player → PiP → close
+│       ├── playlist-navigation.spec.ts   # PiP → expand playlist → switch video
+│       ├── context-menu-copy.spec.ts      # Context menu copy (URL, time, embed, debug) in PiP
+│       ├── like-dislike.spec.ts          # Like/remove/dislike/remove in PiP (auth, network)
+│       ├── shorts-pip.spec.ts            # Shorts: open PiP → player in PiP → close → player back on page
+│       ├── shorts-context-menu-copy.spec.ts  # Shorts: context menu copy in PiP (Shorts URLs)
+│       └── shorts-navigation.spec.ts     # Shorts: ArrowDown in PiP → video src changes
 │
 ├── docs/
 │   ├── YOUTUBE_INTERNAL_API.md  # Kevlar API documentation
