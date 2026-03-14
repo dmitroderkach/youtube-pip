@@ -47,6 +47,9 @@ test.describe('Shorts navigation in PiP', () => {
       }
     );
 
+    // lockLoadVideo in app uses IDLE_TIMEOUT 200ms before restoring loadVideo; +50ms buffer
+    await page.waitForTimeout(250);
+
     await scrollToNextShortInPip(page);
 
     await test.expect
