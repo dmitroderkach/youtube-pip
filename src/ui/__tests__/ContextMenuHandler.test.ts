@@ -200,9 +200,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
@@ -234,9 +234,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
@@ -264,9 +264,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
@@ -304,9 +304,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
@@ -337,9 +337,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
@@ -377,9 +377,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
@@ -404,9 +404,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getVideoData.mockReturnValue(null);
@@ -430,9 +430,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getDebugInfo.mockReturnValue(null);
@@ -455,9 +455,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = CONTEXT_MENU_CLASS;
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     const shortsPlayer = {
       getVideoData: () => ({ video_id: 'XK7_nVHZxVY', title: 'Shorts', list: undefined }),
@@ -488,9 +488,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = CONTEXT_MENU_CLASS;
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     const shortsPlayer = {
       getVideoData: () => ({ video_id: 'XK7_nVHZxVY', title: 'Shorts', list: undefined }),
@@ -521,9 +521,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = CONTEXT_MENU_CLASS;
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     const shortsPlayer = {
       getVideoData: () => ({ video_id: 'XK7_nVHZxVY', title: 'Shorts Title', list: undefined }),
@@ -554,9 +554,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = CONTEXT_MENU_CLASS;
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     const shortsPlayer = {
       getVideoData: () => ({}),
@@ -585,9 +585,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = CONTEXT_MENU_CLASS;
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     mockYtdShortsProvider.getPlayer.mockReturnValue(null);
     handler.initialize(true);
@@ -610,9 +610,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getDebugInfo.mockReturnValue('');
@@ -706,9 +706,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getVideoData.mockReturnValue({ video_id: 'v', title: 'T', list: 'PL123' });
@@ -736,9 +736,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getVideoData.mockReturnValue({
@@ -778,9 +778,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getVideoData.mockReturnValue({
@@ -811,9 +811,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getVideoData.mockReturnValue({
@@ -843,9 +843,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     mockPlayerManager.getVideoData.mockReturnValue({ video_id: 'v', title: 'T', list: undefined });
@@ -869,15 +869,15 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
+    const menuEl = pipDoc.createElement('div');
+    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
+    pipDoc.body.appendChild(menuEl);
     const otherContainer = pipDoc.createElement('div');
     const orphanItem = pipDoc.createElement('div');
     orphanItem.className = SELECTORS.MENU_ITEM.slice(1);
     otherContainer.appendChild(orphanItem);
     pipDoc.body.appendChild(otherContainer);
-    const menuEl = pipDoc.createElement('div');
-    menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
-    pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     vi.mocked(DOMUtils.copyViaTextarea).mockClear();
@@ -899,9 +899,9 @@ describe('ContextMenuHandler', () => {
       item.className = SELECTORS.MENU_ITEM.slice(1);
       panelMenu.appendChild(item);
     }
-    pipDoc.body.appendChild(panelMenu);
     const menuEl = pipDoc.createElement('div');
     menuEl.className = SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ');
+    menuEl.appendChild(panelMenu);
     pipDoc.body.appendChild(menuEl);
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);

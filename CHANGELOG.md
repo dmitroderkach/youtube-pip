@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.3.7] - 2026-03-14
+
+### Fixed
+
+- **Copy menu actions** — corrected selector for panel menu items so that context menu copy actions (Copy video URL, Copy URL at time, Copy embed, Copy debug info) resolve and click the correct items in both regular video and Shorts PiP.
+
 ## [2.3.6] - 2026-03-13
 
 ### Fixed
@@ -939,6 +945,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.3.7]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.6...refs/tags/v2.3.7
 [2.3.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.5...refs/tags/v2.3.6
 [2.3.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.4...refs/tags/v2.3.5
 [2.3.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.3...refs/tags/v2.3.4
