@@ -121,6 +121,7 @@ export class PlayerManager {
 
     const shortsPlayer = this.ytdShortsProvider.getShortsPlayerFromDocument();
     if (!shortsPlayer || typeof shortsPlayer.getPlayerState !== 'function') return;
+    if (!this.ytdShortsProvider.isShortsVisible()) return;
 
     const shortsState = shortsPlayer.getPlayerState();
     if (!isPlayingState(shortsState) && shortsState !== PLAYER_STATES.CUED) return;

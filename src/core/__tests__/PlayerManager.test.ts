@@ -255,6 +255,7 @@ describe('PlayerManager', () => {
       shortsPlayer.getPlayerState = vi.fn().mockReturnValue(PLAYER_STATES.PAUSED);
       const mockYtdShortsProvider = mock<YtdShortsProvider>();
       mockYtdShortsProvider.getShortsPlayerFromDocument.mockReturnValue(shortsPlayer);
+      mockYtdShortsProvider.isShortsVisible.mockReturnValue(true);
       const c = createTestContainer();
       c.bind(YtdShortsProvider).toInstance(mockYtdShortsProvider);
       c.bind(PlayerManager).toSelf();
@@ -275,6 +276,7 @@ describe('PlayerManager', () => {
       shortsPlayer.stopVideo = vi.fn();
       const mockYtdShortsProvider = mock<YtdShortsProvider>();
       mockYtdShortsProvider.getShortsPlayerFromDocument.mockReturnValue(shortsPlayer);
+      mockYtdShortsProvider.isShortsVisible.mockReturnValue(true);
       const c = createTestContainer();
       c.bind(YtdShortsProvider).toInstance(mockYtdShortsProvider);
       c.bind(PlayerManager).toSelf();
@@ -302,6 +304,7 @@ describe('PlayerManager', () => {
       shortsPlayer.stopVideo = vi.fn();
       const mockYtdShortsProvider = mock<YtdShortsProvider>();
       mockYtdShortsProvider.getShortsPlayerFromDocument.mockReturnValue(shortsPlayer);
+      mockYtdShortsProvider.isShortsVisible.mockReturnValue(true);
       const c = createTestContainer();
       c.bind(YtdShortsProvider).toInstance(mockYtdShortsProvider);
       c.bind(PlayerManager).toSelf();
@@ -324,6 +327,7 @@ describe('PlayerManager', () => {
       });
       const mockYtdShortsProvider = mock<YtdShortsProvider>();
       mockYtdShortsProvider.getShortsPlayerFromDocument.mockReturnValue(shortsPlayer);
+      mockYtdShortsProvider.isShortsVisible.mockReturnValue(true);
       const c = createTestContainer();
       c.bind(YtdShortsProvider).toInstance(mockYtdShortsProvider);
       c.bind(PlayerManager).toSelf();
@@ -344,6 +348,7 @@ describe('PlayerManager', () => {
       delete (shortsPlayer as { stopVideo?: unknown }).stopVideo;
       const mockYtdShortsProvider = mock<YtdShortsProvider>();
       mockYtdShortsProvider.getShortsPlayerFromDocument.mockReturnValue(shortsPlayer);
+      mockYtdShortsProvider.isShortsVisible.mockReturnValue(true);
       const c = createTestContainer();
       c.bind(YtdShortsProvider).toInstance(mockYtdShortsProvider);
       c.bind(PlayerManager).toSelf();
@@ -370,6 +375,7 @@ describe('PlayerManager', () => {
       shortsPlayer.stopVideo = vi.fn();
       const mockYtdShortsProvider = mock<YtdShortsProvider>();
       mockYtdShortsProvider.getShortsPlayerFromDocument.mockReturnValue(shortsPlayer);
+      mockYtdShortsProvider.isShortsVisible.mockReturnValue(true);
       const c = createTestContainer();
       c.bind(YtdShortsProvider).toInstance(mockYtdShortsProvider);
       c.bind(PlayerManager).toSelf();
