@@ -123,9 +123,6 @@ export class PlayerManager {
     if (!shortsPlayer || typeof shortsPlayer.getPlayerState !== 'function') return;
     if (!this.ytdShortsProvider.isShortsVisible()) return;
 
-    const shortsState = shortsPlayer.getPlayerState();
-    if (!isPlayingState(shortsState) && shortsState !== PLAYER_STATES.CUED) return;
-
     this.logger.debug('Shorts stole playback; stopping Shorts and restoring main player');
     try {
       if (typeof shortsPlayer.stopVideo === 'function') {
