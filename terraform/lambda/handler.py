@@ -143,10 +143,13 @@ def handler(event, _context):
     if nat_instance_id:
         response = ec2.describe_instances(InstanceIds=[nat_instance_id])
         state = response["Reservations"][0]["Instances"][0]["State"]["Name"]
-        if state in {"stopped", "stopping"}:
+        # StartInstances is only valid in stopped; if still stopping, wait first.
+        if state == "stopping":
+            ec2.get_waiter("instance_stopped").wait(InstanceIds=[nat_instance_id])
+            state = "stopped"
+        if state == "stopped":
             ec2.start_instances(InstanceIds=[nat_instance_id])
-            waiter = ec2.get_waiter("instance_running")
-            waiter.wait(InstanceIds=[nat_instance_id])
+            ec2.get_waiter("instance_running").wait(InstanceIds=[nat_instance_id])
 
     ecs.run_task(
         cluster=os.environ["ECS_CLUSTER_ARN"],
