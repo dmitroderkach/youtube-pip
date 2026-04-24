@@ -330,7 +330,6 @@ resource "aws_iam_role_policy" "lambda" {
         Effect = "Allow"
         Action = [
           "ec2:DescribeInstances",
-          "ec2:DescribeInstanceStatus",
           "ec2:StartInstances",
           "ec2:StopInstances"
         ]
@@ -396,8 +395,8 @@ resource "aws_lambda_function" "dispatcher" {
   handler          = "handler.handler"
   filename         = data.archive_file.lambda.output_path
   source_code_hash = data.archive_file.lambda.output_base64sha256
-  # Cold NAT start: instance_running + instance_status_ok (no post-wait sleep; bounded by MaxAttempts below).
-  timeout          = 300
+  # Cold NAT: only wait instance_running before RunTask (no status checks / sleep).
+  timeout          = 180
   layers           = [aws_lambda_layer_version.lambda_deps.arn]
 
   environment {
