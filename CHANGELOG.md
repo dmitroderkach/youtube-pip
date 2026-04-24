@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 ### Changed
 
-- **Selectors (YouTube DOM)** — `MENU_BUTTON` and `BUTTON_SHAPE` now target `.ytSpecButtonShapeNextHost` instead of `.yt-spec-button-shape-next` in `src/selectors.ts` and `e2e/selectors.ts` to match current YouTube mini-player / like UI markup.
+- **Selectors (YouTube DOM)** — `MENU_BUTTON` and `BUTTON_SHAPE` accept both `.yt-spec-button-shape-next` and `.ytSpecButtonShapeNextHost` (comma-separated) in `src/selectors.ts` and `e2e/selectors.ts` so mini-player expand and like/dislike clicks work across YouTube markup variants (CI vs current web).
 
 ## [2.3.13] - 2026-03-15
 
