@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.3.16] - 2026-04-24
+
+### Changed
+
+- **E2E (CI)** — Skipping auth-backed tests when `SKIP_AUTH_E2E_ON_CI` is true is handled in the **`context`** fixture (`e2e/fixtures/index.ts`) via **`testInfo.skip`** before a browser context is created, instead of wrapping each spec in `test.describe.skip`.
+- **`e2e/constants.ts`** — Comment documents the fixture-based skip.
+- **E2E specs** — `like-dislike.spec.ts`, `shorts-pip.spec.ts`, `shorts-navigation.spec.ts`, and `shorts-context-menu-copy.spec.ts` use plain `test.describe` and no longer import `SKIP_AUTH_E2E_ON_CI`.
+- **Docs** — `docs/E2E_TESTS.md`: section _Skipping auth-backed tests on CI_, structure/constants/Running text updated for the fixture behaviour.
+
 ## [2.3.15] - 2026-04-24
 
 ### Added
@@ -999,6 +1008,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.3.16]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.15...refs/tags/v2.3.16
 [2.3.15]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.14...refs/tags/v2.3.15
 [2.3.14]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.13...refs/tags/v2.3.14
 [2.3.13]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.12...refs/tags/v2.3.13
