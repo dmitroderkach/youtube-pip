@@ -1,5 +1,7 @@
 # Terraform: Lambda + ECS Fargate GitHub Runner
 
+For an **architecture walkthrough** (webhook → dispatcher → Fargate → NAT → scale-down on idle), see **[`docs/SELF_HOSTED_RUNNERS.md`](../docs/SELF_HOSTED_RUNNERS.md)**.
+
 This folder provisions an on-demand GitHub Actions runner solution:
 
 - Lambda webhook receiver for `workflow_job` events
