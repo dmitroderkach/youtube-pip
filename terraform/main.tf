@@ -330,6 +330,7 @@ resource "aws_iam_role_policy" "lambda" {
         Effect = "Allow"
         Action = [
           "ec2:DescribeInstances",
+          "ec2:DescribeInstanceStatus",
           "ec2:StartInstances",
           "ec2:StopInstances"
         ]
