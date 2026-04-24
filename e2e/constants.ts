@@ -1,9 +1,9 @@
 /**
- * When true (e.g. GitHub Actions sets `CI`), the `context` fixture in `fixtures/index.ts` skips tests
- * that opt into `authState: true` via `testInfo.skip` (no storage load). Temporary while CI
- * `E2E_STORAGE_STATE_BASE64` is invalid; remove or gate when secret is renewed.
+ * Optional runtime gate for auth-backed e2e tests.
+ * Set env `SKIP_AUTH_E2E_ON_CI=true` to skip tests that opt into `authState: true`.
+ * Intended for CI toggling via GitHub Variables without code changes.
  */
-export const SKIP_AUTH_E2E_ON_CI = Boolean(process.env.CI);
+export const SKIP_AUTH_E2E_ON_CI = String(process.env.SKIP_AUTH_E2E_ON_CI).toLowerCase() === 'true';
 
 /** Default timeout for all e2e wait operations (ms). */
 export const E2E_WAIT_TIMEOUT_MS = 10000;

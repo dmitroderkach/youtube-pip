@@ -83,8 +83,14 @@ Some tests need a logged-in YouTube session (e.g. like/dislike **and all Shorts 
 
 ### Auth-backed tests on CI
 
-Auth-backed e2e tests are currently **enabled** on CI.  
-If a test uses `test.use({ authState: true })`, it runs on CI the same way as locally, as long as `E2E_STORAGE_STATE_BASE64` contains a valid storage state.
+Auth-backed e2e tests are controlled by env **`SKIP_AUTH_E2E_ON_CI`**:
+
+- `SKIP_AUTH_E2E_ON_CI=false` (default) — tests with `test.use({ authState: true })` run on CI normally.
+- `SKIP_AUTH_E2E_ON_CI=true` — `context` fixture calls `testInfo.skip(...)` for tests that use `authState: true`.
+
+In GitHub Actions, this value is read from repository variable **`vars.SKIP_AUTH_E2E_ON_CI`** (workflow sets default `'false'`).
+
+**How to toggle without code changes:** GitHub repo → **Settings** → **Secrets and variables** → **Actions** → **Variables** → set `SKIP_AUTH_E2E_ON_CI` to `true` or `false`.
 
 ### Why we use a frozen storage state (no refresh in CI)
 
@@ -120,7 +126,7 @@ All selectors live in `E2E_SELECTORS` and do not import from `src/`, so e2e does
 
 ## Constants (`constants.ts`)
 
-- `SKIP_AUTH_E2E_ON_CI` — `true` when `process.env.CI` is set; reserved as a temporary gate for auth-backed e2e if CI needs emergency skipping again.
+- `SKIP_AUTH_E2E_ON_CI` — parsed from `process.env.SKIP_AUTH_E2E_ON_CI`; when set to `true`, tests using `authState: true` are skipped by the `context` fixture.
 - `E2E_WAIT_TIMEOUT_MS` — default timeout for waits (e.g. 10s).
 - `E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS` — longer timeout for context menu items to appear (ads can delay them).
 - `E2E_PIP_AD_STABILITY_MS` — how long the ad overlay must stay gone to consider all ads finished.
