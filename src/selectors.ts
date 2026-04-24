@@ -22,11 +22,11 @@ export const SELECTORS = {
   MENU_ITEM: '.ytp-menuitem',
   PANEL_MENU: '.ytp-panel-menu',
   PANEL_MENU_ITEMS: '.ytp-contextmenu .ytp-panel-menu > .ytp-menuitem',
-  MENU_BUTTON: '.yt-spec-button-shape-next[aria-expanded]',
+  MENU_BUTTON: '.ytSpecButtonShapeNextHost[aria-expanded]',
   PLAYLIST_PANEL: '.ytdMiniplayerComponentPlaylistPanel',
   PROGRESS_BAR: '.ytp-progress-bar',
   LIKE_BUTTON: 'ytd-slim-metadata-toggle-button-renderer',
-  BUTTON_SHAPE: '.yt-spec-button-shape-next',
+  BUTTON_SHAPE: '.ytSpecButtonShapeNextHost',
   SIMPLE_ENDPOINT: '.yt-simple-endpoint',
   BUTTON: 'button',
   /** Expanded engagement panel sections (collapse via visibility button). */
