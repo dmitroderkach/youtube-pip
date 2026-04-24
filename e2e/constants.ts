@@ -1,3 +1,9 @@
+/**
+ * When true (e.g. GitHub Actions sets `CI`), skip e2e suites that load `authState` / storage state.
+ * Temporary while CI `E2E_STORAGE_STATE_BASE64` is invalid; remove or gate when secret is renewed.
+ */
+export const SKIP_AUTH_E2E_ON_CI = Boolean(process.env.CI);
+
 /** Default timeout for all e2e wait operations (ms). */
 export const E2E_WAIT_TIMEOUT_MS = 10000;
 
