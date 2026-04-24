@@ -1,0 +1,50 @@
+name: Manual E2E
+
+on:
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Cache npm
+        id: cache-npm
+        uses: actions/cache@v5
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build userscript
+        run: npm run build
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Run full e2e tests (manual)
+        id: e2e
+        env:
+          E2E_STORAGE_STATE_BASE64: ${{ secrets.E2E_STORAGE_STATE_BASE64 }}
+          SKIP_AUTH_E2E_ON_CI: 'false'
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v7
+        if: always() && (steps.e2e.outcome == 'success' || steps.e2e.outcome == 'failure')
+        with:
+          name: playwright-report-manual-e2e
+          path: playwright-report/
+          retention-days: 7

@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.3.19] - 2026-04-24
+
+### Added
+
+- **GitHub Actions** — Added a separate manual workflow `.github/workflows/e2e-manual.yml` (`workflow_dispatch`) to run full e2e on demand, with `SKIP_AUTH_E2E_ON_CI=false` so auth-backed tests are included.
+- **Docs** — `docs/E2E_TESTS.md` Running section now documents how to launch `Manual E2E` and what it does (full suite + report artifact).
+
 ## [2.3.18] - 2026-04-24
 
 ### Changed
@@ -1022,6 +1029,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.3.19]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.18...refs/tags/v2.3.19
 [2.3.18]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.17...refs/tags/v2.3.18
 [2.3.17]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.16...refs/tags/v2.3.17
 [2.3.16]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.15...refs/tags/v2.3.16

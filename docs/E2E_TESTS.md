@@ -200,5 +200,7 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 - **Before e2e:** `npm run build` (requires `dist/userscript.js`).
 - **Browser:** Playwright with Chromium (in CI: `npx playwright install --with-deps chromium`).
 - **Command:** `npm run test:e2e` (or `npx playwright test` from project root with e2e config).
+- **Manual full CI run:** GitHub Actions → `Manual E2E` workflow (`.github/workflows/e2e-manual.yml`) → **Run workflow**.
+- **Manual workflow behavior:** forces `SKIP_AUTH_E2E_ON_CI=false`, so auth-backed tests are included. It still uses `E2E_STORAGE_STATE_BASE64` secret for `authState: true` tests and uploads `playwright-report-manual-e2e` artifact.
 
 Tests run against real YouTube; on CI you may see flakiness due to ads, consent, or bot detection. The playlist-navigation test uses the `selected` assertion instead of video load to reduce dependence on the player fully loading. Tests that use `authState: true` require a valid storage state; in CI the secret `E2E_STORAGE_STATE_BASE64` writes `e2e/.auth/storageState.json` before the run.
