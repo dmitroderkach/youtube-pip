@@ -45,11 +45,11 @@ The userscript body is read from `dist/userscript.js` (without the UserScript he
 
 ### Ready pages
 
-| Fixture                  | Description                                                                                                                                           |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `videoPageReady`         | Opens a fixed video URL (`VIDEO_URL`), accepts YouTube cookie consent when the dialog appears, waits until the userscript has registered `enterpictureinpicture`.            |
-| `playlistVideoPageReady` | Same for a playlist URL (`PLAYLIST_VIDEO_URL`) — used for playlist navigation tests in PiP.                                                           |
-| `shortsPageReady`        | Opens the Shorts feed URL (`SHORTS_URL`), accepts consent when shown, waits until the userscript has registered `enterpictureinpicture` and `ytd-shorts` exists. |
+| Fixture                  | Description                                                                                                                                                       |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `videoPageReady`         | Opens a fixed video URL (`VIDEO_URL`), accepts YouTube cookie consent when the dialog appears, waits until the userscript has registered `enterpictureinpicture`. |
+| `playlistVideoPageReady` | Same for a playlist URL (`PLAYLIST_VIDEO_URL`) — used for playlist navigation tests in PiP.                                                                       |
+| `shortsPageReady`        | Opens the Shorts feed URL (`SHORTS_URL`), accepts consent when shown, waits until the userscript has registered `enterpictureinpicture` and `ytd-shorts` exists.  |
 
 ### PiP helpers
 

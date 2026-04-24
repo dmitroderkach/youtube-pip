@@ -55,16 +55,16 @@ flowchart TB
 
 ## Components
 
-| Piece | Role |
-| ----- | ---- |
-| **GitHub App** | Installed on the repo; used to mint **installation access tokens** so the dispatcher can call `POST .../actions/runners/registration-token` without a long-lived PAT. |
-| **Repository webhook** | Sends **`workflow_job`** JSON to the dispatcher **Lambda Function URL** (`Content-Type: application/json`). Payload is verified with **`X-Hub-Signature-256`** using the webhook secret in Secrets Manager. |
-| **dispatcher Lambda** (`terraform/lambda/handler.py`) | Validates method/signature, filters `action=queued` and **runner labels**, reads **GitHub App** private key from Secrets Manager, obtains registration token, ensures **NAT EC2** is **running** (starts it if stopped, waits for `instance_running`), then **`ecs:RunTask`** for the runner container. |
-| **ECS cluster + Fargate task definition** | One task = one ephemeral **GitHub Actions runner** (container from **ECR**). Task runs in the **private subnet** with **`assignPublicIp=DISABLED`**. |
-| **Runner container** (`terraform/runner/`) | Official **actions/runner** tarball + Playwright-friendly base image; **`EPHEMERAL=1`** so the runner deregisters when the job finishes. |
-| **VPC** | **Public** subnet: internet gateway + **NAT instance** + **Elastic IP**. **Private** subnet: Fargate tasks; default route **`0.0.0.0/0`** targets the **NAT instance’s primary ENI** (not a managed NAT Gateway). |
-| **NAT EC2** | **Amazon Linux 2023** AMI with **`nat-user-data.sh`**: `iptables` MASQUERADE, `ip_forward`, **source/dest check disabled** on the instance. Provides SNAT for private workloads. **Can be stopped** when idle to save cost. |
-| **nat_scale_down Lambda** (`terraform/lambda/nat_scale_down.py`) | Invoked by **EventBridge** on **ECS Task State Change** with `lastStatus=STOPPED` for this cluster. Calls **`ecs:ListTasks`** for `RUNNING` and `PENDING`; if **both empty**, calls **`ec2:StopInstances`** on the NAT instance. |
+| Piece                                                            | Role                                                                                                                                                                                                                                                                                                    |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **GitHub App**                                                   | Installed on the repo; used to mint **installation access tokens** so the dispatcher can call `POST .../actions/runners/registration-token` without a long-lived PAT.                                                                                                                                   |
+| **Repository webhook**                                           | Sends **`workflow_job`** JSON to the dispatcher **Lambda Function URL** (`Content-Type: application/json`). Payload is verified with **`X-Hub-Signature-256`** using the webhook secret in Secrets Manager.                                                                                             |
+| **dispatcher Lambda** (`terraform/lambda/handler.py`)            | Validates method/signature, filters `action=queued` and **runner labels**, reads **GitHub App** private key from Secrets Manager, obtains registration token, ensures **NAT EC2** is **running** (starts it if stopped, waits for `instance_running`), then **`ecs:RunTask`** for the runner container. |
+| **ECS cluster + Fargate task definition**                        | One task = one ephemeral **GitHub Actions runner** (container from **ECR**). Task runs in the **private subnet** with **`assignPublicIp=DISABLED`**.                                                                                                                                                    |
+| **Runner container** (`terraform/runner/`)                       | Official **actions/runner** tarball + Playwright-friendly base image; **`EPHEMERAL=1`** so the runner deregisters when the job finishes.                                                                                                                                                                |
+| **VPC**                                                          | **Public** subnet: internet gateway + **NAT instance** + **Elastic IP**. **Private** subnet: Fargate tasks; default route **`0.0.0.0/0`** targets the **NAT instance’s primary ENI** (not a managed NAT Gateway).                                                                                       |
+| **NAT EC2**                                                      | **Amazon Linux 2023** AMI with **`nat-user-data.sh`**: `iptables` MASQUERADE, `ip_forward`, **source/dest check disabled** on the instance. Provides SNAT for private workloads. **Can be stopped** when idle to save cost.                                                                             |
+| **nat_scale_down Lambda** (`terraform/lambda/nat_scale_down.py`) | Invoked by **EventBridge** on **ECS Task State Change** with `lastStatus=STOPPED` for this cluster. Calls **`ecs:ListTasks`** for `RUNNING` and `PENDING`; if **both empty**, calls **`ec2:StopInstances`** on the NAT instance.                                                                        |
 
 ---
 
@@ -114,13 +114,13 @@ flowchart TB
 
 ## Repo map
 
-| Path | Purpose |
-| ---- | ------- |
-| `terraform/main.tf` | VPC, subnets, NAT instance, EIP, ECS, Lambdas, EventBridge, IAM |
-| `terraform/lambda/handler.py` | Dispatcher |
-| `terraform/lambda/nat_scale_down.py` | Idle NAT shutdown |
-| `terraform/nat-user-data.sh` | NAT bootstrap (loaded via `file()`, not heredoc) |
-| `terraform/runner/Dockerfile` + `entrypoint.sh` | Runner image |
-| `.github/workflows/build.yml` | Example consumer: `runs-on: [self-hosted, fargate]` |
+| Path                                            | Purpose                                                         |
+| ----------------------------------------------- | --------------------------------------------------------------- |
+| `terraform/main.tf`                             | VPC, subnets, NAT instance, EIP, ECS, Lambdas, EventBridge, IAM |
+| `terraform/lambda/handler.py`                   | Dispatcher                                                      |
+| `terraform/lambda/nat_scale_down.py`            | Idle NAT shutdown                                               |
+| `terraform/nat-user-data.sh`                    | NAT bootstrap (loaded via `file()`, not heredoc)                |
+| `terraform/runner/Dockerfile` + `entrypoint.sh` | Runner image                                                    |
+| `.github/workflows/build.yml`                   | Example consumer: `runs-on: [self-hosted, fargate]`             |
 
 For deploy commands, secrets, and GitHub App setup, use **[`terraform/README.md`](../terraform/README.md)**.
