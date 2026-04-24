@@ -1,6 +1,7 @@
 FROM mcr.microsoft.com/playwright:v1.58.0-noble
 
-ARG RUNNER_VERSION=2.327.1
+# Keep in sync with https://github.com/actions/runner/releases — old versions are rejected at connect time.
+ARG RUNNER_VERSION=2.334.0
 
 ENV DEBIAN_FRONTEND=noninteractive
 

@@ -140,6 +140,7 @@ def handler(event, _context):
     ec2 = boto3.client("ec2")
     ecs = boto3.client("ecs")
 
+    nat_cold_start = False
     if nat_instance_id:
         response = ec2.describe_instances(InstanceIds=[nat_instance_id])
         state = response["Reservations"][0]["Instances"][0]["State"]["Name"]
@@ -147,6 +148,15 @@ def handler(event, _context):
             ec2.start_instances(InstanceIds=[nat_instance_id])
             waiter = ec2.get_waiter("instance_running")
             waiter.wait(InstanceIds=[nat_instance_id])
+            nat_cold_start = True
+        if nat_cold_start:
+            # Status checks pass before cloud-init finishes; give user_data time for dnf + iptables.
+            ok_waiter = ec2.get_waiter("instance_status_ok")
+            ok_waiter.wait(
+                InstanceIds=[nat_instance_id],
+                WaiterConfig={"Delay": 10, "MaxAttempts": 30},
+            )
+            time.sleep(45)
 
     ecs.run_task(
         cluster=os.environ["ECS_CLUSTER_ARN"],

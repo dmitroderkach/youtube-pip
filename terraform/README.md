@@ -87,6 +87,20 @@ If you use custom tag, set `runner_image_tag` accordingly in `terraform.tfvars`.
 
 ## 4) GitHub webhook setup
 
+### GitHub App permissions (required)
+
+The dispatcher calls `POST /repos/{owner}/{repo}/actions/runners/registration-token`. For **repository-scoped** runners (`RUNNER_SCOPE=repo` in the runner image), GitHub requires **Repository permissions → Administration: Read and write**, not only Actions. See GitHub’s [ARC authentication docs](https://docs.github.com/en/actions/hosting-your-own-runners/managing-self-hosted-runners-with-actions-runner-controller/authenticating-to-the-github-api) (repository-level registration).
+
+Minimum that matches this stack:
+
+- **Metadata**: Read-only  
+- **Administration**: Read and write  
+- **Actions**: Read and write is fine to keep for workflows metadata, but it does **not** replace Administration for the registration-token API.
+
+After changing permissions, open **Install App** and **accept** the updated permissions for each installation (e.g. your `github_owner` / `github_repo` from `terraform.tfvars`).
+
+### Repository webhook
+
 Use output `lambda_function_url` as webhook URL in repo settings.
 
 - Content type: `application/json`

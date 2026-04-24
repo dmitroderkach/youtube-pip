@@ -129,16 +129,8 @@ resource "aws_instance" "nat" {
   associate_public_ip_address = true
   source_dest_check           = false
 
-  user_data = <<-EOF
-              #!/bin/bash
-              set -eux
-              sysctl -w net.ipv4.ip_forward=1
-              echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
-              dnf install -y iptables-services
-              iptables -t nat -A POSTROUTING -o eth0 -j MASQUERADE
-              service iptables save
-              systemctl enable --now iptables
-              EOF
+  # Shell script in separate file: Terraform heredocs mangle $(...) and $n (e.g. 1662(, 16705).
+  user_data = file("${path.module}/nat-user-data.sh")
 
   tags = {
     Name = "${local.name_prefix}-nat-instance"
@@ -392,7 +384,8 @@ resource "aws_lambda_function" "dispatcher" {
   handler          = "handler.handler"
   filename         = data.archive_file.lambda.output_path
   source_code_hash = data.archive_file.lambda.output_base64sha256
-  timeout          = 30
+  # Cold NAT start: wait instance_running + status_ok + buffer for cloud-init (iptables).
+  timeout          = 180
   layers           = [aws_lambda_layer_version.lambda_deps.arn]
 
   environment {
