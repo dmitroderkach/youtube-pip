@@ -13,9 +13,9 @@ import {
   waitForShortsPlayerVisibleInMain,
   waitForShortsPlayerVisibleInPip,
 } from '../fixtures';
-import { E2E_WAIT_TIMEOUT_MS } from '../constants';
+import { E2E_WAIT_TIMEOUT_MS, SKIP_AUTH_E2E_ON_CI } from '../constants';
 
-test.describe('Shorts in PiP popup', () => {
+(SKIP_AUTH_E2E_ON_CI ? test.describe.skip : test.describe)('Shorts in PiP popup', () => {
   test.use({ authState: true });
 
   test('Shorts page → open PiP → Shorts player in PiP → close → Shorts player back on page', async ({

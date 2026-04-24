@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.3.15] - 2026-04-24
+
+### Added
+
+- **E2E** — `SKIP_AUTH_E2E_ON_CI` in `e2e/constants.ts` (`true` when `process.env.CI` is set).
+
+### Changed
+
+- **E2E (CI)** — Auth-backed specs (`like-dislike`, `shorts-pip`, `shorts-navigation`, `shorts-context-menu-copy`) use `test.describe.skip` on CI so the workflow does not fail while `E2E_STORAGE_STATE_BASE64` is invalid; they still run locally when `CI` is unset.
+- **Docs** — `docs/E2E_TESTS.md`: skipping auth suites on CI, `SKIP_AUTH_E2E_ON_CI` in the constants section, `BUTTON_SHAPE` comma-list note, and Running section.
+
 ## [2.3.14] - 2026-04-24
 
 ### Changed
@@ -988,6 +999,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.3.15]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.14...refs/tags/v2.3.15
 [2.3.14]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.13...refs/tags/v2.3.14
 [2.3.13]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.12...refs/tags/v2.3.13
 [2.3.12]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.11...refs/tags/v2.3.12
