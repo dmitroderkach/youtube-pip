@@ -2,12 +2,13 @@
  * Playwright fixtures: PiP stub + handler stub injected via addInitScript.
  * Composes modules from ./auth, ./handler-stub, and defines page/PiP fixtures.
  */
-import { test as base, expect, type Page } from '@playwright/test';
+import { test as base, expect, type Page, type TestInfo } from '@playwright/test';
 import {
   E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
   E2E_PIP_AD_STABILITY_MS,
   E2E_PIP_SKIP_AD_POLL_MS,
   E2E_WAIT_TIMEOUT_MS,
+  SKIP_AUTH_E2E_ON_CI,
 } from '../constants';
 import { E2E_SELECTORS } from '../selectors';
 import { existsSync, mkdirSync } from 'node:fs';
@@ -82,7 +83,15 @@ export const test = base.extend<{
   authState: [undefined, { option: true }],
   storeAuthState: [undefined, { option: true }],
 
-  context: async ({ userscriptBody, browser, authState, storeAuthState }, use) => {
+  context: async (
+    { userscriptBody, browser, authState, storeAuthState },
+    use,
+    testInfo: TestInfo
+  ) => {
+    if (authState === true && SKIP_AUTH_E2E_ON_CI) {
+      testInfo.skip(true, 'Auth-backed e2e skipped: SKIP_AUTH_E2E_ON_CI=true in CI configuration.');
+    }
+
     const addInitAndUse = async (ctx: Awaited<ReturnType<typeof browser.newContext>>) => {
       await ctx.addInitScript(initHandlerStub, userscriptBody);
       await use(ctx);
