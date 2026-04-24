@@ -8,7 +8,7 @@ End-to-end tests verify the YouTube PiP userscript on the real YouTube page usin
 
 ```
 e2e/
-├── constants.ts      # Timeouts, `SKIP_AUTH_E2E_ON_CI` (true when `CI` is set; used in `fixtures/index.ts` `context` fixture)
+├── constants.ts      # Timeouts and CI/auth-related flags (`SKIP_AUTH_E2E_ON_CI`, etc.)
 ├── fixtures/         # Playwright fixtures (modular)
 │   ├── index.ts      # test.extend, page fixtures, re-exports
 │   ├── auth.ts       # Storage state path, ensureStorageStateFromSecret, auth options
@@ -81,13 +81,10 @@ Some tests need a logged-in YouTube session (e.g. like/dislike **and all Shorts 
 
 **CI:** The workflow passes the secret `E2E_STORAGE_STATE_BASE64` (base64-encoded `storageState.json`) into the e2e step. The file does not exist in a fresh job, so the fixture creates it from the secret. No write-back on test end.
 
-### Skipping auth-backed tests on CI (temporary)
+### Auth-backed tests on CI
 
-When **`CI`** is set (as on GitHub Actions), **`SKIP_AUTH_E2E_ON_CI`** in `e2e/constants.ts` is true. The **`context`** fixture in `fixtures/index.ts` then calls **`testInfo.skip(...)`** before creating a browser context whenever **`authState: true`** is requested. Any test that uses `test.use({ authState: true })` is skipped on CI as a whole (per test worker), without wrapping each file in `test.describe.skip`.
-
-This avoids failing the job when the GitHub secret holds an invalid or disabled Google account session; **locally** (`CI` unset) those tests still run normally.
-
-**To re-enable auth e2e on CI:** renew `E2E_STORAGE_STATE_BASE64` with a fresh `storageState.json` from a working test account, then remove or narrow the `SKIP_AUTH_E2E_ON_CI` check in the `context` fixture (or gate on an extra env flag instead of `CI`).
+Auth-backed e2e tests are currently **enabled** on CI.  
+If a test uses `test.use({ authState: true })`, it runs on CI the same way as locally, as long as `E2E_STORAGE_STATE_BASE64` contains a valid storage state.
 
 ### Why we use a frozen storage state (no refresh in CI)
 
@@ -123,7 +120,7 @@ All selectors live in `E2E_SELECTORS` and do not import from `src/`, so e2e does
 
 ## Constants (`constants.ts`)
 
-- `SKIP_AUTH_E2E_ON_CI` — `true` when `process.env.CI` is set; the `context` fixture skips tests that use `authState: true` on CI until the gate is removed (see _Skipping auth-backed tests on CI_ above).
+- `SKIP_AUTH_E2E_ON_CI` — `true` when `process.env.CI` is set; reserved as a temporary gate for auth-backed e2e if CI needs emergency skipping again.
 - `E2E_WAIT_TIMEOUT_MS` — default timeout for waits (e.g. 10s).
 - `E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS` — longer timeout for context menu items to appear (ads can delay them).
 - `E2E_PIP_AD_STABILITY_MS` — how long the ad overlay must stay gone to consider all ads finished.
@@ -198,4 +195,4 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 - **Browser:** Playwright with Chromium (in CI: `npx playwright install --with-deps chromium`).
 - **Command:** `npm run test:e2e` (or `npx playwright test` from project root with e2e config).
 
-Tests run against real YouTube; on CI you may see flakiness due to ads, consent, or bot detection. The playlist-navigation test uses the `selected` assertion instead of video load to reduce dependence on the player fully loading. Tests that use `authState: true` require a valid storage state; in CI the secret `E2E_STORAGE_STATE_BASE64` writes `e2e/.auth/storageState.json` before the run. While **`SKIP_AUTH_E2E_ON_CI`** is in effect (when `CI` is set), the `context` fixture skips those tests on CI — see _Skipping auth-backed tests on CI_ above.
+Tests run against real YouTube; on CI you may see flakiness due to ads, consent, or bot detection. The playlist-navigation test uses the `selected` assertion instead of video load to reduce dependence on the player fully loading. Tests that use `authState: true` require a valid storage state; in CI the secret `E2E_STORAGE_STATE_BASE64` writes `e2e/.auth/storageState.json` before the run.

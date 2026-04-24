@@ -83,13 +83,6 @@ export const test = base.extend<{
   storeAuthState: [undefined, { option: true }],
 
   context: async ({ userscriptBody, browser, authState, storeAuthState }, use) => {
-    // if (authState === true && SKIP_AUTH_E2E_ON_CI) {
-    //   testInfo.skip(
-    //     true,
-    //     'Auth-backed e2e skipped on CI until E2E_STORAGE_STATE_BASE64 is renewed.'
-    //   );
-    // }
-
     const addInitAndUse = async (ctx: Awaited<ReturnType<typeof browser.newContext>>) => {
       await ctx.addInitScript(initHandlerStub, userscriptBody);
       await use(ctx);

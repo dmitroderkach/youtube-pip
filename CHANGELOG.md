@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 ### Changed
 
-- **E2E (CI)** — Temporarily commented out the auth-backed CI skip block in `e2e/fixtures/index.ts` (`testInfo.skip` / `SKIP_AUTH_E2E_ON_CI`) so tests with `authState: true` run on CI again.
+- **E2E (CI)** — Removed the auth-backed CI skip block from `e2e/fixtures/index.ts` (`testInfo.skip` / `SKIP_AUTH_E2E_ON_CI`), so tests with `authState: true` run on CI again.
 
 ## [2.3.16] - 2026-04-24
 
