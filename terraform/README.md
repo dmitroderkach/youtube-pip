@@ -93,8 +93,8 @@ The dispatcher calls `POST /repos/{owner}/{repo}/actions/runners/registration-to
 
 Minimum that matches this stack:
 
-- **Metadata**: Read-only  
-- **Administration**: Read and write  
+- **Metadata**: Read-only
+- **Administration**: Read and write
 - **Actions**: Read and write is fine to keep for workflows metadata, but it does **not** replace Administration for the registration-token API.
 
 After changing permissions, open **Install App** and **accept** the updated permissions for each installation (e.g. your `github_owner` / `github_repo` from `terraform.tfvars`).
