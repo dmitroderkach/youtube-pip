@@ -89,10 +89,7 @@ export const test = base.extend<{
     testInfo: TestInfo
   ) => {
     if (authState === true && SKIP_AUTH_E2E_ON_CI) {
-      testInfo.skip(
-        true,
-        'Auth-backed e2e skipped: SKIP_AUTH_E2E_ON_CI=true in CI configuration.'
-      );
+      testInfo.skip(true, 'Auth-backed e2e skipped: SKIP_AUTH_E2E_ON_CI=true in CI configuration.');
     }
 
     const addInitAndUse = async (ctx: Awaited<ReturnType<typeof browser.newContext>>) => {
