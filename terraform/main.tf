@@ -396,8 +396,8 @@ resource "aws_lambda_function" "dispatcher" {
   handler          = "handler.handler"
   filename         = data.archive_file.lambda.output_path
   source_code_hash = data.archive_file.lambda.output_base64sha256
-  # Cold NAT start: wait instance_running + status_ok + buffer for cloud-init (iptables).
-  timeout          = 180
+  # Cold NAT start: instance_running + instance_status_ok (no post-wait sleep; bounded by MaxAttempts below).
+  timeout          = 300
   layers           = [aws_lambda_layer_version.lambda_deps.arn]
 
   environment {

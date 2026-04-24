@@ -150,13 +150,12 @@ def handler(event, _context):
             waiter.wait(InstanceIds=[nat_instance_id])
             nat_cold_start = True
         if nat_cold_start:
-            # Status checks pass before cloud-init finishes; give user_data time for dnf + iptables.
+            # Wait until EC2 status checks pass; no extra sleep — NAT user_data should be done by then.
             ok_waiter = ec2.get_waiter("instance_status_ok")
             ok_waiter.wait(
                 InstanceIds=[nat_instance_id],
-                WaiterConfig={"Delay": 10, "MaxAttempts": 30},
+                WaiterConfig={"Delay": 5, "MaxAttempts": 36},
             )
-            time.sleep(45)
 
     ecs.run_task(
         cluster=os.environ["ECS_CLUSTER_ARN"],
