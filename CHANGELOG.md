@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.4.0] - 2026-04-24
+
+### Added
+
+- **Terraform / AWS** — `terraform/` stack for on-demand GitHub Actions runners: Lambda webhook dispatcher (GitHub App + AWS Secrets Manager), ECS Fargate task on a custom Playwright-based image in ECR, dedicated VPC with NAT EC2 and static Elastic IP, EventBridge-triggered NAT scale-down when no runner tasks remain, and optional `terraform/bootstrap/` for S3 + DynamoDB remote state.
+- **Runner image** — `terraform/runner/` Dockerfile and `entrypoint.sh` for ephemeral GitHub Actions runner registration.
+
+### Changed
+
+- **GitHub Actions** — `build.yml`, `e2e-manual.yml`, and `release.yml` use `runs-on: [self-hosted, fargate]`; Playwright install step uses `npx playwright install chromium` for the self-hosted runner environment.
+- **`.gitignore`** — Ignore Terraform-generated paths (`.terraform/`, `*.tfstate*`, packaged Lambda zips, vendored layer contents under `terraform/lambda/layer/python/` except `.gitkeep`).
+
 ## [2.3.19] - 2026-04-24
 
 ### Added
@@ -1029,6 +1041,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.4.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.19...refs/tags/v2.4.0
 [2.3.19]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.18...refs/tags/v2.3.19
 [2.3.18]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.17...refs/tags/v2.3.18
 [2.3.17]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.16...refs/tags/v2.3.17

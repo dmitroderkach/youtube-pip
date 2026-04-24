@@ -6,6 +6,21 @@ test-results/
 e2e/.auth/
 *.log
 .DS_Store
+
+# Local PR helper (not committed in release flow)
+PR_DESCRIPTION.md
+
+# Cursor / agent temp exports
+.tmp-*.jsonl
+.tmp-*.log
+
+# Terraform (local / generated; whole tree under terraform/)
+terraform/**/.terraform/
+terraform/**/*.tfstate*
+terraform/**/.terraform.tfstate.lock.info
+terraform/**/*.zip
+terraform/lambda/layer/python/*
+!terraform/lambda/layer/python/.gitkeep
 # Ignore .cursor except rules and commands (so .cursor/rules/ and .cursor/commands/ are tracked)
 .cursor/*
 !.cursor/rules/
