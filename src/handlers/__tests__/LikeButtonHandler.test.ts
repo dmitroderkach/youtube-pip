@@ -1,7 +1,11 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { createTestContainer } from '../../test-utils/test-container';
-import { createFakeWindow, createFakeMouseEvent } from '../../test-utils/test-helpers';
+import {
+  createFakeWindow,
+  createFakeMouseEvent,
+  firstSelectorClass,
+} from '../../test-utils/test-helpers';
 import { LikeButtonHandler } from '../LikeButtonHandler';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
 import { YtActionSender } from '../../core/YtActionSender';
@@ -56,7 +60,7 @@ describe('LikeButtonHandler', () => {
     const likeToggle = pipDoc.createElement(SELECTORS.LIKE_BUTTON);
     const dislikeToggle = pipDoc.createElement(SELECTORS.LIKE_BUTTON);
     const button = pipDoc.createElement('button');
-    button.className = SELECTORS.BUTTON_SHAPE.slice(1);
+    button.className = firstSelectorClass(SELECTORS.BUTTON_SHAPE);
     button.setAttribute('aria-pressed', String(ariaPressed));
     (isLike ? likeToggle : dislikeToggle).appendChild(button);
     container.appendChild(likeToggle);
@@ -109,7 +113,7 @@ describe('LikeButtonHandler', () => {
     const second = pipDoc.createElement(SELECTORS.LIKE_BUTTON);
     const third = pipDoc.createElement(SELECTORS.LIKE_BUTTON);
     const btn = pipDoc.createElement('button');
-    btn.className = SELECTORS.BUTTON_SHAPE.slice(1);
+    btn.className = firstSelectorClass(SELECTORS.BUTTON_SHAPE);
     third.appendChild(btn);
     container.appendChild(first);
     container.appendChild(second);

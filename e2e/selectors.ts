@@ -13,7 +13,8 @@ export const E2E_SELECTORS = {
   /** Scroll container inside Shorts feed (used to switch reels). */
   SHORTS_CONTAINER: '#shorts-container',
   /** Expand button in mini player to show playlist (aria-expanded). */
-  MENU_BUTTON: '.yt-spec-button-shape-next[aria-expanded]',
+  MENU_BUTTON:
+    '.yt-spec-button-shape-next[aria-expanded], .ytSpecButtonShapeNextHost[aria-expanded]',
   /** Playlist panel container in mini player. */
   PLAYLIST_PANEL: '.ytdMiniplayerComponentPlaylistPanel',
   /** Single video row in mini player playlist panel (host element; has selected when active). */
@@ -31,5 +32,5 @@ export const E2E_SELECTORS = {
   /** Like/dislike toggle wrapper (first = like, second = dislike). Same as src/selectors.LIKE_BUTTON. */
   LIKE_BUTTON: 'ytd-slim-metadata-toggle-button-renderer',
   /** Clickable button inside toggle. Same as src/selectors.BUTTON_SHAPE. */
-  BUTTON_SHAPE: '.yt-spec-button-shape-next',
+  BUTTON_SHAPE: '.yt-spec-button-shape-next, .ytSpecButtonShapeNextHost',
 } as const;

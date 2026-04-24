@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.3.14] - 2026-04-24
+
+### Changed
+
+- **Selectors (YouTube DOM)** — `MENU_BUTTON` and `BUTTON_SHAPE` accept both `.yt-spec-button-shape-next` and `.ytSpecButtonShapeNextHost` (comma-separated) in `src/selectors.ts` and `e2e/selectors.ts` so mini-player expand and like/dislike clicks work across YouTube markup variants (CI vs current web).
+- **Tests** — `firstSelectorClass()` in `test-utils/test-helpers.ts` for mock `className` when a selector is a comma list; `LikeButtonHandler` and `MenuObserver` unit tests use it instead of `SELECTORS.BUTTON_SHAPE.slice(1)`.
+
 ## [2.3.13] - 2026-03-15
 
 ### Changed
@@ -981,6 +988,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.3.14]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.13...refs/tags/v2.3.14
 [2.3.13]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.12...refs/tags/v2.3.13
 [2.3.12]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.11...refs/tags/v2.3.12
 [2.3.11]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.10...refs/tags/v2.3.11

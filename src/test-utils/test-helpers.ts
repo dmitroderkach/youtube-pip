@@ -32,6 +32,15 @@ export function createFakeMouseEvent(
 }
 
 /**
+ * First class name (no leading dot) from a comma-separated CSS selector list.
+ * Use when tests assign `className` on mock nodes but production uses multi-selector strings.
+ */
+export function firstSelectorClass(selector: string): string {
+  const first = selector.split(',')[0].trim();
+  return first.startsWith('.') ? first.slice(1) : first;
+}
+
+/**
  * Creates a fake YouTubePlayer for tests. Use when mocking PlayerManager.getPlayer().
  */
 export function createFakePlayer(partial: Partial<YouTubePlayer>): YouTubePlayer {

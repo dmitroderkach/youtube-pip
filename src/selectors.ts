@@ -22,11 +22,14 @@ export const SELECTORS = {
   MENU_ITEM: '.ytp-menuitem',
   PANEL_MENU: '.ytp-panel-menu',
   PANEL_MENU_ITEMS: '.ytp-contextmenu .ytp-panel-menu > .ytp-menuitem',
-  MENU_BUTTON: '.yt-spec-button-shape-next[aria-expanded]',
+  /** Mini-player expand; YouTube uses either host or inner spec button class depending on rollout. */
+  MENU_BUTTON:
+    '.yt-spec-button-shape-next[aria-expanded], .ytSpecButtonShapeNextHost[aria-expanded]',
   PLAYLIST_PANEL: '.ytdMiniplayerComponentPlaylistPanel',
   PROGRESS_BAR: '.ytp-progress-bar',
   LIKE_BUTTON: 'ytd-slim-metadata-toggle-button-renderer',
-  BUTTON_SHAPE: '.yt-spec-button-shape-next',
+  /** Click target inside like/dislike toggles; match both class variants. */
+  BUTTON_SHAPE: '.yt-spec-button-shape-next, .ytSpecButtonShapeNextHost',
   SIMPLE_ENDPOINT: '.yt-simple-endpoint',
   BUTTON: 'button',
   /** Expanded engagement panel sections (collapse via visibility button). */
