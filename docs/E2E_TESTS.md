@@ -45,11 +45,11 @@ The userscript body is read from `dist/userscript.js` (without the UserScript he
 
 ### Ready pages
 
-| Fixture                  | Description                                                                                                                                           |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `videoPageReady`         | Opens a fixed video URL (`VIDEO_URL`), accepts consent (skipped on CI), waits until the userscript has registered `enterpictureinpicture`.            |
-| `playlistVideoPageReady` | Same for a playlist URL (`PLAYLIST_VIDEO_URL`) — used for playlist navigation tests in PiP.                                                           |
-| `shortsPageReady`        | Opens the Shorts feed URL (`SHORTS_URL`), accepts consent, waits until the userscript has registered `enterpictureinpicture` and `ytd-shorts` exists. |
+| Fixture                  | Description                                                                                                                                                       |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `videoPageReady`         | Opens a fixed video URL (`VIDEO_URL`), accepts YouTube cookie consent when the dialog appears, waits until the userscript has registered `enterpictureinpicture`. |
+| `playlistVideoPageReady` | Same for a playlist URL (`PLAYLIST_VIDEO_URL`) — used for playlist navigation tests in PiP.                                                                       |
+| `shortsPageReady`        | Opens the Shorts feed URL (`SHORTS_URL`), accepts consent when shown, waits until the userscript has registered `enterpictureinpicture` and `ytd-shorts` exists.  |
 
 ### PiP helpers
 
@@ -64,7 +64,7 @@ The userscript body is read from `dist/userscript.js` (without the UserScript he
 
 ### Consent
 
-- `acceptYouTubeConsent(page)` — clicks the cookie consent button on YouTube. Skipped on CI (consent may not be shown in some regions).
+- `acceptYouTubeConsent(page)` — if YouTube shows the EU-style cookie dialog, clicks **Accept** (matches both “use of cookies” and “Accept all” labels). Runs on **CI as well** when the banner appears (e.g. self-hosted runners in **EU**); if there is no dialog, the helper no-ops.
 
 ### Auth flow (`authState: true`)
 
@@ -91,6 +91,29 @@ Auth-backed e2e tests are controlled by env **`SKIP_AUTH_E2E_ON_CI`**:
 In GitHub Actions, this value is read from repository variable **`vars.SKIP_AUTH_E2E_ON_CI`** (workflow sets default `'false'`).
 
 **How to toggle without code changes:** GitHub repo → **Settings** → **Secrets and variables** → **Actions** → **Variables** → set `SKIP_AUTH_E2E_ON_CI` to `true` or `false`.
+
+### Google / YouTube: restrictions and how we reduce account risk on CI
+
+YouTube and Google sign-in aggressively flag **automation, datacenter IPs, and rapid session changes**. That can lead to extra challenges (“verify you’re not a bot”), broken flows, or **account restrictions** if a real profile is reused from the wrong environment. Our CI setup is designed to **minimize** that—not to “bypass” policies in a bad-faith sense, but to **avoid training Google to treat this test account as a bot running from a cloud IP**.
+
+**What we do:**
+
+1. **Never log in or refresh the session from CI**  
+   CI only **loads** a pre-built Playwright **storage state** (cookies + `localStorage`) from the secret **`E2E_STORAGE_STATE_BASE64`**. We do **not** use `storeAuthState` in CI and we do not open a login flow on the runner. That way the account’s “last good” login and device signals stay tied to the place where you **originally** captured the state (e.g. home or office browser), not to the CI egress IP.
+
+2. **Frozen storage state**  
+   The same JSON is reused until cookies expire. We **do not** re-save storage state from the pipeline after each run (see **Why we use a frozen storage state** below). Refreshing or re-logging from a **datacenter IP** often causes Google to associate the account with that IP and then **challenge or throttle** it.
+
+3. **Self-hosted runners in the EU (e.g. `eu-central-1`)**  
+   Default GitHub-hosted runners are often in the US and share IP reputations with lots of automation. Our **self-hosted** jobs run from **our VPC** with **stable regional egress** (NAT in EU). That matches **GDPR-style consent** and normal “browser in Europe” behaviour more closely than a generic US cloud IP, which reduces odd mismatches (e.g. EU consent + US IP) that can look like hijacked sessions.
+
+4. **`authState: true` only where needed**  
+   Shorts and like/dislike paths hit **stricter bot checks** when anonymous. A **stable, frozen** logged-in state (captured once from a real browser) avoids hammering sign-in from automation and reduces “guest” bot walls—**as long as** that state was not produced by logging in from CI.
+
+5. **Escape hatch: `SKIP_AUTH_E2E_ON_CI`**  
+   If Google starts challenging the stored session anyway, set the repo variable to **`true`** to skip auth-backed tests **without a code change**, refresh the storage state **locally** from a trusted network, update the secret, then turn auth tests back on.
+
+**Operational rule:** Treat **`E2E_STORAGE_STATE_BASE64`** like a long-lived credential: capture rarely, from a **normal** browser session; never “fix” it by logging in again inside CI.
 
 ### Why we use a frozen storage state (no refresh in CI)
 

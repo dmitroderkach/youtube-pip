@@ -124,7 +124,6 @@ export const test = base.extend<{
 
   acceptYouTubeConsent: async ({}, use) => {
     const accept: AcceptYouTubeConsentFn = async (page) => {
-      if (process.env.CI) return;
       try {
         await Promise.all([
           page.waitForEvent('domcontentloaded', { timeout: E2E_WAIT_TIMEOUT_MS }),
