@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.3.17] - 2026-04-24
+
+### Changed
+
+- **E2E (CI)** — Removed the auth-backed CI skip block from `e2e/fixtures/index.ts` (`testInfo.skip` / `SKIP_AUTH_E2E_ON_CI`), so tests with `authState: true` run on CI again.
+
 ## [2.3.16] - 2026-04-24
 
 ### Changed
@@ -1008,6 +1014,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.3.17]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.16...refs/tags/v2.3.17
 [2.3.16]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.15...refs/tags/v2.3.16
 [2.3.15]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.14...refs/tags/v2.3.15
 [2.3.14]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.13...refs/tags/v2.3.14
