@@ -23,7 +23,8 @@ export const SELECTORS = {
   PANEL_MENU: '.ytp-panel-menu',
   PANEL_MENU_ITEMS: '.ytp-contextmenu .ytp-panel-menu > .ytp-menuitem',
   /** Mini-player expand; YouTube uses either host or inner spec button class depending on rollout. */
-  MENU_BUTTON: '.yt-spec-button-shape-next[aria-expanded], .ytSpecButtonShapeNextHost[aria-expanded]',
+  MENU_BUTTON:
+    '.yt-spec-button-shape-next[aria-expanded], .ytSpecButtonShapeNextHost[aria-expanded]',
   PLAYLIST_PANEL: '.ytdMiniplayerComponentPlaylistPanel',
   PROGRESS_BAR: '.ytp-progress-bar',
   LIKE_BUTTON: 'ytd-slim-metadata-toggle-button-renderer',
