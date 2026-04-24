@@ -308,12 +308,23 @@ resource "aws_iam_role_policy" "lambda" {
         Action = [
           "ecs:RunTask",
           "ecs:DescribeTasks",
-          "ecs:ListTasks"
         ]
         Resource = [
           aws_ecs_task_definition.runner.arn,
           "${aws_ecs_task_definition.runner.arn_without_revision}:*"
         ]
+      },
+      # ListTasks is not scoped to task-definition ARNs; for Fargate IAM often evaluates
+      # container-instance paths. Use * with cluster condition (AWS ECS IAM examples).
+      {
+        Effect   = "Allow"
+        Action   = ["ecs:ListTasks"]
+        Resource = "*"
+        Condition = {
+          ArnEquals = {
+            "ecs:cluster" = aws_ecs_cluster.runner.arn
+          }
+        }
       },
       {
         Effect = "Allow"
