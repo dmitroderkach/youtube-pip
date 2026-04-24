@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createTestContainer } from '../../test-utils/test-container';
-import { createFakeWindow } from '../../test-utils/test-helpers';
+import { createFakeWindow, firstSelectorClass } from '../../test-utils/test-helpers';
 import { createMenuObserverMocks } from './__mocks__/MenuObserver.mock';
 import { MenuObserver } from '../MenuObserver';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
@@ -103,7 +103,7 @@ describe('MenuObserver', () => {
   it('when aria-expanded true and playlist panel exists shows panel', async () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const button = pipDoc.createElement('button');
-    button.className = SELECTORS.BUTTON_SHAPE.slice(1);
+    button.className = firstSelectorClass(SELECTORS.BUTTON_SHAPE);
     button.setAttribute('aria-expanded', 'false');
     const panel = pipDoc.createElement('div');
     panel.className = SELECTORS.PLAYLIST_PANEL.slice(1);
@@ -153,7 +153,7 @@ describe('MenuObserver', () => {
   it('when aria-expanded goes back to false hides playlist panel', async () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const button = pipDoc.createElement('button');
-    button.className = SELECTORS.BUTTON_SHAPE.slice(1);
+    button.className = firstSelectorClass(SELECTORS.BUTTON_SHAPE);
     button.setAttribute('aria-expanded', 'true');
     const panel = pipDoc.createElement('div');
     panel.className = SELECTORS.PLAYLIST_PANEL.slice(1);
@@ -258,7 +258,7 @@ describe('MenuObserver', () => {
   it('when button removed from DOM re-runs observation', async () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const button = pipDoc.createElement('button');
-    button.className = SELECTORS.BUTTON_SHAPE.slice(1);
+    button.className = firstSelectorClass(SELECTORS.BUTTON_SHAPE);
     button.setAttribute('aria-expanded', 'false');
     pipDoc.body.appendChild(button);
     const pipWindow = createFakeWindow({

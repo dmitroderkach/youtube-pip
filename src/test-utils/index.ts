@@ -7,6 +7,7 @@ export {
 export {
   createFakeWindow,
   createFakeMouseEvent,
+  firstSelectorClass,
   createFakePlayer,
   createFakeYtdApp,
   createFakeYtdAppWithFire,
