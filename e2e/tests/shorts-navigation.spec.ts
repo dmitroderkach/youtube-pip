@@ -10,10 +10,10 @@
  *  - assert that <video>.src in Shorts player in PiP has changed
  */
 import { scrollToNextShortInPip, test, waitForShortsPlayerVisibleInPip } from '../fixtures';
-import { E2E_WAIT_TIMEOUT_MS, SKIP_AUTH_E2E_ON_CI } from '../constants';
+import { E2E_WAIT_TIMEOUT_MS } from '../constants';
 import { E2E_SELECTORS } from '../selectors';
 
-(SKIP_AUTH_E2E_ON_CI ? test.describe.skip : test.describe)('Shorts navigation in PiP', () => {
+test.describe('Shorts navigation in PiP', () => {
   test.use({ authState: true });
 
   test('Shorts page → open PiP → scroll to next Short → video src changes', async ({
