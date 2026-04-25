@@ -2,6 +2,7 @@ import json
 import os
 import time
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 
 import boto3
 import jwt
@@ -95,13 +96,18 @@ def _process_message(body):
     labels = payload.get("labels") or []
     run_id = payload.get("run_id", "unknown")
 
+    ec2 = boto3.client("ec2")
+    ecs = boto3.client("ecs")
+
+    # Kick off NAT warm-up in parallel with GitHub token + ECS dispatch flow.
+    nat_future = None
+    if os.environ.get("NAT_INSTANCE_ID"):
+        executor = ThreadPoolExecutor(max_workers=1)
+        nat_future = executor.submit(_ensure_nat_running, ec2)
+
     token = _github_registration_token()
     runner_name = f"fargate-{run_id}"
     assign_public_ip = os.environ.get("ASSIGN_PUBLIC_IP", "DISABLED")
-
-    ec2 = boto3.client("ec2")
-    ecs = boto3.client("ecs")
-    _ensure_nat_running(ec2)
 
     ecs.run_task(
         cluster=os.environ["ECS_CLUSTER_ARN"],
@@ -128,6 +134,11 @@ def _process_message(body):
             ]
         },
     )
+
+    # Surface NAT start failures for SQS retry/DLQ handling.
+    if nat_future is not None:
+        nat_future.result()
+        executor.shutdown(wait=False)
 
 
 def handler(event, _context):
