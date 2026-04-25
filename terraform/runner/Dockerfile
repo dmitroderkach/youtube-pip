@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/playwright:v1.58.0-noble
+FROM ubuntu:24.04
 
 # Keep in sync with https://github.com/actions/runner/releases — old versions are rejected at connect time.
 ARG RUNNER_VERSION=2.334.0
