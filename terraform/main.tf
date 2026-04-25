@@ -32,8 +32,8 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  name_prefix           = "${var.project_name}-${var.environment}"
-  resolved_runner_image = var.runner_image != "" ? var.runner_image : "${aws_ecr_repository.runner.repository_url}:${var.runner_image_tag}"
+  name_prefix                        = "${var.project_name}-${var.environment}"
+  resolved_runner_image              = var.runner_image != "" ? var.runner_image : "${aws_ecr_repository.runner.repository_url}:${var.runner_image_tag}"
   github_app_private_key_secret_name = "youtube-pip-github-app-private-key"
   github_webhook_secret_name         = "youtube-pip-github-webhook-secret"
 }
@@ -355,9 +355,15 @@ resource "aws_iam_role_policy" "lambda" {
       {
         Effect = "Allow"
         Action = [
+          "sqs:SendMessage",
+          "sqs:ReceiveMessage",
+          "sqs:DeleteMessage",
+          "sqs:GetQueueAttributes",
+          "sqs:ChangeMessageVisibility",
           "secretsmanager:GetSecretValue"
         ]
         Resource = [
+          aws_sqs_queue.runner_dispatch.arn,
           data.aws_secretsmanager_secret.github_app_private_key.arn,
           data.aws_secretsmanager_secret.github_webhook_secret.arn
         ]
@@ -366,10 +372,22 @@ resource "aws_iam_role_policy" "lambda" {
   })
 }
 
+resource "aws_sqs_queue" "runner_dispatch" {
+  name                       = "${local.name_prefix}-runner-dispatch"
+  visibility_timeout_seconds = 360
+  message_retention_seconds  = 1209600
+}
+
 data "archive_file" "lambda" {
   type        = "zip"
   source_file = "${path.module}/lambda/handler.py"
   output_path = "${path.module}/lambda/handler.zip"
+}
+
+data "archive_file" "lambda_worker" {
+  type        = "zip"
+  source_file = "${path.module}/lambda/worker.py"
+  output_path = "${path.module}/lambda/worker.zip"
 }
 
 # Layer zip must have `python/` at the archive root (AWS Lambda Python layer layout).
@@ -396,26 +414,50 @@ resource "aws_lambda_function" "dispatcher" {
   filename         = data.archive_file.lambda.output_path
   source_code_hash = data.archive_file.lambda.output_base64sha256
   # Cold NAT: only wait instance_running before RunTask (no status checks / sleep).
-  timeout          = 180
+  timeout = 180
+  layers  = [aws_lambda_layer_version.lambda_deps.arn]
+
+  environment {
+    variables = {
+      DISPATCH_QUEUE_URL        = aws_sqs_queue.runner_dispatch.id
+      GITHUB_WEBHOOK_SECRET_ARN = data.aws_secretsmanager_secret.github_webhook_secret.arn
+      RUNNER_LABELS             = join(",", var.runner_labels)
+    }
+  }
+}
+
+resource "aws_lambda_function" "dispatcher_worker" {
+  function_name    = "${local.name_prefix}-github-runner-dispatcher-worker"
+  role             = aws_iam_role.lambda.arn
+  runtime          = "python3.12"
+  architectures    = ["x86_64"]
+  handler          = "worker.handler"
+  filename         = data.archive_file.lambda_worker.output_path
+  source_code_hash = data.archive_file.lambda_worker.output_base64sha256
+  timeout          = 300
   layers           = [aws_lambda_layer_version.lambda_deps.arn]
 
   environment {
     variables = {
-      ECS_CLUSTER_ARN            = aws_ecs_cluster.runner.arn
-      TASK_DEFINITION_ARN        = aws_ecs_task_definition.runner.arn
-      SUBNET_IDS                 = aws_subnet.private.id
-      SECURITY_GROUP_IDS         = aws_security_group.runner.id
-      GITHUB_OWNER               = var.github_owner
-      GITHUB_REPO                = var.github_repo
-      GITHUB_APP_ID              = var.github_app_id
-      GITHUB_APP_INSTALLATION_ID = var.github_app_installation_id
+      ECS_CLUSTER_ARN                   = aws_ecs_cluster.runner.arn
+      TASK_DEFINITION_ARN               = aws_ecs_task_definition.runner.arn
+      SUBNET_IDS                        = aws_subnet.private.id
+      SECURITY_GROUP_IDS                = aws_security_group.runner.id
+      GITHUB_OWNER                      = var.github_owner
+      GITHUB_REPO                       = var.github_repo
+      GITHUB_APP_ID                     = var.github_app_id
+      GITHUB_APP_INSTALLATION_ID        = var.github_app_installation_id
       GITHUB_APP_PRIVATE_KEY_SECRET_ARN = data.aws_secretsmanager_secret.github_app_private_key.arn
-      GITHUB_WEBHOOK_SECRET_ARN         = data.aws_secretsmanager_secret.github_webhook_secret.arn
-      RUNNER_LABELS              = join(",", var.runner_labels)
-      ASSIGN_PUBLIC_IP           = "DISABLED"
-      NAT_INSTANCE_ID            = aws_instance.nat.id
+      ASSIGN_PUBLIC_IP                  = "DISABLED"
+      NAT_INSTANCE_ID                   = aws_instance.nat.id
     }
   }
+}
+
+resource "aws_lambda_event_source_mapping" "dispatcher_worker_sqs" {
+  event_source_arn = aws_sqs_queue.runner_dispatch.arn
+  function_name    = aws_lambda_function.dispatcher_worker.arn
+  batch_size       = 1
 }
 
 resource "aws_lambda_function_url" "dispatcher" {
