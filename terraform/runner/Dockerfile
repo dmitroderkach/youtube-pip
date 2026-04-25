@@ -1,4 +1,4 @@
-FROM mcr.microsoft.com/playwright:v1.58.0-noble
+FROM ubuntu:24.04
 
 # Keep in sync with https://github.com/actions/runner/releases — old versions are rejected at connect time.
 ARG RUNNER_VERSION=2.334.0
@@ -11,9 +11,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     ca-certificates \
     git \
+    sudo \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -d /home/runner -s /bin/bash runner
+RUN echo "runner ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/runner \
+    && chmod 440 /etc/sudoers.d/runner
 
 WORKDIR /home/runner
 
