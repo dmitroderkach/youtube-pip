@@ -11,6 +11,15 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+
+  default_tags {
+    tags = {
+      Project     = "youtube-pip"
+      Name        = "youtube-pip-prod"
+      Environment = "prod"
+      ManagedBy   = "terraform"
+    }
+  }
 }
 
 resource "aws_s3_bucket" "tf_state" {

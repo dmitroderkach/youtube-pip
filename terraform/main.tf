@@ -10,6 +10,10 @@ terraform {
       source  = "hashicorp/archive"
       version = "~> 2.4"
     }
+    null = {
+      source  = "hashicorp/null"
+      version = "~> 3.2"
+    }
   }
 
   backend "s3" {
@@ -23,6 +27,19 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+
+  ignore_tags {
+    keys = ["awsApplication"]
+  }
+
+  default_tags {
+    tags = {
+      Project     = var.project_name
+      Name        = local.name_prefix
+      Environment = var.environment
+      ManagedBy   = "terraform"
+    }
+  }
 }
 
 data "aws_caller_identity" "current" {}
@@ -32,10 +49,11 @@ data "aws_availability_zones" "available" {
 }
 
 locals {
-  name_prefix                        = "${var.project_name}-${var.environment}"
-  resolved_runner_image              = var.runner_image != "" ? var.runner_image : "${aws_ecr_repository.runner.repository_url}:${var.runner_image_tag}"
-  github_app_private_key_secret_name = "youtube-pip-github-app-private-key"
-  github_webhook_secret_name         = "youtube-pip-github-webhook-secret"
+  name_prefix                            = "${var.project_name}-${var.environment}"
+  resolved_runner_image                  = var.runner_image != "" ? var.runner_image : "${aws_ecr_repository.runner.repository_url}:${var.runner_image_tag}"
+  github_app_private_key_secret_name     = "youtube-pip-github-app-private-key"
+  github_webhook_secret_name             = "youtube-pip-github-webhook-secret"
+  project_budget_alert_email_secret_name = "youtube-pip-budget-alert-email"
 }
 
 data "aws_secretsmanager_secret" "github_app_private_key" {
@@ -44,6 +62,14 @@ data "aws_secretsmanager_secret" "github_app_private_key" {
 
 data "aws_secretsmanager_secret" "github_webhook_secret" {
   name = local.github_webhook_secret_name
+}
+
+data "aws_secretsmanager_secret_version" "project_budget_alert_email" {
+  secret_id = data.aws_secretsmanager_secret.project_budget_alert_email.arn
+}
+
+data "aws_secretsmanager_secret" "project_budget_alert_email" {
+  name = local.project_budget_alert_email_secret_name
 }
 
 resource "aws_vpc" "runner" {
@@ -594,4 +620,60 @@ resource "aws_lambda_permission" "allow_events_invoke_nat_scale_down" {
   function_name = aws_lambda_function.nat_scale_down.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.ecs_task_stopped.arn
+}
+
+resource "aws_budgets_budget" "project_monthly" {
+  name         = "${local.name_prefix}-project-monthly"
+  budget_type  = "COST"
+  limit_amount = format("%.2f", var.project_monthly_budget_usd)
+  limit_unit   = "USD"
+  time_unit    = "MONTHLY"
+
+  cost_filter {
+    name   = "TagKeyValue"
+    values = [format("user:Project$%s", var.project_name)]
+  }
+
+  notification {
+    comparison_operator        = "GREATER_THAN"
+    threshold                  = var.project_budget_alert_threshold_percent
+    threshold_type             = "PERCENTAGE"
+    notification_type          = "ACTUAL"
+    subscriber_email_addresses = [trimspace(data.aws_secretsmanager_secret_version.project_budget_alert_email.secret_string)]
+  }
+}
+
+resource "aws_servicecatalogappregistry_application" "project" {
+  name        = "${local.name_prefix}-app"
+  description = "Application registry entry for ${local.name_prefix} infrastructure."
+}
+
+resource "aws_resourcegroups_group" "project_by_tag" {
+  name        = "${local.name_prefix}-by-tag"
+  description = "Resources tagged with Project ${var.project_name}"
+
+  resource_query {
+    type = "TAG_FILTERS_1_0"
+    query = jsonencode({
+      ResourceTypeFilters = ["AWS::AllSupported"]
+      TagFilters = [
+        {
+          Key    = "Project"
+          Values = [var.project_name]
+        }
+      ]
+    })
+  }
+}
+
+resource "null_resource" "appregistry_associate_by_tag" {
+  triggers = {
+    application_id = aws_servicecatalogappregistry_application.project.id
+    project_name   = var.project_name
+    region         = var.aws_region
+  }
+
+  provisioner "local-exec" {
+    command = "aws servicecatalog-appregistry put-configuration --configuration 'tagQueryConfiguration={tagKey=Project}' --region '${self.triggers.region}' >/dev/null && aws servicecatalog-appregistry disassociate-resource --application '${self.triggers.application_id}' --resource-type RESOURCE_TAG_VALUE --resource 'project=${self.triggers.project_name}' --region '${self.triggers.region}' >/dev/null 2>&1 || true; aws servicecatalog-appregistry disassociate-resource --application '${self.triggers.application_id}' --resource-type RESOURCE_TAG_VALUE --resource '${self.triggers.project_name}' --region '${self.triggers.region}' >/dev/null 2>&1 || true; aws servicecatalog-appregistry associate-resource --application '${self.triggers.application_id}' --resource-type RESOURCE_TAG_VALUE --resource '${self.triggers.project_name}' --region '${self.triggers.region}' >/dev/null || true"
+  }
 }

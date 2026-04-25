@@ -89,3 +89,15 @@ variable "runner_labels" {
   type        = list(string)
   default     = ["self-hosted", "fargate"]
 }
+
+variable "project_monthly_budget_usd" {
+  description = "Monthly budget threshold (USD) for this project tag in AWS Budgets."
+  type        = number
+  default     = 10
+}
+
+variable "project_budget_alert_threshold_percent" {
+  description = "Budget alert threshold percent (for ACTUAL spend)."
+  type        = number
+  default     = 80
+}
