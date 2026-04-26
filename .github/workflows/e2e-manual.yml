@@ -40,7 +40,6 @@ jobs:
       - name: Run full e2e tests (manual)
         id: e2e
         env:
-          E2E_STORAGE_STATE_BASE64: ${{ secrets.E2E_STORAGE_STATE_BASE64 }}
           SKIP_AUTH_E2E_ON_CI: 'false'
         run: npm run test:e2e
 
