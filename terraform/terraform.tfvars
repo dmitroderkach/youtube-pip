@@ -20,6 +20,6 @@ runner_labels = ["self-hosted", "fargate"]
 # Optional runner task tuning (defaults shown here).
 # Leave runner_image empty to use this stack's ECR repository.
 runner_image     = ""
-runner_image_tag = "latest"
+runner_image_tag = "latest-soci"
 runner_cpu       = 2048
 runner_memory    = 4096
