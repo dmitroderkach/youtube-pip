@@ -54,6 +54,7 @@ locals {
   github_app_private_key_secret_name     = "youtube-pip-github-app-private-key"
   github_webhook_secret_name             = "youtube-pip-github-webhook-secret"
   project_budget_alert_email_secret_name = "youtube-pip-budget-alert-email"
+  e2e_storage_state_secret_name          = "youtube-pip-e2e-storage-state-base64"
 }
 
 data "aws_secretsmanager_secret" "github_app_private_key" {
@@ -70,6 +71,10 @@ data "aws_secretsmanager_secret_version" "project_budget_alert_email" {
 
 data "aws_secretsmanager_secret" "project_budget_alert_email" {
   name = local.project_budget_alert_email_secret_name
+}
+
+data "aws_secretsmanager_secret" "e2e_storage_state" {
+  name = local.e2e_storage_state_secret_name
 }
 
 resource "aws_vpc" "runner" {
@@ -316,6 +321,26 @@ resource "aws_iam_role_policy_attachment" "task_execution_default" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+resource "aws_iam_role_policy" "task_execution_secrets" {
+  name = "${local.name_prefix}-task-execution-secrets"
+  role = aws_iam_role.task_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue"
+        ]
+        Resource = [
+          data.aws_secretsmanager_secret.e2e_storage_state.arn
+        ]
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role" "task_role" {
   name = "${local.name_prefix}-task-role"
 
@@ -349,6 +374,12 @@ resource "aws_ecs_task_definition" "runner" {
         { name = "RUNNER_SCOPE", value = "repo" },
         { name = "EPHEMERAL", value = "1" },
         { name = "DISABLE_AUTO_UPDATE", value = "1" }
+      ]
+      secrets = [
+        {
+          name      = "E2E_STORAGE_STATE_BASE64"
+          valueFrom = data.aws_secretsmanager_secret.e2e_storage_state.arn
+        }
       ]
       logConfiguration = {
         logDriver = "awslogs"
