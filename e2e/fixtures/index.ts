@@ -219,8 +219,8 @@ export const test = base.extend<{
         const loc = p.locator(E2E_SELECTORS.SKIP_AD_BUTTON);
         const visible = await loc.isVisible().catch(() => false);
         if (visible) {
-          await loc.click();
-          return true;
+          const clicked = await loc.click().then(() => true).catch(() => false);
+          if (clicked) return true;
         }
       }
       return false;
