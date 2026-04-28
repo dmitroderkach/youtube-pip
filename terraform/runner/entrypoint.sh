@@ -16,7 +16,7 @@ RUNNER_IDLE_TIMEOUT_SECONDS="${RUNNER_IDLE_TIMEOUT_SECONDS:-600}"
 
 cleanup() {
   echo "Removing runner registration..."
-  ./config.sh remove --unattended --token "${RUNNER_TOKEN}" || true
+  ./config.sh remove --token "${RUNNER_TOKEN}" || true
 }
 trap cleanup EXIT
 
