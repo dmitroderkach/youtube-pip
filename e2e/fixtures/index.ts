@@ -43,12 +43,6 @@ type TriggerEnterPictureInPictureFn = (page: Page) => Promise<void>;
 type AssertPiPWindowHasPlayerFn = (page: Page) => Promise<void>;
 type WaitForPiPAdToEndFn = (page: Page) => Promise<void>;
 
-const waitForPiPHandlerReady = async (page: Page): Promise<void> => {
-  await page.waitForFunction(() => window.__E2E_PIP__?.has('enterpictureinpicture'), {
-    timeout: E2E_WAIT_TIMEOUT_MS,
-  });
-};
-
 export { E2E_STORAGE_STATE_PATH, type AuthStateOption, type StoreAuthStateOption };
 export {
   clickExpandInPip,
@@ -156,14 +150,18 @@ export const test = base.extend<{
   videoPageReady: async ({ page, acceptYouTubeConsent }, use) => {
     await page.goto(VIDEO_URL, { waitUntil: 'domcontentloaded' });
     await acceptYouTubeConsent(page);
-    await waitForPiPHandlerReady(page);
+    await page.waitForFunction(() => window.__E2E_PIP__?.has('enterpictureinpicture'), {
+      timeout: E2E_WAIT_TIMEOUT_MS,
+    });
     await use(page);
   },
 
   playlistVideoPageReady: async ({ page, acceptYouTubeConsent }, use) => {
     await page.goto(PLAYLIST_VIDEO_URL, { waitUntil: 'domcontentloaded' });
     await acceptYouTubeConsent(page);
-    await waitForPiPHandlerReady(page);
+    await page.waitForFunction(() => window.__E2E_PIP__?.has('enterpictureinpicture'), {
+      timeout: E2E_WAIT_TIMEOUT_MS,
+    });
     await use(page);
   },
 
@@ -180,10 +178,8 @@ export const test = base.extend<{
   },
 
   triggerEnterPictureInPicture: async ({}, use) => {
-    const trigger: TriggerEnterPictureInPictureFn = async (page) => {
-      await waitForPiPHandlerReady(page);
-      await page.evaluate(() => window.__E2E_PIP__!.trigger('enterpictureinpicture'));
-    };
+    const trigger: TriggerEnterPictureInPictureFn = (page) =>
+      page.evaluate(() => window.__E2E_PIP__!.trigger('enterpictureinpicture'));
     await use(trigger);
   },
 
