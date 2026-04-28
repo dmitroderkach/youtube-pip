@@ -16,7 +16,16 @@ RUNNER_IDLE_TIMEOUT_SECONDS="${RUNNER_IDLE_TIMEOUT_SECONDS:-600}"
 
 cleanup() {
   echo "Removing runner registration..."
-  ./config.sh remove --token "${RUNNER_TOKEN}" || true
+  local remove_output=""
+  remove_output="$(./config.sh remove --token "${RUNNER_TOKEN}" 2>&1)" && return 0
+
+  if [[ "${remove_output}" == *"currently running a job and cannot be deleted"* ]]; then
+    echo "Runner is busy with an active job; skipping removal for now."
+    return 0
+  fi
+
+  echo "${remove_output}"
+  return 0
 }
 trap cleanup EXIT
 
