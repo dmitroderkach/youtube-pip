@@ -32,9 +32,7 @@ const VIDEO_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
 /** Shorts feed page with vertical reels. */
 const SHORTS_URL = 'https://www.youtube.com/shorts';
-const CONSENT_DIALOG_NAME_RE = /Before you continue to YouTube/i;
 const CONSENT_ACCEPT_BUTTON_NAME_RE = /Accept (the use of cookies and|all)/i;
-const CONSENT_WAIT_TIMEOUT_MS = 30_000;
 
 /** Video in a playlist (mix/radio) so mini player shows playlist and expand works. */
 export const PLAYLIST_VIDEO_URL =
@@ -135,23 +133,21 @@ export const test = base.extend<{
     const accept: AcceptYouTubeConsentFn = async (page) => {
       if (authState === true || page.isClosed()) return;
 
-      const dialog = page.getByRole('dialog', { name: CONSENT_DIALOG_NAME_RE });
-      const appeared = await dialog
-        .waitFor({ state: 'visible', timeout: CONSENT_WAIT_TIMEOUT_MS })
+      const acceptButton = page.getByRole('button', {
+        name: CONSENT_ACCEPT_BUTTON_NAME_RE,
+      });
+      const appeared = await acceptButton
+        .waitFor({ state: 'visible', timeout: E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS })
         .then(() => true)
         .catch(() => false);
       if (!appeared) return;
 
-      const acceptButton = page.getByRole('button', {
-        name: CONSENT_ACCEPT_BUTTON_NAME_RE,
-      });
-
       await Promise.all([
         // YouTube may refresh after consent click.
         page
-          .waitForEvent('domcontentloaded', { timeout: CONSENT_WAIT_TIMEOUT_MS })
+          .waitForEvent('domcontentloaded', { timeout: E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS })
           .catch(() => undefined),
-        acceptButton.click({ timeout: CONSENT_WAIT_TIMEOUT_MS }),
+        acceptButton.click({ timeout: E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS }),
       ]);
     };
     await use(accept);
