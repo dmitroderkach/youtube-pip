@@ -155,7 +155,9 @@ export const test = base.extend<{
       try {
         await Promise.all([
           // YouTube may refresh after consent click.
-          page.waitForEvent('domcontentloaded', { timeout: E2E_WAIT_TIMEOUT_MS }).catch(() => undefined),
+          page
+            .waitForEvent('domcontentloaded', { timeout: E2E_WAIT_TIMEOUT_MS })
+            .catch(() => undefined),
           acceptButton.click({ timeout: E2E_WAIT_TIMEOUT_MS }),
         ]);
       } catch (error) {
