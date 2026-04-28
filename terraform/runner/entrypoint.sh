@@ -12,6 +12,7 @@ LABELS="${LABELS:-self-hosted,fargate}"
 EPHEMERAL="${EPHEMERAL:-1}"
 DISABLE_AUTO_UPDATE="${DISABLE_AUTO_UPDATE:-1}"
 RUNNER_WORKDIR="${RUNNER_WORKDIR:-_work}"
+RUNNER_IDLE_TIMEOUT_SECONDS="${RUNNER_IDLE_TIMEOUT_SECONDS:-60}"
 
 cleanup() {
   echo "Removing runner registration..."
@@ -41,4 +42,20 @@ echo "Configuring runner ${RUNNER_NAME}..."
 ./config.sh "${CONFIG_ARGS[@]}"
 
 echo "Starting runner..."
+if [[ "${RUNNER_IDLE_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] && [[ "${RUNNER_IDLE_TIMEOUT_SECONDS}" -gt 0 ]]; then
+  echo "Runner idle timeout is set to ${RUNNER_IDLE_TIMEOUT_SECONDS}s."
+  set +e
+  timeout --preserve-status "${RUNNER_IDLE_TIMEOUT_SECONDS}s" ./run.sh
+  run_exit_code=$?
+  set -e
+
+  if [[ "${run_exit_code}" -eq 124 ]]; then
+    echo "Runner idle timeout reached (${RUNNER_IDLE_TIMEOUT_SECONDS}s). Exiting task."
+    exit 0
+  fi
+
+  exit "${run_exit_code}"
+fi
+
+echo "Runner idle timeout disabled. Running without watchdog."
 exec ./run.sh
