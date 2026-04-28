@@ -13,11 +13,19 @@ EPHEMERAL="${EPHEMERAL:-1}"
 DISABLE_AUTO_UPDATE="${DISABLE_AUTO_UPDATE:-1}"
 RUNNER_WORKDIR="${RUNNER_WORKDIR:-_work}"
 RUNNER_IDLE_TIMEOUT_SECONDS="${RUNNER_IDLE_TIMEOUT_SECONDS:-600}"
+RUNNER_REMOVED=0
 
 cleanup() {
+  if [[ "${RUNNER_REMOVED}" == "1" ]]; then
+    return 0
+  fi
+
   echo "Removing runner registration..."
   local remove_output=""
-  remove_output="$(./config.sh remove --token "${RUNNER_TOKEN}" 2>&1)" && return 0
+  remove_output="$(./config.sh remove --token "${RUNNER_TOKEN}" 2>&1)" && {
+    RUNNER_REMOVED=1
+    return 0
+  }
 
   if [[ "${remove_output}" == *"currently running a job and cannot be deleted"* ]]; then
     echo "Runner is busy with an active job; skipping removal for now."
