@@ -141,7 +141,7 @@ export const test = base.extend<{
         page
           .waitForEvent('domcontentloaded', { timeout: E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS })
           .catch(() => undefined),
-        acceptButton.click({ timeout: E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS }),
+        acceptButton.click(),
       ]);
     };
     await use(accept);

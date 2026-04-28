@@ -15,8 +15,6 @@ import {
 } from '../fixtures';
 
 test.describe('Playlist navigation in PiP popup', () => {
-  test.slow();
-
   test('playlist video → open PiP → expand → click another video → clicked item has selected', async ({
     playlistVideoPageReady: page,
     triggerEnterPictureInPicture,

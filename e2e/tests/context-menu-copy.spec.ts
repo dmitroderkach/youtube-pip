@@ -10,8 +10,6 @@ import { E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS, E2E_WAIT_TIMEOUT_MS } from '.
 const COPY_MENU_INDICES = { VIDEO_URL: 2, URL_AT_TIME: 3, EMBED: 4, DEBUG_INFO: 5 } as const;
 
 test.describe('Context menu copy in PiP', () => {
-  test.slow();
-
   test('copy video URL, URL at time, embed iframe, debug info work', async ({
     videoPageReady: page,
     triggerEnterPictureInPicture,
