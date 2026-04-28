@@ -18,8 +18,6 @@ import { E2E_SELECTORS } from '../selectors';
 const COPY_MENU_INDICES = { VIDEO_URL: 2, URL_AT_TIME: 3, EMBED: 4, DEBUG_INFO: 5 } as const;
 
 test.describe('Context menu copy in Shorts PiP', () => {
-  test.slow();
-
   test.use({ authState: true });
 
   test('Shorts page → open PiP → context menu copy items work', async ({

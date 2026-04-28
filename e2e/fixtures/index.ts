@@ -32,6 +32,7 @@ const VIDEO_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
 /** Shorts feed page with vertical reels. */
 const SHORTS_URL = 'https://www.youtube.com/shorts';
+const CONSENT_ACCEPT_BUTTON_NAME_RE = /Accept (the use of cookies and|all)/i;
 
 /** Video in a playlist (mix/radio) so mini player shows playlist and expand works. */
 export const PLAYLIST_VIDEO_URL =
@@ -122,22 +123,26 @@ export const test = base.extend<{
     await use(getUserscriptBody());
   },
 
-  acceptYouTubeConsent: async ({}, use) => {
+  acceptYouTubeConsent: async ({ authState }, use) => {
     const accept: AcceptYouTubeConsentFn = async (page) => {
-      try {
-        await Promise.all([
-          page.waitForEvent('domcontentloaded', { timeout: E2E_WAIT_TIMEOUT_MS }),
-          // Consent dialog button text differs between regular pages and Shorts.
-          // Use a single regex that matches both variants.
-          page
-            .getByRole('button', {
-              name: /Accept (the use of cookies and|all)/i,
-            })
-            .click(),
-        ]);
-      } catch {
-        // No consent or already accepted
-      }
+      if (authState === true || page.isClosed()) return;
+
+      const acceptButton = page.getByRole('button', {
+        name: CONSENT_ACCEPT_BUTTON_NAME_RE,
+      });
+      const appeared = await acceptButton
+        .waitFor({ state: 'visible', timeout: E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS })
+        .then(() => true)
+        .catch(() => false);
+      if (!appeared) return;
+
+      await Promise.all([
+        // YouTube may refresh after consent click.
+        page
+          .waitForEvent('domcontentloaded', { timeout: E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS })
+          .catch(() => undefined),
+        acceptButton.click(),
+      ]);
     };
     await use(accept);
   },
@@ -214,8 +219,11 @@ export const test = base.extend<{
         const loc = p.locator(E2E_SELECTORS.SKIP_AD_BUTTON);
         const visible = await loc.isVisible().catch(() => false);
         if (visible) {
-          await loc.click();
-          return true;
+          const clicked = await loc
+            .click()
+            .then(() => true)
+            .catch(() => false);
+          if (clicked) return true;
         }
       }
       return false;
