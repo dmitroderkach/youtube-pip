@@ -64,6 +64,12 @@ variable "runner_memory" {
   default     = 4096
 }
 
+variable "runner_idle_timeout_seconds" {
+  description = "Idle timeout (seconds) for runner self-termination when no job is picked up. Set 0 to disable."
+  type        = number
+  default     = 600
+}
+
 variable "github_owner" {
   description = "GitHub repository owner."
   type        = string

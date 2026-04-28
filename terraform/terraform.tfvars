@@ -23,3 +23,4 @@ runner_image     = ""
 runner_image_tag = "latest"
 runner_cpu       = 2048
 runner_memory    = 4096
+runner_idle_timeout_seconds = 60

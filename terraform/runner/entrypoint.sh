@@ -12,10 +12,20 @@ LABELS="${LABELS:-self-hosted,fargate}"
 EPHEMERAL="${EPHEMERAL:-1}"
 DISABLE_AUTO_UPDATE="${DISABLE_AUTO_UPDATE:-1}"
 RUNNER_WORKDIR="${RUNNER_WORKDIR:-_work}"
+RUNNER_IDLE_TIMEOUT_SECONDS="${RUNNER_IDLE_TIMEOUT_SECONDS:-600}"
 
 cleanup() {
   echo "Removing runner registration..."
-  ./config.sh remove --unattended --token "${RUNNER_TOKEN}" || true
+  local remove_output=""
+  remove_output="$(./config.sh remove --token "${RUNNER_TOKEN}" 2>&1)" && return 0
+
+  if [[ "${remove_output}" == *"currently running a job and cannot be deleted"* ]]; then
+    echo "Runner is busy with an active job; skipping removal for now."
+    return 0
+  fi
+
+  echo "${remove_output}"
+  return 0
 }
 trap cleanup EXIT
 
@@ -41,4 +51,29 @@ echo "Configuring runner ${RUNNER_NAME}..."
 ./config.sh "${CONFIG_ARGS[@]}"
 
 echo "Starting runner..."
+if [[ "${RUNNER_IDLE_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] && [[ "${RUNNER_IDLE_TIMEOUT_SECONDS}" -gt 0 ]]; then
+  echo "Runner idle timeout is set to ${RUNNER_IDLE_TIMEOUT_SECONDS}s."
+  ./run.sh &
+  runner_pid=$!
+
+  (
+    sleep "${RUNNER_IDLE_TIMEOUT_SECONDS}"
+    if kill -0 "${runner_pid}" 2>/dev/null; then
+      echo "Runner idle timeout reached (${RUNNER_IDLE_TIMEOUT_SECONDS}s). Trying cleanup and waiting for runner to finish."
+      cleanup
+    fi
+  ) &
+  watchdog_pid=$!
+
+  set +e
+  wait "${runner_pid}"
+  run_exit_code=$?
+  set -e
+
+  kill "${watchdog_pid}" 2>/dev/null || true
+  wait "${watchdog_pid}" 2>/dev/null || true
+  exit "${run_exit_code}"
+fi
+
+echo "Runner idle timeout disabled. Running without watchdog."
 exec ./run.sh

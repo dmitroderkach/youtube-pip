@@ -318,7 +318,8 @@ resource "aws_ecs_task_definition" "runner" {
       environment = [
         { name = "RUNNER_SCOPE", value = "repo" },
         { name = "EPHEMERAL", value = "1" },
-        { name = "DISABLE_AUTO_UPDATE", value = "1" }
+        { name = "DISABLE_AUTO_UPDATE", value = "1" },
+        { name = "RUNNER_IDLE_TIMEOUT_SECONDS", value = tostring(var.runner_idle_timeout_seconds) }
       ]
       secrets = [
         {
