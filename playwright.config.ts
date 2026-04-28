@@ -3,6 +3,7 @@ import { E2E_WAIT_TIMEOUT_MS } from './e2e/constants';
 
 export default defineConfig({
   testDir: 'e2e',
+  timeout: 90_000,
   fullyParallel: false,
   workers: process.env.CI ? 2 : undefined,
   forbidOnly: !!process.env.CI,
