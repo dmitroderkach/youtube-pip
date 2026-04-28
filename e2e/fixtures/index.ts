@@ -34,7 +34,7 @@ const VIDEO_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 const SHORTS_URL = 'https://www.youtube.com/shorts';
 const CONSENT_DIALOG_NAME_RE = /Before you continue to YouTube/i;
 const CONSENT_ACCEPT_BUTTON_NAME_RE = /Accept (the use of cookies and|all)/i;
-const CONSENT_WATCH_POLL_MS = 1500;
+const CONSENT_WAIT_TIMEOUT_MS = 30_000;
 
 /** Video in a playlist (mix/radio) so mini player shows playlist and expand works. */
 export const PLAYLIST_VIDEO_URL =
@@ -44,10 +44,6 @@ type AcceptYouTubeConsentFn = (page: Page) => Promise<void>;
 type TriggerEnterPictureInPictureFn = (page: Page) => Promise<void>;
 type AssertPiPWindowHasPlayerFn = (page: Page) => Promise<void>;
 type WaitForPiPAdToEndFn = (page: Page) => Promise<void>;
-type ConsentWatcherState = {
-  timer: NodeJS.Timeout;
-  inFlight: Promise<void> | null;
-};
 
 const waitForPiPHandlerReady = async (page: Page): Promise<void> => {
   await page.waitForFunction(() => window.__E2E_PIP__?.has('enterpictureinpicture'), {
@@ -135,84 +131,30 @@ export const test = base.extend<{
     await use(getUserscriptBody());
   },
 
-  acceptYouTubeConsent: async ({}, use, testInfo: TestInfo) => {
-    const watchers = new Map<Page, ConsentWatcherState>();
+  acceptYouTubeConsent: async ({ authState }, use) => {
+    const accept: AcceptYouTubeConsentFn = async (page) => {
+      if (authState === true || page.isClosed()) return;
 
-    const reportConsentError = async (source: string, error: unknown) => {
-      const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-      const log = `[consent:${source}] ${message}`;
-      console.warn(log);
-      await testInfo.attach(`consent-${source}-warn`, {
-        body: `${log}\n`,
-        contentType: 'text/plain',
-      });
-    };
-
-    const ensureConsentGone = async (page: Page, source: string): Promise<void> => {
-      if (page.isClosed()) return;
       const dialog = page.getByRole('dialog', { name: CONSENT_DIALOG_NAME_RE });
-      const isDialogVisible = await dialog.isVisible().catch(() => false);
-      if (!isDialogVisible) return;
+      const appeared = await dialog
+        .waitFor({ state: 'visible', timeout: CONSENT_WAIT_TIMEOUT_MS })
+        .then(() => true)
+        .catch(() => false);
+      if (!appeared) return;
 
       const acceptButton = page.getByRole('button', {
         name: CONSENT_ACCEPT_BUTTON_NAME_RE,
       });
 
-      try {
-        await Promise.all([
-          // YouTube may refresh after consent click.
-          page
-            .waitForEvent('domcontentloaded', { timeout: E2E_WAIT_TIMEOUT_MS })
-            .catch(() => undefined),
-          acceptButton.click({ timeout: E2E_WAIT_TIMEOUT_MS }),
-        ]);
-      } catch (error) {
-        await reportConsentError(`${source}-click`, error);
-        return;
-      }
-
-      const closed = await dialog
-        .waitFor({
-          state: 'hidden',
-          timeout: E2E_WAIT_TIMEOUT_MS,
-        })
-        .then(() => true)
-        .catch(() => false);
-
-      if (!closed) {
-        await reportConsentError(
-          `${source}-not-closed`,
-          new Error('Consent dialog stayed visible after clicking accept')
-        );
-      }
-    };
-
-    const startConsentWatcher = (page: Page): ConsentWatcherState => {
-      const existing = watchers.get(page);
-      if (existing) return existing;
-
-      const state: ConsentWatcherState = {
-        timer: setInterval(() => {
-          if (state.inFlight || page.isClosed()) return;
-          state.inFlight = ensureConsentGone(page, 'watcher').finally(() => {
-            state.inFlight = null;
-          });
-        }, CONSENT_WATCH_POLL_MS),
-        inFlight: null,
-      };
-
-      page.once('close', () => clearInterval(state.timer));
-      watchers.set(page, state);
-      return state;
-    };
-
-    const accept: AcceptYouTubeConsentFn = async (page) => {
-      const watcher = startConsentWatcher(page);
-      if (watcher.inFlight) await watcher.inFlight;
-      await ensureConsentGone(page, 'barrier');
+      await Promise.all([
+        // YouTube may refresh after consent click.
+        page
+          .waitForEvent('domcontentloaded', { timeout: CONSENT_WAIT_TIMEOUT_MS })
+          .catch(() => undefined),
+        acceptButton.click({ timeout: CONSENT_WAIT_TIMEOUT_MS }),
+      ]);
     };
     await use(accept);
-    for (const state of watchers.values()) clearInterval(state.timer);
   },
 
   videoPageReady: async ({ page, acceptYouTubeConsent }, use) => {
@@ -241,10 +183,8 @@ export const test = base.extend<{
     await use(page);
   },
 
-  triggerEnterPictureInPicture: async ({ acceptYouTubeConsent }, use) => {
+  triggerEnterPictureInPicture: async ({}, use) => {
     const trigger: TriggerEnterPictureInPictureFn = async (page) => {
-      await acceptYouTubeConsent(page);
-      // Consent acceptance can refresh the page; wait until PiP handler is re-registered.
       await waitForPiPHandlerReady(page);
       await page.evaluate(() => window.__E2E_PIP__!.trigger('enterpictureinpicture'));
     };
@@ -269,7 +209,7 @@ export const test = base.extend<{
     await use(assertFn);
   },
 
-  waitForPiPAdToEnd: async ({ acceptYouTubeConsent }, use) => {
+  waitForPiPAdToEnd: async ({}, use) => {
     const isAdOverlayGone = (page: Page) =>
       page.evaluate((adOverlaySel: string) => {
         const pip = window.documentPictureInPicture?.window;
@@ -295,11 +235,9 @@ export const test = base.extend<{
     };
 
     const waitFn: WaitForPiPAdToEndFn = async (page) => {
-      await acceptYouTubeConsent(page);
       const timeout = E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS;
       const maxAttempts = 10;
       for (let i = 0; i < maxAttempts; i++) {
-        await acceptYouTubeConsent(page);
         const skipPoll = setInterval(() => void tryClickSkipAdInPip(page), E2E_PIP_SKIP_AD_POLL_MS);
         try {
           await page.waitForFunction(
