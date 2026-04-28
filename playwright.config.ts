@@ -11,8 +11,7 @@ export default defineConfig({
   reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
   use: {
     baseURL: 'https://www.youtube.com',
-    // TEMP: keep trace for every run while stabilizing flaky consent flow.
-    trace: 'on',
+    trace: 'on-first-retry',
     video: 'on-first-retry',
     actionTimeout: E2E_WAIT_TIMEOUT_MS,
   },

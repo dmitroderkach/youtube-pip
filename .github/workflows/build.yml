@@ -59,16 +59,6 @@ jobs:
           name: playwright-report.zip
           path: playwright-report/
           retention-days: 7
-
-      - name: Upload Playwright traces
-        uses: actions/upload-artifact@v7
-        if: always() && (steps.e2e.outcome == 'success' || steps.e2e.outcome == 'failure')
-        with:
-          name: playwright-traces
-          path: test-results/**/trace.zip
-          if-no-files-found: warn
-          retention-days: 7
-
       - name: Upload build artifact
         uses: actions/upload-artifact@v7
         with:
