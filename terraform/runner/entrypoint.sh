@@ -13,17 +13,18 @@ EPHEMERAL="${EPHEMERAL:-1}"
 DISABLE_AUTO_UPDATE="${DISABLE_AUTO_UPDATE:-1}"
 RUNNER_WORKDIR="${RUNNER_WORKDIR:-_work}"
 RUNNER_IDLE_TIMEOUT_SECONDS="${RUNNER_IDLE_TIMEOUT_SECONDS:-600}"
-RUNNER_REMOVED=0
+RUNNER_REMOVED_MARKER="/tmp/github-runner-removed"
+rm -f "${RUNNER_REMOVED_MARKER}"
 
 cleanup() {
-  if [[ "${RUNNER_REMOVED}" == "1" ]]; then
+  if [[ -f "${RUNNER_REMOVED_MARKER}" ]]; then
     return 0
   fi
 
   echo "Removing runner registration..."
   local remove_output=""
   remove_output="$(./config.sh remove --token "${RUNNER_TOKEN}" 2>&1)" && {
-    RUNNER_REMOVED=1
+    touch "${RUNNER_REMOVED_MARKER}"
     return 0
   }
 
