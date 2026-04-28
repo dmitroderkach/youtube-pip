@@ -44,16 +44,25 @@ echo "Configuring runner ${RUNNER_NAME}..."
 echo "Starting runner..."
 if [[ "${RUNNER_IDLE_TIMEOUT_SECONDS}" =~ ^[0-9]+$ ]] && [[ "${RUNNER_IDLE_TIMEOUT_SECONDS}" -gt 0 ]]; then
   echo "Runner idle timeout is set to ${RUNNER_IDLE_TIMEOUT_SECONDS}s."
+  ./run.sh &
+  runner_pid=$!
+
+  (
+    sleep "${RUNNER_IDLE_TIMEOUT_SECONDS}"
+    if kill -0 "${runner_pid}" 2>/dev/null; then
+      echo "Runner idle timeout reached (${RUNNER_IDLE_TIMEOUT_SECONDS}s). Trying cleanup and waiting for runner to finish."
+      cleanup
+    fi
+  ) &
+  watchdog_pid=$!
+
   set +e
-  timeout --preserve-status "${RUNNER_IDLE_TIMEOUT_SECONDS}s" ./run.sh
+  wait "${runner_pid}"
   run_exit_code=$?
   set -e
 
-  if [[ "${run_exit_code}" -eq 124 ]]; then
-    echo "Runner idle timeout reached (${RUNNER_IDLE_TIMEOUT_SECONDS}s). Exiting task."
-    exit 0
-  fi
-
+  kill "${watchdog_pid}" 2>/dev/null || true
+  wait "${watchdog_pid}" 2>/dev/null || true
   exit "${run_exit_code}"
 fi
 
