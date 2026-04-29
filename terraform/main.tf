@@ -654,6 +654,6 @@ resource "null_resource" "appregistry_associate_by_tag" {
   }
 
   provisioner "local-exec" {
-    command = "aws servicecatalog-appregistry put-configuration --configuration 'tagQueryConfiguration={tagKey=Project}' --region '${self.triggers.region}' >/dev/null && aws servicecatalog-appregistry disassociate-resource --application '${self.triggers.application_id}' --resource-type RESOURCE_TAG_VALUE --resource 'project=${self.triggers.project_name}' --region '${self.triggers.region}' >/dev/null 2>&1 || true; aws servicecatalog-appregistry disassociate-resource --application '${self.triggers.application_id}' --resource-type RESOURCE_TAG_VALUE --resource '${self.triggers.project_name}' --region '${self.triggers.region}' >/dev/null 2>&1 || true; aws servicecatalog-appregistry associate-resource --application '${self.triggers.application_id}' --resource-type RESOURCE_TAG_VALUE --resource '${self.triggers.project_name}' --region '${self.triggers.region}' >/dev/null || true"
+    command = "aws servicecatalog-appregistry associate-resource --application '${self.triggers.application_id}' --resource-type RESOURCE_TAG_VALUE --resource '${self.triggers.project_name}' --region '${self.triggers.region}'"
   }
 }
