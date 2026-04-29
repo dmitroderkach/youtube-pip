@@ -392,15 +392,6 @@ resource "aws_iam_role_policy" "lambda" {
       },
       {
         Effect = "Allow"
-        Action = [
-          "ec2:DescribeInstances",
-          "ec2:StartInstances",
-          "ec2:StopInstances"
-        ]
-        Resource = "*"
-      },
-      {
-        Effect = "Allow"
         Action = "iam:PassRole"
         Resource = [
           aws_iam_role.task_execution.arn,
@@ -431,6 +422,56 @@ resource "aws_iam_role_policy" "lambda" {
           data.aws_secretsmanager_secret.github_app_private_key.arn,
           data.aws_secretsmanager_secret.github_webhook_secret.arn
         ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role" "runner_nat_lifecycle" {
+  name = "${local.name_prefix}-runner-nat-lifecycle-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Principal = {
+        Service = "lambda.amazonaws.com"
+      }
+      Action = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "runner_nat_lifecycle_basic" {
+  role       = aws_iam_role.runner_nat_lifecycle.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "runner_nat_lifecycle" {
+  name = "${local.name_prefix}-runner-nat-lifecycle-policy"
+  role = aws_iam_role.runner_nat_lifecycle.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["ecs:ListTasks"]
+        Resource = "*"
+        Condition = {
+          ArnEquals = {
+            "ecs:cluster" = aws_ecs_cluster.runner.arn
+          }
+        }
+      },
+      {
+        Effect = "Allow"
+        Action = [
+          "ec2:DescribeInstances",
+          "ec2:StartInstances",
+          "ec2:StopInstances"
+        ]
+        Resource = "*"
       }
     ]
   })
@@ -477,9 +518,8 @@ resource "aws_lambda_function" "dispatcher" {
   handler          = "handler.handler"
   filename         = data.archive_file.lambda.output_path
   source_code_hash = data.archive_file.lambda.output_base64sha256
-  # Cold NAT: only wait instance_running before RunTask (no status checks / sleep).
-  timeout = 180
-  layers  = [aws_lambda_layer_version.lambda_deps.arn]
+  timeout          = 180
+  layers           = [aws_lambda_layer_version.lambda_deps.arn]
 
   environment {
     variables = {
@@ -513,7 +553,6 @@ resource "aws_lambda_function" "dispatcher_worker" {
       GITHUB_APP_INSTALLATION_ID        = var.github_app_installation_id
       GITHUB_APP_PRIVATE_KEY_SECRET_ARN = data.aws_secretsmanager_secret.github_app_private_key.arn
       ASSIGN_PUBLIC_IP                  = "DISABLED"
-      NAT_INSTANCE_ID                   = aws_instance.nat.id
     }
   }
 }
@@ -553,21 +592,22 @@ resource "aws_lambda_permission" "dispatcher_function_invoke_via_url" {
   principal     = "*"
 }
 
-data "archive_file" "nat_scale_down_lambda" {
+data "archive_file" "runner_nat_lifecycle_lambda" {
   type        = "zip"
-  source_file = "${path.module}/lambda/nat_scale_down.py"
-  output_path = "${path.module}/lambda/nat_scale_down.zip"
+  source_file = "${path.module}/lambda/nat_lifecycle.py"
+  output_path = "${path.module}/lambda/runner_nat_lifecycle.zip"
 }
 
-resource "aws_lambda_function" "nat_scale_down" {
-  function_name    = "${local.name_prefix}-nat-scale-down"
-  role             = aws_iam_role.lambda.arn
+resource "aws_lambda_function" "runner_nat_lifecycle" {
+  function_name    = "${local.name_prefix}-runner-nat-lifecycle"
+  role             = aws_iam_role.runner_nat_lifecycle.arn
   runtime          = "python3.12"
   architectures    = ["x86_64"]
-  handler          = "nat_scale_down.handler"
-  filename         = data.archive_file.nat_scale_down_lambda.output_path
-  source_code_hash = data.archive_file.nat_scale_down_lambda.output_base64sha256
-  timeout          = 30
+  handler          = "nat_lifecycle.handler"
+  filename         = data.archive_file.runner_nat_lifecycle_lambda.output_path
+  source_code_hash = data.archive_file.runner_nat_lifecycle_lambda.output_base64sha256
+  # Wait for stopping → stopped → start → running can exceed several minutes.
+  timeout = 600
 
   environment {
     variables = {
@@ -577,32 +617,32 @@ resource "aws_lambda_function" "nat_scale_down" {
   }
 }
 
-resource "aws_cloudwatch_event_rule" "ecs_task_stopped" {
-  name        = "${local.name_prefix}-ecs-task-stopped"
-  description = "Trigger NAT scale down when runner task stops"
+resource "aws_cloudwatch_event_rule" "runner_nat_reconcile" {
+  name        = "${local.name_prefix}-runner-nat-reconcile"
+  description = "Reconcile NAT EC2 with runner ECS tasks (start when work appears, stop when idle)"
 
   event_pattern = jsonencode({
     source        = ["aws.ecs"]
     "detail-type" = ["ECS Task State Change"]
     detail = {
       clusterArn = [aws_ecs_cluster.runner.arn]
-      lastStatus = ["STOPPED"]
+      lastStatus = ["STOPPED", "PENDING", "PROVISIONING", "ACTIVATING", "RUNNING"]
     }
   })
 }
 
-resource "aws_cloudwatch_event_target" "nat_scale_down_lambda" {
-  rule      = aws_cloudwatch_event_rule.ecs_task_stopped.name
-  target_id = "nat-scale-down-lambda"
-  arn       = aws_lambda_function.nat_scale_down.arn
+resource "aws_cloudwatch_event_target" "runner_nat_lifecycle_lambda" {
+  rule      = aws_cloudwatch_event_rule.runner_nat_reconcile.name
+  target_id = "runner-nat-lifecycle-lambda"
+  arn       = aws_lambda_function.runner_nat_lifecycle.arn
 }
 
-resource "aws_lambda_permission" "allow_events_invoke_nat_scale_down" {
+resource "aws_lambda_permission" "allow_events_invoke_runner_nat_lifecycle" {
   statement_id  = "AllowExecutionFromEventBridge"
   action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.nat_scale_down.function_name
+  function_name = aws_lambda_function.runner_nat_lifecycle.function_name
   principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.ecs_task_stopped.arn
+  source_arn    = aws_cloudwatch_event_rule.runner_nat_reconcile.arn
 }
 
 resource "aws_budgets_budget" "project_monthly" {
