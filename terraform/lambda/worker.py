@@ -2,7 +2,6 @@ import json
 import os
 import time
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
 
 import boto3
 import jwt
@@ -74,36 +73,13 @@ def _github_registration_token():
     return payload["token"]
 
 
-def _ensure_nat_running(ec2):
-    nat_instance_id = os.environ.get("NAT_INSTANCE_ID")
-    if not nat_instance_id:
-        return
-
-    response = ec2.describe_instances(InstanceIds=[nat_instance_id])
-    state = response["Reservations"][0]["Instances"][0]["State"]["Name"]
-    # StartInstances is valid only from stopped; if still stopping, wait first.
-    if state == "stopping":
-        ec2.get_waiter("instance_stopped").wait(InstanceIds=[nat_instance_id])
-        state = "stopped"
-    if state == "stopped":
-        ec2.start_instances(InstanceIds=[nat_instance_id])
-        ec2.get_waiter("instance_running").wait(InstanceIds=[nat_instance_id])
-
-
 def _process_message(body):
     payload = json.loads(body)
     repo_url = payload["repo_url"]
     labels = payload.get("labels") or []
     run_id = payload.get("run_id", "unknown")
 
-    ec2 = boto3.client("ec2")
     ecs = boto3.client("ecs")
-
-    # Kick off NAT warm-up in parallel with GitHub token + ECS dispatch flow.
-    nat_future = None
-    if os.environ.get("NAT_INSTANCE_ID"):
-        executor = ThreadPoolExecutor(max_workers=1)
-        nat_future = executor.submit(_ensure_nat_running, ec2)
 
     token = _github_registration_token()
     runner_name = f"fargate-{run_id}"
@@ -134,11 +110,6 @@ def _process_message(body):
             ]
         },
     )
-
-    # Surface NAT start failures for SQS retry/DLQ handling.
-    if nat_future is not None:
-        nat_future.result()
-        executor.shutdown(wait=False)
 
 
 def handler(event, _context):

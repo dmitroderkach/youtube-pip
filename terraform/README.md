@@ -1,6 +1,6 @@
 # Terraform: Lambda + ECS Fargate GitHub Runner
 
-For an **architecture walkthrough** (webhook → dispatcher → Fargate → NAT → scale-down on idle), see **[`docs/SELF_HOSTED_RUNNERS.md`](../docs/SELF_HOSTED_RUNNERS.md)**.
+For an **architecture walkthrough** (webhook → dispatcher → Fargate → NAT lifecycle on ECS events), see **[`docs/SELF_HOSTED_RUNNERS.md`](../docs/SELF_HOSTED_RUNNERS.md)**.
 
 This folder provisions an on-demand GitHub Actions runner solution:
 
@@ -123,8 +123,7 @@ runs-on: [self-hosted, fargate]
 
 - Stack creates a dedicated VPC with public/private subnets and NAT EC2 instance (with EIP).
 - Fargate tasks run in private subnet with `assignPublicIp=DISABLED`.
-- Dispatcher Lambda starts NAT instance before `RunTask`.
-- Event-driven `nat_scale_down` Lambda is triggered by ECS `Task STOPPED` event and stops NAT when no `RUNNING`/`PENDING` tasks remain.
+- **`runner_nat_lifecycle`** (`terraform/lambda/nat_lifecycle.py`): **EventBridge** invokes it on selected **ECS Task State Change** events for the runner cluster. It **`ListTasks`** (`RUNNING` / `PENDING`); if any task exists it **starts/waits for** the NAT EC2 (including `stopping` → `stopped` → start); otherwise it **stops** the NAT instance. The dispatcher **worker** no longer calls EC2 for NAT.
 - Outbound traffic goes through NAT instance with static Elastic IP (`runner_nat_eip` output).
 - By default, task image resolves to this stack ECR repo: `<repo_url>:<runner_image_tag>`.
 - You can still override with a full `runner_image` value.
