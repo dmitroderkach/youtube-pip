@@ -55,6 +55,9 @@ locals {
   github_webhook_secret_name             = "youtube-pip-github-webhook-secret"
   project_budget_alert_email_secret_name = "youtube-pip-budget-alert-email"
   e2e_storage_state_secret_name          = "youtube-pip-e2e-storage-state-base64"
+
+  # Single source of truth: changing this string changes sha256 in null_resource triggers → replace → local-exec re-runs.
+  appregistry_associate_by_tag_shell = "aws servicecatalog-appregistry put-configuration --configuration 'tagQueryConfiguration={tagKey=Project}' --region '${var.aws_region}' >/dev/null && aws servicecatalog-appregistry associate-resource --application '${aws_servicecatalogappregistry_application.project.id}' --resource-type RESOURCE_TAG_VALUE --resource '${var.project_name}' --region '${var.aws_region}'"
 }
 
 data "aws_secretsmanager_secret" "github_app_private_key" {
@@ -630,12 +633,13 @@ resource "aws_servicecatalogappregistry_application" "project" {
 
 resource "null_resource" "appregistry_associate_by_tag" {
   triggers = {
-    application_id = aws_servicecatalogappregistry_application.project.id
-    project_name   = var.project_name
-    region         = var.aws_region
+    application_id           = aws_servicecatalogappregistry_application.project.id
+    project_name             = var.project_name
+    region                   = var.aws_region
+    associate_command_sha256 = sha256(local.appregistry_associate_by_tag_shell)
   }
 
   provisioner "local-exec" {
-    command = "aws servicecatalog-appregistry put-configuration --configuration 'tagQueryConfiguration={tagKey=Project}' --region '${self.triggers.region}' >/dev/null && aws servicecatalog-appregistry associate-resource --application '${self.triggers.application_id}' --resource-type RESOURCE_TAG_VALUE --resource '${self.triggers.project_name}' --region '${self.triggers.region}'"
+    command = local.appregistry_associate_by_tag_shell
   }
 }
