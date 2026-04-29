@@ -1,9 +1,13 @@
 #!/bin/bash
-# NAT on Amazon Linux 2023 (single ENI). Plain shell file (loaded via Terraform file()) so $5 / $(...) are not mangled by HCL.
+# NAT on Amazon Linux (AL2/AL2023, single ENI). Plain shell file (loaded via Terraform file()) so $5 / $(...) are not mangled by HCL.
 # Ref: https://docs.aws.amazon.com/vpc/latest/userguide/work-with-nat-instances.html
 set -eux
 for _ in {1..12}; do
-  dnf install -y iptables-services && break
+  if command -v dnf >/dev/null 2>&1; then
+    dnf install -y iptables-services && break
+  else
+    yum install -y iptables-services && break
+  fi
   sleep 10
 done
 systemctl enable iptables

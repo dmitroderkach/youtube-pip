@@ -143,7 +143,7 @@ data "aws_ami" "nat" {
 
   filter {
     name   = "name"
-    values = ["al2023-ami-*-kernel-6.1-arm64"]
+    values = ["amzn2-ami-hvm-*-arm64-gp2"]
   }
 
   filter {
@@ -159,6 +159,9 @@ resource "aws_instance" "nat" {
   vpc_security_group_ids      = [aws_security_group.nat_instance.id]
   associate_public_ip_address = true
   source_dest_check           = false
+  root_block_device {
+    volume_size = 8
+  }
 
   # Shell script in separate file: Terraform heredocs mangle $(...) and $n (e.g. 1662(, 16705).
   user_data = file("${path.module}/nat-user-data.sh")
