@@ -9,6 +9,7 @@ This document describes **how the on-demand runner stack works end-to-end**: fro
 - Run CI jobs on **self-hosted** labels (`runs-on: [self-hosted, fargate]`) instead of GitHub-hosted runners.
 - **Spin up only when needed** — no always-on runner VMs.
 - Give outbound traffic a **stable public IPv4** (Elastic IP on a NAT EC2 instance) so allowlists and regional behaviour (e.g. EU) are predictable.
+- **Avoid Google IP bans in E2E tests** — GitHub-hosted runner IP ranges are on Google's blocklist; the test Google account gets challenged or banned when CI runs from those IPs. A fixed Elastic IP is treated as a known stable origin and keeps the E2E session valid.
 - **Stop paying for NAT compute when nothing runs** — the NAT instance is **stopped when there are no runner tasks**, not left running 24/7.
 
 ---
