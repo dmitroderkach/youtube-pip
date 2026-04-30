@@ -608,6 +608,8 @@ resource "aws_lambda_function" "runner_nat_lifecycle" {
   source_code_hash = data.archive_file.runner_nat_lifecycle_lambda.output_base64sha256
   # Wait for stopping → stopped → start → running can exceed several minutes.
   timeout = 600
+  # Serialize reconciles so two EventBridge deliveries never run EC2/ECS checks in parallel.
+  reserved_concurrent_executions = 1
 
   environment {
     variables = {
