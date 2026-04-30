@@ -122,7 +122,17 @@ E2E tests need to locate elements on the YouTube page and inside the PiP documen
 
 ---
 
-## 14. Framework-level Conflict Resolution: The Monkey Patch Guard
+## 14. CI Infrastructure: Self-Hosted Runners for E2E Tests
+
+E2E tests log into YouTube using a dedicated test Google account (session captured as frozen auth state, see §12).
+
+- **Decision**: Run all CI jobs on self-hosted Fargate runners with a fixed Elastic IP, rather than standard GitHub-hosted runners.
+- **Why?**: Google actively blocks authentication and API access from GitHub Actions IP ranges — those datacenter IPs are on Google's unwanted list. When E2E tests run on github-hosted runners the test account gets challenged or outright banned, causing the entire suite to fail. A self-hosted runner behind our own static Elastic IP is treated by Google like traffic from a known, stable origin, so sessions remain valid and tests pass reliably.
+- **Consequence**: The NAT EC2 instance (which carries the Elastic IP) must be running for any CI job to reach Google. The `runner_nat_lifecycle` Lambda manages its start/stop lifecycle automatically (see `docs/SELF_HOSTED_RUNNERS.md`).
+
+---
+
+## 15. Framework-level Conflict Resolution: The Monkey Patch Guard
 
 When moving complex elements like `ytd-shorts` between the main window and the PiP document, we encounter a fundamental architectural conflict with YouTube's Kevlar engine.
 
