@@ -110,6 +110,10 @@ yt-reel-metapanel-view-model {
   max-width: unset !important;
 }
 
+yt-reel-metapanel-view-model button {
+  display: none !important;
+}
+
 #metapanel.ytd-reel-player-overlay-renderer {
   width: calc(100vw - 32px) !important;
 }
@@ -120,4 +124,25 @@ ytd-shorts #shorts-container.ytd-shorts {
 
 ytd-shorts ytd-info-panel-content-renderer {
   width: 100vw !important;
+}
+
+ytd-shorts yt-reel-player-overlay-view-model {
+  visibility: visible !important;
+}
+
+ytd-shorts yt-reel-player-overlay-view-model .ytReelPlayerOverlayViewModelActionsContainer {
+  display: none !important;
+}
+
+ytd-shorts .ytReelPlayerOverlayViewModelMetadataContainerMetapanel {
+  padding: 0 16px 16px 16px !important;
+}
+
+ytd-shorts ytd-reel-video-renderer .overlay.ytd-reel-video-renderer {
+  width: 100vw !important;
+  min-width: unset !important;
+}
+
+ytd-shorts yt-info-panel-overview-view-model {
+  pointer-events: none !important;
 }

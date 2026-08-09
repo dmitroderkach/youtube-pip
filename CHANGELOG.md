@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.4.1] - 2026-08-09
+
+### Fixed
+
+- **Shorts PiP layout** — Hide metapanel / overlay action buttons that clutter the narrow PiP window; keep reel overlay metadata visible with compact padding; force overlay and info panel width to the viewport; disable pointer events on info panel overview so controls do not block interaction.
+
 ## [2.4.0] - 2026-04-24
 
 ### Added
@@ -1041,6 +1047,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.4.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.0...refs/tags/v2.4.1
 [2.4.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.19...refs/tags/v2.4.0
 [2.3.19]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.18...refs/tags/v2.3.19
 [2.3.18]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.17...refs/tags/v2.3.18
