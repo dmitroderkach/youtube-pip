@@ -15,7 +15,7 @@ import {
 import { E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS, E2E_WAIT_TIMEOUT_MS } from '../constants';
 import { E2E_SELECTORS } from '../selectors';
 
-const COPY_MENU_INDICES = { VIDEO_URL: 2, URL_AT_TIME: 3, EMBED: 4, DEBUG_INFO: 5 } as const;
+const COPY_MENU_INDICES = { VIDEO_URL: 1, URL_AT_TIME: 2, EMBED: 3, DEBUG_INFO: 4 } as const;
 
 test.describe('Context menu copy in Shorts PiP', () => {
   test.use({ authState: true });
