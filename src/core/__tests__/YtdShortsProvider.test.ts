@@ -1,29 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { mock, type MockProxy } from 'vitest-mock-extended';
 import { createTestContainer } from '../../test-utils/test-container';
 import { YtdShortsProvider } from '../YtdShortsProvider';
-import { ShortsInfoPanelHandler } from '../../handlers/ShortsInfoPanelHandler';
 import { SELECTORS } from '../../selectors';
 import { PLAYER_STATES, TIMEOUTS } from '../../constants';
 import type { YouTubeShortsElement } from '../../types/youtube';
 
-vi.mock('../../utils/DOMUtils', () => ({
-  DOMUtils: {
-    createPlaceholder: vi.fn(() => document.createComment('placeholder')),
-    insertPlaceholderBefore: vi.fn(),
-    restoreElementFromPlaceholder: vi.fn(),
-  },
-}));
-
 describe('YtdShortsProvider', () => {
   let provider: YtdShortsProvider;
-  let mockShortsInfoPanelHandler: MockProxy<ShortsInfoPanelHandler>;
 
   beforeEach(() => {
     vi.useFakeTimers();
-    mockShortsInfoPanelHandler = mock<ShortsInfoPanelHandler>();
     const c = createTestContainer();
-    c.bind(ShortsInfoPanelHandler).toInstance(mockShortsInfoPanelHandler);
     c.bind(YtdShortsProvider).toSelf();
     provider = c.get(YtdShortsProvider);
   });
@@ -80,43 +67,6 @@ describe('YtdShortsProvider', () => {
     provider.hideAllEngagementPanelSections();
 
     expect(clickSpy).toHaveBeenCalled();
-  });
-
-  it('reinitShortsLifeCycle when shorts null resolves without modifying DOM', async () => {
-    await expect(provider.reinitShortsLifeCycle()).resolves.toBeUndefined();
-  });
-
-  it('reinitShortsLifeCycle when visibility visible runs remove and restore', async () => {
-    const { DOMUtils } = await import('../../utils/DOMUtils');
-    vi.mocked(DOMUtils.createPlaceholder).mockReturnValue(document.createComment('ph'));
-    vi.mocked(DOMUtils.insertPlaceholderBefore).mockImplementation((el: Node, _ph: Comment) => {
-      el.parentNode?.insertBefore(document.createComment('ph'), el);
-      return true;
-    });
-    vi.mocked(DOMUtils.restoreElementFromPlaceholder).mockImplementation(() => {});
-
-    const shorts = document.createElement(SELECTORS.YTD_SHORTS) as YouTubeShortsElement;
-    shorts.player = {
-      getPlayerState: vi.fn().mockReturnValue(PLAYER_STATES.PAUSED),
-      playVideo: vi.fn(),
-    };
-    const parent = document.createElement('div');
-    parent.appendChild(shorts);
-    document.body.appendChild(parent);
-
-    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
-
-    provider.setShorts(shorts);
-    const p = provider.reinitShortsLifeCycle();
-    await vi.runAllTimersAsync();
-    await p;
-
-    expect(DOMUtils.createPlaceholder).toHaveBeenCalledWith('shorts_placeholder');
-    expect(DOMUtils.restoreElementFromPlaceholder).toHaveBeenCalled();
-    expect(mockShortsInfoPanelHandler.unhideVisibleInfoPanelParagraphs).toHaveBeenCalledWith(
-      shorts
-    );
-    parent.remove();
   });
 
   it('isShortsVisible returns false when ytd-shorts not in document', () => {
@@ -241,81 +191,5 @@ describe('YtdShortsProvider', () => {
     expect(typeof shorts.loadVideo).toBe('function');
     await vi.advanceTimersByTimeAsync(TIMEOUTS.IDLE_TIMEOUT);
     expect(shorts.loadVideo).toBeUndefined();
-  });
-
-  it('reinitShortsLifeCycle when parent null resolves after warn', async () => {
-    const shorts = document.createElement(SELECTORS.YTD_SHORTS) as YouTubeShortsElement;
-    shorts.player = {
-      getPlayerState: vi.fn().mockReturnValue(PLAYER_STATES.PAUSED),
-      playVideo: vi.fn(),
-    };
-    const parent = document.createElement('div');
-    parent.appendChild(shorts);
-    document.body.appendChild(parent);
-    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
-    provider.setShorts(shorts);
-    shorts.remove();
-    await expect(provider.reinitShortsLifeCycle()).resolves.toBeUndefined();
-    parent.remove();
-  });
-
-  it('reinitShortsLifeCycle when isPlaying true calls playVideo on restore', async () => {
-    const { DOMUtils } = await import('../../utils/DOMUtils');
-    vi.mocked(DOMUtils.createPlaceholder).mockReturnValue(document.createComment('ph'));
-    vi.mocked(DOMUtils.insertPlaceholderBefore).mockImplementation((el: Node, _ph: Comment) => {
-      el.parentNode?.insertBefore(document.createComment('ph'), el);
-      return true;
-    });
-    vi.mocked(DOMUtils.restoreElementFromPlaceholder).mockImplementation(() => {});
-
-    const shorts = document.createElement(SELECTORS.YTD_SHORTS) as YouTubeShortsElement;
-    const playVideo = vi.fn();
-    shorts.player = {
-      getPlayerState: vi.fn().mockReturnValue(PLAYER_STATES.PLAYING),
-      playVideo,
-    };
-    const parent = document.createElement('div');
-    parent.appendChild(shorts);
-    document.body.appendChild(parent);
-    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
-
-    provider.setShorts(shorts);
-    const p = provider.reinitShortsLifeCycle();
-    await vi.runAllTimersAsync();
-    await p;
-
-    expect(playVideo).toHaveBeenCalled();
-    parent.remove();
-  });
-
-  it('reinitShortsLifeCycle when visibility hidden waits for visibilitychange', async () => {
-    const { DOMUtils } = await import('../../utils/DOMUtils');
-    vi.mocked(DOMUtils.createPlaceholder).mockReturnValue(document.createComment('ph'));
-    vi.mocked(DOMUtils.insertPlaceholderBefore).mockImplementation((el: Node, _ph: Comment) => {
-      el.parentNode?.insertBefore(document.createComment('ph'), el);
-      return true;
-    });
-    vi.mocked(DOMUtils.restoreElementFromPlaceholder).mockImplementation(() => {});
-
-    const shorts = document.createElement(SELECTORS.YTD_SHORTS) as YouTubeShortsElement;
-    shorts.player = {
-      getPlayerState: vi.fn().mockReturnValue(PLAYER_STATES.PAUSED),
-      playVideo: vi.fn(),
-    };
-    const parent = document.createElement('div');
-    parent.appendChild(shorts);
-    document.body.appendChild(parent);
-
-    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true });
-
-    provider.setShorts(shorts);
-    const p = provider.reinitShortsLifeCycle();
-    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true });
-    document.dispatchEvent(new Event('visibilitychange'));
-    await vi.runAllTimersAsync();
-    await p;
-
-    expect(DOMUtils.restoreElementFromPlaceholder).toHaveBeenCalled();
-    parent.remove();
   });
 });

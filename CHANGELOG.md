@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.4.3] - 2026-08-10
+
+### Removed
+
+- **`YtdShortsProvider.reinitShortsLifeCycle`** — Dropped the remove/restore Shorts lifecycle workaround after closing PiP (was used to stop render loops / stale metadata).
+- **`ShortsInfoPanelHandler`** — Removed info-panel unhide observer/handler and related selectors; Shorts PiP no longer patches info panel visibility.
+
 ## [2.4.2] - 2026-08-10
 
 ### Fixed
@@ -1053,6 +1060,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.4.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.2...refs/tags/v2.4.3
 [2.4.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.1...refs/tags/v2.4.2
 [2.4.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.0...refs/tags/v2.4.1
 [2.4.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.19...refs/tags/v2.4.0
