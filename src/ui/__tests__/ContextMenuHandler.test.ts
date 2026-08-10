@@ -26,6 +26,11 @@ const STYLE_DISPLAY_BLOCK_COLOR = 'display: block; color: red';
 /** Class for context menu element to match SELECTORS.CONTEXT_MENU (body > .ytp-popup.ytp-contextmenu) */
 const CONTEXT_MENU_CLASS = 'ytp-popup ytp-contextmenu';
 
+/** Shorts menu has one extra item before copy actions; handler maps DOM index + 1 to copy type. */
+function shortsCopyMenuIndex(copyMenuIndex: number): number {
+  return copyMenuIndex - 1;
+}
+
 vi.mock('../../utils/DOMUtils', () => ({
   DOMUtils: {
     waitForElementSelector: vi.fn(),
@@ -43,12 +48,16 @@ describe('ContextMenuHandler', () => {
   let mockYtdShortsProvider: MockProxy<YtdShortsProvider>;
   let mockPipProvider: MockProxy<PipWindowProvider>;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     mockPlayerManager = mock<PlayerManager>();
     mockYtdAppProvider = mock<YtdAppProvider>();
     mockYtdShortsProvider = mock<YtdShortsProvider>();
     mockPipProvider = mock<PipWindowProvider>();
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
+
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    vi.mocked(DOMUtils.copyViaTextarea).mockClear();
+    vi.mocked(DOMUtils.copyViaTextarea).mockReturnValue(true);
 
     const c = createTestContainer();
     c.bind(PlayerManager).toInstance(mockPlayerManager);
@@ -468,7 +477,9 @@ describe('ContextMenuHandler', () => {
     mockYtdShortsProvider.getPlayer.mockReturnValue(shortsPlayer as never);
     handler.initialize(true);
     const items = pipDoc.querySelectorAll(SELECTORS.PANEL_MENU_ITEMS);
-    items[COPY_MENU_INDICES.VIDEO_URL].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    items[shortsCopyMenuIndex(COPY_MENU_INDICES.VIDEO_URL)].dispatchEvent(
+      new MouseEvent('click', { bubbles: true })
+    );
     expect(DOMUtils.copyViaTextarea).toHaveBeenCalledWith(
       pipDoc,
       `${YOUTUBE_SHORTS_PAGE_BASE}/XK7_nVHZxVY?feature=share`
@@ -501,7 +512,9 @@ describe('ContextMenuHandler', () => {
     mockYtdShortsProvider.getPlayer.mockReturnValue(shortsPlayer as never);
     handler.initialize(true);
     const items = pipDoc.querySelectorAll(SELECTORS.PANEL_MENU_ITEMS);
-    items[COPY_MENU_INDICES.URL_AT_TIME].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    items[shortsCopyMenuIndex(COPY_MENU_INDICES.URL_AT_TIME)].dispatchEvent(
+      new MouseEvent('click', { bubbles: true })
+    );
     expect(DOMUtils.copyViaTextarea).toHaveBeenCalledWith(
       pipDoc,
       buildUrlAtTimePayload('XK7_nVHZxVY', null, 7, true)
@@ -534,7 +547,9 @@ describe('ContextMenuHandler', () => {
     mockYtdShortsProvider.getPlayer.mockReturnValue(shortsPlayer as never);
     handler.initialize(true);
     const items = pipDoc.querySelectorAll(SELECTORS.PANEL_MENU_ITEMS);
-    items[COPY_MENU_INDICES.EMBED].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    items[shortsCopyMenuIndex(COPY_MENU_INDICES.EMBED)].dispatchEvent(
+      new MouseEvent('click', { bubbles: true })
+    );
     expect(DOMUtils.copyViaTextarea).toHaveBeenCalledWith(
       pipDoc,
       buildEmbedPayload('XK7_nVHZxVY', null, 'Shorts Title', { width: 387, height: 688 })
@@ -567,7 +582,9 @@ describe('ContextMenuHandler', () => {
     mockYtdShortsProvider.getPlayer.mockReturnValue(shortsPlayer as never);
     handler.initialize(true);
     const items = pipDoc.querySelectorAll(SELECTORS.PANEL_MENU_ITEMS);
-    items[COPY_MENU_INDICES.DEBUG_INFO].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    items[shortsCopyMenuIndex(COPY_MENU_INDICES.DEBUG_INFO)].dispatchEvent(
+      new MouseEvent('click', { bubbles: true })
+    );
     expect(DOMUtils.copyViaTextarea).toHaveBeenCalledWith(pipDoc, 'shorts-debug-full');
     handler.stop();
   });
@@ -592,7 +609,9 @@ describe('ContextMenuHandler', () => {
     mockYtdShortsProvider.getPlayer.mockReturnValue(null);
     handler.initialize(true);
     const items = pipDoc.querySelectorAll(SELECTORS.PANEL_MENU_ITEMS);
-    items[COPY_MENU_INDICES.VIDEO_URL].dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    items[shortsCopyMenuIndex(COPY_MENU_INDICES.VIDEO_URL)].dispatchEvent(
+      new MouseEvent('click', { bubbles: true })
+    );
     expect(DOMUtils.copyViaTextarea).not.toHaveBeenCalled();
     handler.stop();
   });

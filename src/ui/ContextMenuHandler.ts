@@ -79,7 +79,7 @@ export class ContextMenuHandler {
       return;
     }
 
-    const copyType = this.getCopyTypeForIndex(index);
+    const copyType = this.getCopyTypeForIndex(this.shortsMode ? index + 1 : index);
     if (!copyType) {
       this.logger.debug('Copy click: not a copy action', { index });
       return;

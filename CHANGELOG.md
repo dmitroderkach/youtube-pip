@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.4.2] - 2026-08-10
+
+### Fixed
+
+- **Shorts PiP context menu copy** — Map copy menu item indices with a +1 offset in Shorts mode so URL, URL at time, embed, and debug info actions copy the correct payload again.
+
 ## [2.4.1] - 2026-08-09
 
 ### Fixed
@@ -1047,6 +1053,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.4.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.1...refs/tags/v2.4.2
 [2.4.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.0...refs/tags/v2.4.1
 [2.4.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.19...refs/tags/v2.4.0
 [2.3.19]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.3.18...refs/tags/v2.3.19
