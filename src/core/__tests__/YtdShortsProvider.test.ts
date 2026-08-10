@@ -192,5 +192,4 @@ describe('YtdShortsProvider', () => {
     await vi.advanceTimersByTimeAsync(TIMEOUTS.IDLE_TIMEOUT);
     expect(shorts.loadVideo).toBeUndefined();
   });
-
 });
