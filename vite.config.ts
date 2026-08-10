@@ -1,9 +1,6 @@
-import { defineConfig } from 'vite';
-import type { OutputBundle } from 'rollup';
-import { createRequire } from 'node:module';
-
-const require = createRequire(import.meta.url);
-const pkg = require('./package.json') as { version: string };
+import { defineConfig, type Plugin } from 'vite';
+import type { NormalizedOutputOptions, OutputBundle } from 'rollup';
+import pkg from './package.json' with { type: 'json' };
 
 const userscriptHeader = `// ==UserScript==
 // @name         YouTube PiP
@@ -51,11 +48,11 @@ function shiftInlineSourceMap(code: string, extraLines: number): string {
 }
 
 /** Prepends userscript header in debug build and shifts source map. Vite output.banner is unreliable. */
-function userscriptHeaderDebugPlugin() {
+function userscriptHeaderDebugPlugin(): Plugin {
   return {
     name: 'userscript-header-debug',
-    enforce: 'post' as const,
-    generateBundle(_, bundle: OutputBundle) {
+    enforce: 'post',
+    generateBundle(_options: NormalizedOutputOptions, bundle: OutputBundle) {
       const items = Object.values(bundle);
       for (const item of items) {
         if (item.type !== 'chunk' || item.fileName !== 'userscript.js') continue;
@@ -67,11 +64,11 @@ function userscriptHeaderDebugPlugin() {
   };
 }
 
-function tampermonkeySourceMapOffsetPlugin(offset: number) {
+function tampermonkeySourceMapOffsetPlugin(offset: number): Plugin {
   return {
     name: 'tampermonkey-sourcemap-offset',
-    enforce: 'post' as const,
-    generateBundle(_, bundle: OutputBundle) {
+    enforce: 'post',
+    generateBundle(_options: NormalizedOutputOptions, bundle: OutputBundle) {
       const items = Object.values(bundle);
       for (const item of items) {
         if (item.type !== 'chunk' || item.fileName !== 'userscript.js') continue;
