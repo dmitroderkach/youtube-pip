@@ -6,7 +6,6 @@ import { ContextMenuHandler } from '../../ui/ContextMenuHandler';
 import { PiPEventBridgeHandler } from '../../handlers/PiPEventBridgeHandler';
 import { PiPLinkFocusHandler } from '../../handlers/PiPLinkFocusHandler';
 import { DocumentFocusHandler } from '../../handlers/DocumentFocusHandler';
-import { ShortsInfoPanelHandler } from '../../handlers/ShortsInfoPanelHandler';
 import { TitleSyncHandler } from '../../handlers/TitleSyncHandler';
 
 describe('PipShortsWindowHandlers', () => {
@@ -20,7 +19,6 @@ describe('PipShortsWindowHandlers', () => {
     c.bind(PiPEventBridgeHandler).toInstance(mocks.pipEventBridgeHandler);
     c.bind(PiPLinkFocusHandler).toInstance(mocks.pipLinkFocusHandler);
     c.bind(DocumentFocusHandler).toInstance(mocks.documentFocusHandler);
-    c.bind(ShortsInfoPanelHandler).toInstance(mocks.shortsInfoPanelHandler);
     c.bind(TitleSyncHandler).toInstance(mocks.titleSyncHandler);
     c.bind(PipShortsWindowHandlers).toSelf();
     handlers = c.get(PipShortsWindowHandlers);
@@ -33,7 +31,6 @@ describe('PipShortsWindowHandlers', () => {
     expect(mocks.pipEventBridgeHandler.initialize).toHaveBeenCalledOnce();
     expect(mocks.pipLinkFocusHandler.initialize).toHaveBeenCalledOnce();
     expect(mocks.documentFocusHandler.initialize).toHaveBeenCalledOnce();
-    expect(mocks.shortsInfoPanelHandler.initialize).toHaveBeenCalledOnce();
     expect(mocks.titleSyncHandler.initialize).toHaveBeenCalledWith(true);
 
     expect(typeof cleanup).toBe('function');
@@ -43,7 +40,6 @@ describe('PipShortsWindowHandlers', () => {
     expect(mocks.pipEventBridgeHandler.stop).toHaveBeenCalledOnce();
     expect(mocks.pipLinkFocusHandler.stop).toHaveBeenCalledOnce();
     expect(mocks.documentFocusHandler.cleanup).toHaveBeenCalledOnce();
-    expect(mocks.shortsInfoPanelHandler.stop).toHaveBeenCalledOnce();
     expect(mocks.titleSyncHandler.cleanup).toHaveBeenCalledOnce();
   });
 });

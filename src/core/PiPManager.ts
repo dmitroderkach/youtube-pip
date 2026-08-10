@@ -332,7 +332,6 @@ export class PiPManager {
       DOMUtils.restoreElementFromPlaceholder(shorts, this.placeholder);
       shorts.player?.setSize?.();
       shorts.player?.setInternalSize?.();
-      await this.ytdShortsProvider.reinitShortsLifeCycle();
     } else {
       throw new PiPCriticalError('Shorts element not found in PiP window');
     }

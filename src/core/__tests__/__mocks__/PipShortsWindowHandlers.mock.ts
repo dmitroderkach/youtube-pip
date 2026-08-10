@@ -3,7 +3,6 @@ import { ContextMenuHandler } from '../../../ui/ContextMenuHandler';
 import { PiPEventBridgeHandler } from '../../../handlers/PiPEventBridgeHandler';
 import { PiPLinkFocusHandler } from '../../../handlers/PiPLinkFocusHandler';
 import { DocumentFocusHandler } from '../../../handlers/DocumentFocusHandler';
-import { ShortsInfoPanelHandler } from '../../../handlers/ShortsInfoPanelHandler';
 import { TitleSyncHandler } from '../../../handlers/TitleSyncHandler';
 
 export interface PipShortsWindowHandlersMocks {
@@ -11,7 +10,6 @@ export interface PipShortsWindowHandlersMocks {
   pipEventBridgeHandler: MockProxy<PiPEventBridgeHandler>;
   pipLinkFocusHandler: MockProxy<PiPLinkFocusHandler>;
   documentFocusHandler: MockProxy<DocumentFocusHandler>;
-  shortsInfoPanelHandler: MockProxy<ShortsInfoPanelHandler>;
   titleSyncHandler: MockProxy<TitleSyncHandler>;
 }
 
@@ -21,7 +19,6 @@ export function createPipShortsWindowHandlersMocks(): PipShortsWindowHandlersMoc
     pipEventBridgeHandler: mock<PiPEventBridgeHandler>(),
     pipLinkFocusHandler: mock<PiPLinkFocusHandler>(),
     documentFocusHandler: mock<DocumentFocusHandler>(),
-    shortsInfoPanelHandler: mock<ShortsInfoPanelHandler>(),
     titleSyncHandler: mock<TitleSyncHandler>(),
   };
 }

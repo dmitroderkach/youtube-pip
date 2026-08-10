@@ -5,9 +5,7 @@ import { LoggerFactory } from '../logger';
 import { inject, injectable } from '../di';
 import { SELECTORS } from '../selectors';
 import { isPlayingState } from '../constants';
-import { DOMUtils } from '../utils/DOMUtils';
 import { TIMEOUTS } from '../constants';
-import { ShortsInfoPanelHandler } from '../handlers/ShortsInfoPanelHandler';
 
 /**
  * Provides the ytd-shorts element. Set by PiPManager when opening Shorts PiP, cleared when closing.
@@ -21,10 +19,7 @@ export class YtdShortsProvider {
   private lockedShortsRef: Nullable<YouTubeShortsElement> = null;
   private restoreLoadVideoAfterId: ReturnType<typeof setTimeout> | null = null;
 
-  constructor(
-    @inject(LoggerFactory) loggerFactory: LoggerFactory,
-    @inject(ShortsInfoPanelHandler) private readonly shortsInfoPanelHandler: ShortsInfoPanelHandler
-  ) {
+  constructor(@inject(LoggerFactory) loggerFactory: LoggerFactory) {
     this.logger = loggerFactory.create('YtdShortsProvider');
   }
 
@@ -136,72 +131,5 @@ export class YtdShortsProvider {
     this.logger.debug('lockLoadVideo: original loadVideo restored');
     this.lockedShortsRef = null;
     this.originalLoadVideo = null;
-  }
-
-  /**
-   * Reinitialize the shorts life cycle: temporarily remove ytd-shorts from the DOM and restore it
-   * when the tab becomes active.
-   *
-   * Why: after returning the element from PiP to the main page, this component's rendering can loop
-   * and constantly consume CPU. Additionally, reel metadata (title, author, etc.) stops updating
-   * when switching to the next reel on the main YouTube page.
-   *
-   * This workaround (remove + restore via placeholder on visibilitychange) restarts the component's
-   * life cycle and fixes both issues. Restore runs in the next idle period via `requestIdleCallback`
-   * (with a timeout fallback) when available, otherwise via `requestAnimationFrame`.
-   */
-  public async reinitShortsLifeCycle(): Promise<void> {
-    await new Promise<void>((resolve) => {
-      const shorts = this.getShorts();
-      if (!shorts) {
-        this.logger.warn('reinitShortsLifeCycle: shorts element not found');
-        resolve();
-        return;
-      }
-      this.logger.debug('reinitShortsLifeCycle: scheduled, waiting for tab active', {
-        visibilityState: document.visibilityState,
-      });
-
-      const runWhenTabActive = (): void => {
-        if (document.visibilityState !== 'visible') return;
-        document.removeEventListener('visibilitychange', runWhenTabActive);
-        this.logger.debug('reinitShortsLifeCycle: tab active, running remove/restore');
-
-        const parent = shorts.parentElement;
-        const isPlaying = isPlayingState(shorts.player?.getPlayerState?.() ?? -1);
-        if (!parent) {
-          this.logger.warn('reinitShortsLifeCycle: shorts parent element not found');
-          resolve();
-          return;
-        }
-        const placeholder = DOMUtils.createPlaceholder('shorts_placeholder');
-        DOMUtils.insertPlaceholderBefore(shorts, placeholder);
-        shorts.remove();
-        this.logger.debug('reinitShortsLifeCycle: shorts removed, scheduling restore when idle', {
-          isPlaying,
-        });
-        const doRestore = (): void => {
-          this.lockLoadVideo();
-          DOMUtils.restoreElementFromPlaceholder(shorts, placeholder);
-          if (isPlaying) {
-            shorts.player?.playVideo?.();
-          }
-          this.logger.debug('reinitShortsLifeCycle: restored to DOM', { isPlaying });
-          /** Unhide visible info panel paragraphs when shorts are restored to the main page */
-          this.shortsInfoPanelHandler.unhideVisibleInfoPanelParagraphs(shorts);
-          resolve();
-        };
-        if (typeof requestIdleCallback === 'function') {
-          requestIdleCallback(doRestore, { timeout: TIMEOUTS.IDLE_TIMEOUT });
-        } else {
-          requestAnimationFrame(doRestore);
-        }
-      };
-      if (document.visibilityState === 'visible') {
-        runWhenTabActive();
-      } else {
-        document.addEventListener('visibilitychange', runWhenTabActive);
-      }
-    });
   }
 }
