@@ -1,7 +1,7 @@
 FROM ubuntu:24.04
 
 # Keep in sync with https://github.com/actions/runner/releases — old versions are rejected at connect time.
-ARG RUNNER_VERSION=2.334.0
+ARG RUNNER_VERSION=2.336.0
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
