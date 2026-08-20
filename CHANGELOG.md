@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.4.4] - 2026-08-21
+
+### Changed
+
+- **Runner image** — Bump the self-hosted GitHub Actions runner in `terraform/runner/Dockerfile` from `2.334.0` to `2.336.0`; the old version is deprecated and rejected at connect time with "Runner version v2.334.0 is deprecated and cannot receive messages".
+
 ## [2.4.3] - 2026-08-10
 
 ### Removed
@@ -1060,6 +1066,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.4.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.3...refs/tags/v2.4.4
 [2.4.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.2...refs/tags/v2.4.3
 [2.4.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.1...refs/tags/v2.4.2
 [2.4.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.0...refs/tags/v2.4.1
