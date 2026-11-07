@@ -26,6 +26,7 @@ import {
 } from './auth';
 import { getUserscriptBody, initHandlerStub } from './handler-stub';
 import { installAdBlock, type BlockAdsOption } from './block-ads';
+import { recordPageFlags } from './page-flags';
 import {
   installMiniplayerTimeline,
   MINIPLAYER_TIMELINE_LIMITS,
@@ -230,7 +231,7 @@ export const test = base.extend<{
 
   /** On failure, print and attach the mini player timeline (see miniplayer-timeline.ts) for CI flakes. */
   miniplayerTimelineOnFailure: [
-    async ({ page }, use, testInfo) => {
+    async ({ page, experimentFlags }, use, testInfo) => {
       // Userscript log lines of the main page (PiP logs go through the main window's console too)
       const userscriptLog: string[] = [];
       page.on('console', (msg) => {
@@ -246,7 +247,13 @@ export const test = base.extend<{
         if (userscriptLog.length > USERSCRIPT_LOG_MAX_LINES) userscriptLog.shift();
       });
       await use();
-      if (testInfo.status === testInfo.expectedStatus) return;
+      // Which relevant flags this page was served: a flag rolled out to the test account can be the cause
+      const forced = [...new Set([...experimentFlags, ...FORCED_EXPERIMENT_FLAGS])];
+      if (testInfo.status === testInfo.expectedStatus) {
+        // A passing retry of a failed attempt (flaky): its flags tell which ones the failure did not need
+        if (testInfo.retry > 0) await recordPageFlags(page, testInfo, forced).catch(() => '');
+        return;
+      }
       const timeline = page.isClosed() ? 'page closed' : await readMiniplayerTimeline(page);
       const log = userscriptLog.join('\n');
       console.log(
@@ -255,6 +262,10 @@ export const test = base.extend<{
       );
       await testInfo.attach('miniplayer-timeline', { body: timeline, contentType: 'text/plain' });
       await testInfo.attach('userscript-log', { body: log, contentType: 'text/plain' });
+      const flagsLine = await recordPageFlags(page, testInfo, forced).catch(
+        (e: unknown) => `[page flags] unavailable: ${String(e)}`
+      );
+      if (flagsLine) console.log(`${flagsLine}\n`);
     },
     { auto: true },
   ],
