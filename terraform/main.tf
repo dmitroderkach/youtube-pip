@@ -172,6 +172,12 @@ resource "aws_instance" "nat" {
   tags = {
     Name = "${local.name_prefix}-nat-instance"
   }
+
+  # data.aws_ami.nat follows the newest Amazon Linux image; without this every apply after an AMI release would
+  # replace the NAT instance (runner egress). Update it deliberately: terraform apply -replace=aws_instance.nat
+  lifecycle {
+    ignore_changes = [ami]
+  }
 }
 
 resource "aws_eip" "nat" {
@@ -250,6 +256,13 @@ resource "aws_ecr_repository" "runner" {
 
 resource "aws_ecs_cluster" "runner" {
   name = "${local.name_prefix}-cluster"
+}
+
+# Runner tasks start on FARGATE_SPOT (~70% cheaper; a CI job of a few minutes is rarely interrupted) and fall
+# back to on-demand FARGATE when Spot capacity is unavailable (lambda/worker.py).
+resource "aws_ecs_cluster_capacity_providers" "runner" {
+  cluster_name       = aws_ecs_cluster.runner.name
+  capacity_providers = ["FARGATE", "FARGATE_SPOT"]
 }
 
 resource "aws_iam_role" "task_execution" {
@@ -553,8 +566,11 @@ resource "aws_lambda_function" "dispatcher_worker" {
       GITHUB_APP_INSTALLATION_ID        = var.github_app_installation_id
       GITHUB_APP_PRIVATE_KEY_SECRET_ARN = data.aws_secretsmanager_secret.github_app_private_key.arn
       ASSIGN_PUBLIC_IP                  = "DISABLED"
+      USE_FARGATE_SPOT                  = tostring(var.runner_use_fargate_spot)
     }
   }
+
+  depends_on = [aws_ecs_cluster_capacity_providers.runner]
 }
 
 resource "aws_lambda_event_source_mapping" "dispatcher_worker_sqs" {

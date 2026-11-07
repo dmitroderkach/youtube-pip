@@ -131,6 +131,7 @@ E2E tests log into YouTube using a dedicated test Google account (session captur
 - **Decision**: Run all CI jobs on self-hosted Fargate runners with a fixed Elastic IP, rather than standard GitHub-hosted runners.
 - **Why?**: Google actively blocks authentication and API access from GitHub Actions IP ranges — those datacenter IPs are on Google's unwanted list. When E2E tests run on github-hosted runners the test account gets challenged or outright banned, causing the entire suite to fail. A self-hosted runner behind our own static Elastic IP is treated by Google like traffic from a known, stable origin, so sessions remain valid and tests pass reliably.
 - **Consequence**: The NAT EC2 instance (which carries the Elastic IP) must be running for any CI job to reach Google. The `runner_nat_lifecycle` Lambda manages its start/stop lifecycle automatically (see `docs/SELF_HOSTED_RUNNERS.md`).
+- **Size and price**: the runner task is 8 vCPU / 16 GB on **Fargate Spot** with an on-demand fallback, and Playwright runs 8 workers. Fargate bills vCPU- and GB-seconds linearly, so a bigger task only pays off as far as the run gets shorter; fixed setup time (task start, `npm ci`, unit tests) and the longest tests limit that to ~2.4×. Spot pricing makes the faster run ~2× cheaper than the former 2 vCPU on-demand task. Higher concurrency also means a faster burst of YouTube loads from one IP; if Google's "unusual traffic" CAPTCHA shows up, lower `CI_WORKERS` in `playwright.config.ts`.
 
 ---
 

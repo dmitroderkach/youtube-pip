@@ -207,6 +207,8 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 
 ### 5. `like-dislike.spec.ts` — like / dislike in PiP (uses auth)
 
+- **Runs once per flag set in the single-worker `account-mutations` project** (never in parallel with itself: it changes the test account's rating of the same video).
+
 - **Scenario:** `playlistVideoPageReady` with **`authState: true`** → trigger PiP → assert PiP → in PiP: wait for mini player, expand playlist, wait for playlist panel and first item, wait for like/dislike buttons → then **like → remove like → dislike → remove dislike**, asserting each step via the corresponding YouTube API response.
 - **Auth:** This test uses `test.use({ authState: true })`, so the browser context is created with storage state from `e2e/.auth/storageState.json`. In CI the file is created from the `E2E_STORAGE_STATE_BASE64` secret when missing. The test does not use `storeAuthState`.
 - **Implementation:** All actions run inside the PiP document. Helpers: `waitForLikeButtonsVisibleInPip`, `clickLikeDislikeInPip(page, action)` with `action` in `'LIKE' | 'REMOVE_LIKE' | 'DISLIKE' | 'REMOVE_DISLIKE'`. Before each click, the fixture waits for the correct `aria-pressed` state on the toggle (e.g. like button not pressed before LIKE, pressed before REMOVE_LIKE); after the click it waits for the new state. Clicks are done in PiP via `page.evaluate` (first toggle = like, second = dislike). Network assertions use **`page.waitForResponse(...)`** (not `waitForRequest`) so we wait for the request to complete; URLs: `.../like/like`, `.../like/removelike`, `.../like/dislike`. Each step runs as `Promise.all([waitForResponse(...), clickLikeDislikeInPip(page, action)])`.
@@ -249,6 +251,8 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 The test account only sees the YouTube experiments it is bucketed into, so rollout-specific bugs are invisible or show up as rare flakes. `playwright.config.ts` therefore runs the whole suite once per flag set (projects `chromium`, `chromium-yt-pip`, `chromium-cow-player`, `chromium-legacy-ui`, `chromium-all-flags`). Flags are forced through the `experimentFlags` fixture option (page `EXPERIMENT_FLAGS` and player `serializedExperimentFlags`).
 
 - One cell locally: `npx playwright test --project=chromium-yt-pip`.
+- **Account-mutating tests** (`like-dislike.spec.ts`: like / dislike the same video on the test account) must never run at the same time. The matrix projects skip them; they run in the single-worker `account-mutations` project, which goes through the flag sets itself (one describe per `FLAG_MATRIX` entry, in sequence). Locally: `npx playwright test --project=account-mutations`.
+- CI runs 8 workers (`CI_WORKERS`) on an 8 vCPU / 16 GB Fargate Spot runner (`terraform/README.md`).
 - Ad hoc extra flags on top of a project's set: `E2E_FORCE_EXPERIMENT_FLAGS=<flag,…>` (`flag=false` forces a flag off).
 - Context menu helpers take the item's position **from the end** of the visible menu (`COPY_MENU_POSITIONS_FROM_END`), because flags add/remove items above the copy items.
 - To check a flag set by hand in a visible browser: **[`docs/MANUAL_SESSION.md`](MANUAL_SESSION.md)**.

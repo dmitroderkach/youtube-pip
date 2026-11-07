@@ -82,7 +82,7 @@ Object.keys(ytcfg.data_.EXPERIMENT_FLAGS).filter((k) =>
 
 Flags are forced through the `experimentFlags` fixture option: an init script wraps `window.ytcfg` and keeps each flag forced in both `EXPERIMENT_FLAGS` and every `serializedExperimentFlags` before YouTube's scripts read them. `name` forces a flag on, `name=false` forces it off (for flags that are on by default). `E2E_FORCE_EXPERIMENT_FLAGS=<flag,…>` adds flags ad hoc on top of the project's set.
 
-- Full matrix (CI, `npm run test:e2e`): 5 × the suite.
+- Full matrix (CI, `npm run test:e2e`): 5 × the suite; `like-dislike.spec.ts` runs the 5 flag sets in sequence in the single-worker `account-mutations` project (it changes the test account's state).
 - One cell locally: `npx playwright test --project=chromium-yt-pip`.
 - Keep local runs small: hundreds of YouTube loads from one IP trigger Google's "unusual traffic" CAPTCHA.
 
