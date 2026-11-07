@@ -24,5 +24,5 @@ Every message ends with `Розбери онкол-прогін <run URL>`. Past
 - **Test the pipeline**: run **Manual E2E** with `force_report: true` — investigates and sends a message even if everything passed.
 - **Test from a branch**: the Lambda only allows `var.oncall_branch`; for a test apply with `-var oncall_branch=<branch>`, dispatch the workflow on that branch, then apply again without it.
 - **Rotate a token**: edit the secret `youtube-pip-oncall` in Secrets Manager; new tasks pick it up.
-- **Too many flag messages**: flags are reported once (cache `oncall-seen-flags-*`). To accept the current set, regenerate the baseline: run `node scripts/oncall/scan-flags.mjs <dir>` a couple of times and put the union of `relevant` names (plus the flags in `YOUTUBE_EXPERIMENT_FLAGS.md`) into `experiment-flags-baseline.json`.
+- **Too many flag messages**: flags are reported once (cache `oncall-seen-flags-*`). To accept the current set, regenerate the baseline: run `node scripts/oncall/scan-flags.mjs <dir>` a couple of times and put the union of the `relevant` names into `experiment-flags-baseline.json` (only observed flags: the ones we merely force in e2e are not served to logged-out pages and would show up as "gone").
 - **Pause**: disable the **Manual E2E** workflow (`gh workflow disable e2e-manual.yml`).
