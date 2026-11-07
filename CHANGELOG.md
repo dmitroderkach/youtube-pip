@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 ### Changed
 
+- **Runner image** — Bump the self-hosted GitHub Actions runner in `terraform/runner/Dockerfile` from `2.336.0` to `2.338.2`; GitHub now rejects `2.336.0` at connect time with "Runner version v2.336.0 is deprecated and cannot receive messages", so self-hosted jobs stayed queued.
 - **Docs** — `docs/YOUTUBE_INTERNAL_API.md`: PiP Event Bridge now covers the mini player (with the `yt-action` events it emits in PiP); Kevlar Command System marked deprecated with the reason and the list of removed code. `docs/ARCHITECTURE_DECISIONS.md`: §5 adds the "native events over private commands" rule, new §16 documents the `enterpictureinpicture` handler guard. README feature list and project tree updated.
 
 ### Removed
