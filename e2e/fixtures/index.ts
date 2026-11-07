@@ -332,22 +332,52 @@ export const test = base.extend<{
     await use(assertFn);
   },
 
-  waitForPiPAdToEnd: async ({}, use, testInfo) => {
-    const isAdOverlayGone = (page: Page) =>
-      page.evaluate((adOverlaySel: string) => {
-        const pip = window.documentPictureInPicture?.window;
-        const overlay = pip?.document.querySelector(adOverlaySel);
-        if (!overlay) return true;
-        const style = pip?.document.defaultView?.getComputedStyle(overlay);
-        return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
-      }, E2E_SELECTORS.AD_PLAYER_OVERLAY);
+  waitForPiPAdToEnd: async ({}, use) => {
+    const adSelectors = {
+      overlaySel: E2E_SELECTORS.AD_PLAYER_OVERLAY,
+      adPlayerSel: E2E_SELECTORS.AD_SHOWING_PLAYER,
+    };
+    /** In the page: no player in PiP shows an ad (`ad-showing`, any ad UI) and the ad overlay is hidden. */
+    const adGoneInPip = ({ overlaySel, adPlayerSel }: typeof adSelectors): boolean => {
+      const pip = window.documentPictureInPicture?.window;
+      if (!pip) return true;
+      if (pip.document.querySelector(adPlayerSel)) return false;
+      const overlay = pip.document.querySelector(overlaySel);
+      if (!overlay) return true;
+      return (
+        pip.getComputedStyle(overlay).display === 'none' ||
+        overlay.getBoundingClientRect().height === 0
+      );
+    };
+    const isAdOverlayGone = (page: Page) => page.evaluate(adGoneInPip, adSelectors);
+    /** What the ad UI in PiP looks like, for the timeout error (which skip button, if any). */
+    const describeAdInPip = (page: Page) =>
+      page
+        .evaluate(({ adPlayerSel }: typeof adSelectors) => {
+          const doc = window.documentPictureInPicture?.window?.document;
+          if (!doc) return 'no PiP window';
+          const skip = Array.from(doc.querySelectorAll<HTMLElement>('[class*="skip"]'))
+            .slice(0, 6)
+            .map(
+              (e) => `${e.className.toString().slice(0, 60)}${e.offsetParent ? ' (visible)' : ''}`
+            );
+          const remaining = doc
+            .querySelector('.ytp-ad-duration-remaining, .ytp-ad-text')
+            ?.textContent?.trim();
+          return (
+            `ad-showing players: ${doc.querySelectorAll(adPlayerSel).length}; ` +
+            `skip elements: ${skip.join(' | ') || 'none'}; ad text: ${remaining ?? 'none'}`
+          );
+        }, adSelectors)
+        .catch((e: unknown) => `state unavailable: ${String(e)}`);
 
     const tryClickSkipAdInPip = async (page: Page): Promise<boolean> => {
       const ctx = page.context();
       const pages = ctx.pages();
       for (const p of pages) {
         if (p === page) continue;
-        const loc = p.locator(E2E_SELECTORS.SKIP_AD_BUTTON);
+        // First visible one: with several matches isVisible() would throw (strict) and read as "not visible"
+        const loc = p.locator(`${E2E_SELECTORS.SKIP_AD_BUTTON} >> visible=true`).first();
         const visible = await loc.isVisible().catch(() => false);
         if (visible) {
           const clicked = await loc
@@ -364,34 +394,20 @@ export const test = base.extend<{
      * One deadline for all ads in a row (YouTube can show 2+ unskippable ones, together longer than 30s). A
      * timeout of a single wait used to throw on the first attempt, so the old attempt loop never retried.
      */
-    let timeoutExtended = false;
     const waitFn: WaitForPiPAdToEndFn = async (page) => {
-      // Ads can take up to the whole budget on CI: give the test that time on top of its own timeout
-      if (!timeoutExtended) {
-        timeoutExtended = true;
-        testInfo.setTimeout(testInfo.timeout + E2E_PIP_AD_MAX_WAIT_MS);
-      }
       const deadline = Date.now() + E2E_PIP_AD_MAX_WAIT_MS;
       const skipPoll = setInterval(() => void tryClickSkipAdInPip(page), E2E_PIP_SKIP_AD_POLL_MS);
       try {
         for (;;) {
           const remaining = deadline - Date.now();
           const ended = await page
-            .waitForFunction(
-              (adOverlaySel: string) => {
-                const pip = window.documentPictureInPicture?.window;
-                const overlay = pip?.document.querySelector(adOverlaySel);
-                if (!overlay) return true;
-                const style = pip?.document.defaultView?.getComputedStyle(overlay);
-                return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
-              },
-              E2E_SELECTORS.AD_PLAYER_OVERLAY,
-              { timeout: Math.max(remaining, 1) }
-            )
+            .waitForFunction(adGoneInPip, adSelectors, { timeout: Math.max(remaining, 1) })
             .then(() => true)
             .catch(() => false);
           if (!ended) {
-            throw new Error(`Ads in PiP did not end within ${E2E_PIP_AD_MAX_WAIT_MS}ms`);
+            throw new Error(
+              `Ads in PiP did not end within ${E2E_PIP_AD_MAX_WAIT_MS}ms (${await describeAdInPip(page)})`
+            );
           }
           await page.waitForTimeout(E2E_PIP_AD_STABILITY_MS);
           if (await isAdOverlayGone(page)) return;

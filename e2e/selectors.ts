@@ -37,7 +37,10 @@ export const E2E_SELECTORS = {
   /** YouTube ad overlay in player; when absent or hidden, ad has ended. */
   AD_PLAYER_OVERLAY: '.ytp-ad-player-overlay-layout',
   /** Skip ad button; click when visible to end ad sooner. */
-  SKIP_AD_BUTTON: '.ytp-skip-ad-button',
+  // YouTube has several ad UIs with differently named skip buttons (all in the player code)
+  SKIP_AD_BUTTON: '.ytp-skip-ad-button, .ytp-ad-skip-button, .ytp-ad-skip-button-modern',
+  /** Player while an ad plays, whatever the ad UI. */
+  AD_SHOWING_PLAYER: '.html5-video-player.ad-showing',
   /** Like/dislike toggle wrapper (first = like, second = dislike). Same as src/selectors.LIKE_BUTTON. */
   LIKE_BUTTON: 'ytd-slim-metadata-toggle-button-renderer',
   /** Clickable button inside toggle. Same as src/selectors.BUTTON_SHAPE. */

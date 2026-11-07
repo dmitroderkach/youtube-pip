@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 ### Fixed (tests)
 
-- E2E page-ready fixtures recognize the `ytd-watch-fixie` watch page; the e2e session file is written atomically (8 workers read it half-written); "Copy URL at current time" in the Shorts spec waits for playback like the watch spec (`waitForPlaybackTimeInPip`); the keyboard spec waits until YouTube stops moving focus to the first menu item before pressing ArrowDown; `waitForPiPAdToEnd` adds its ad budget (75 s) to the timeout of every test using it (the keyboard spec hit the 90 s limit during long ads).
+- E2E page-ready fixtures recognize the `ytd-watch-fixie` watch page; the e2e session file is written atomically (8 workers read it half-written); "Copy URL at current time" in the Shorts spec waits for playback like the watch spec (`waitForPlaybackTimeInPip`); the keyboard spec waits until YouTube stops moving focus to the first menu item before pressing ArrowDown; skipping ads in PiP works again: the test only looked for `.ytp-skip-ad-button`, while YouTube's other ad UIs use `.ytp-ad-skip-button` / `-modern` (ads then ran to the end and tests hit their timeouts) — all variants are clicked, ads are detected by `ad-showing` on the player, the ad budget is back to 40 s and the long test timeouts are gone.
 
 ## [2.6.0] - 2026-11-07
 

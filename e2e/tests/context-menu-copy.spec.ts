@@ -25,8 +25,6 @@ test.describe('Context menu copy in PiP', () => {
     assertPiPWindowHasPlayer,
     waitForPiPAdToEnd,
   }) => {
-    // Page readiness + playback wait + four copy steps; waitForPiPAdToEnd adds the ad budget itself.
-    test.setTimeout(105_000);
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
 
     await triggerEnterPictureInPicture(page);

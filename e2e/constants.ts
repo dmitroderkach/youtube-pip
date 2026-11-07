@@ -32,8 +32,11 @@ export const E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS = 30_000;
  */
 export const E2E_CONTEXT_MENU_REOPEN_INTERVAL_MS = 500;
 
-/** Total time for ads in PiP to end (several unskippable ads in a row are common on CI). */
-export const E2E_PIP_AD_MAX_WAIT_MS = 75_000;
+/**
+ * Total time for ads in PiP to end. Skippable ads are skipped after ~5 s (waitForPiPAdToEnd clicks any skip button);
+ * this covers up to two unskippable ads in a row.
+ */
+export const E2E_PIP_AD_MAX_WAIT_MS = 40_000;
 
 /** Video time (s) the player must reach before "Copy video URL at current time" (YouTube omits t= near 0). */
 export const E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S = 2;
