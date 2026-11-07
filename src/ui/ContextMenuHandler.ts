@@ -1,6 +1,6 @@
 import type { Logger } from '../logger';
 import { LoggerFactory } from '../logger';
-import { MOUSE_BUTTONS, COPY_MENU_INDICES, KEYS } from '../constants';
+import { MOUSE_BUTTONS, COPY_MENU_POSITIONS_FROM_END, KEYS } from '../constants';
 import { DOMUtils } from '../utils/DOMUtils';
 import { SELECTORS } from '../selectors';
 import { PlayerManager } from '../core/PlayerManager';
@@ -72,16 +72,20 @@ export class ContextMenuHandler {
       return;
     }
 
-    const items = doc.querySelectorAll(SELECTORS.PANEL_MENU_ITEMS);
-    const index = Array.prototype.indexOf.call(items, item);
+    // Items of the clicked menu only (PiP can hold two menus: watch player and Shorts player)
+    const items = Array.from(item.parentElement.children).filter((el) =>
+      el.matches(SELECTORS.MENU_ITEM)
+    );
+    const index = items.indexOf(item);
     if (index === -1) {
       this.logger.warn('Copy click: menu item index not found');
       return;
     }
 
-    const copyType = this.getCopyTypeForIndex(this.shortsMode ? index + 1 : index);
+    const positionFromEnd = items.length - 1 - index;
+    const copyType = this.getCopyTypeForPositionFromEnd(positionFromEnd);
     if (!copyType) {
-      this.logger.debug('Copy click: not a copy action', { index });
+      this.logger.debug('Copy click: not a copy action', { index, positionFromEnd });
       return;
     }
 
@@ -362,11 +366,11 @@ export class ContextMenuHandler {
     this.pipWindow.document.addEventListener('click', this.handleCopyClick, true);
   }
 
-  private getCopyTypeForIndex(index: number): CopyType | null {
-    if (index === COPY_MENU_INDICES.VIDEO_URL) return CopyType.VIDEO_URL;
-    if (index === COPY_MENU_INDICES.URL_AT_TIME) return CopyType.URL_AT_TIME;
-    if (index === COPY_MENU_INDICES.EMBED) return CopyType.EMBED;
-    if (index === COPY_MENU_INDICES.DEBUG_INFO) return CopyType.DEBUG_INFO;
+  private getCopyTypeForPositionFromEnd(position: number): CopyType | null {
+    if (position === COPY_MENU_POSITIONS_FROM_END.VIDEO_URL) return CopyType.VIDEO_URL;
+    if (position === COPY_MENU_POSITIONS_FROM_END.URL_AT_TIME) return CopyType.URL_AT_TIME;
+    if (position === COPY_MENU_POSITIONS_FROM_END.EMBED) return CopyType.EMBED;
+    if (position === COPY_MENU_POSITIONS_FROM_END.DEBUG_INFO) return CopyType.DEBUG_INFO;
     return null;
   }
 

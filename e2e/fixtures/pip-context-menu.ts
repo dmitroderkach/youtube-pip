@@ -5,6 +5,9 @@ import type { Page } from '@playwright/test';
 import { E2E_CONTEXT_MENU_REOPEN_INTERVAL_MS, E2E_WAIT_TIMEOUT_MS } from '../constants';
 import { E2E_SELECTORS } from '../selectors';
 
+/** Items of one context menu (relative to the menu element). */
+const MENU_ITEMS_IN_MENU = '.ytp-panel-menu > .ytp-menuitem';
+
 /**
  * Open context menu in PiP by dispatching contextmenu on the player.
  * Must be cancelable like a real right-click: the player opens the menu and calls preventDefault(); with
@@ -29,10 +32,13 @@ export function openContextMenuInPip(page: Page, playerSelector?: string): Promi
   }, sel);
 }
 
-/** Wait for context menu to be closed, open it (on given player), wait for it visible, then wait for the item at index to be visible. */
+/**
+ * Wait for context menu to be closed, open it (on given player), wait for it visible, then wait for the item at
+ * `positionFromEnd` (0 = last item, see COPY_MENU_POSITIONS_FROM_END) to be visible.
+ */
 export async function waitForContextMenuItemVisible(
   page: Page,
-  index: number,
+  positionFromEnd: number,
   timeoutMs: number,
   playerSelector?: string
 ): Promise<void> {
@@ -70,14 +76,16 @@ export async function waitForContextMenuItemVisible(
     }
     await openContextMenuInPip(page, playerSelector);
   }
-  const itemsSelector = E2E_SELECTORS.PANEL_MENU_ITEMS;
   await page.waitForFunction(
-    ({ selector, idx }: { selector: string; idx: number }) => {
+    ({ menuSel, itemsSel, pos }: { menuSel: string; itemsSel: string; pos: number }) => {
       const pip = window.documentPictureInPicture?.window;
       const doc = pip?.document;
       if (!doc) return false;
-      const items = doc.querySelectorAll(selector);
-      const item = items[idx];
+      const menu = Array.from(doc.querySelectorAll<HTMLElement>(menuSel)).find(
+        (m) => m.style.display !== 'none'
+      );
+      const items = menu ? Array.from(menu.querySelectorAll(itemsSel)) : [];
+      const item = items[items.length - 1 - pos];
       if (!item) return false;
       const style = doc.defaultView?.getComputedStyle(item);
       return (
@@ -86,18 +94,22 @@ export async function waitForContextMenuItemVisible(
         style?.visibility !== 'hidden'
       );
     },
-    { selector: itemsSelector, idx: index },
+    { menuSel: E2E_SELECTORS.CONTEXT_MENU, itemsSel: MENU_ITEMS_IN_MENU, pos: positionFromEnd },
     { timeout: timeoutMs }
   );
 }
 
-export function clickContextMenuItem(page: Page, index: number): Promise<void> {
+/** Click the item at `positionFromEnd` (0 = last item) in the visible context menu in PiP. */
+export function clickContextMenuItem(page: Page, positionFromEnd: number): Promise<void> {
   return page.evaluate(
-    ({ selector, idx }: { selector: string; idx: number }) => {
-      const pip = window.documentPictureInPicture?.window;
-      const items = pip?.document.querySelectorAll<HTMLElement>(selector);
-      items?.[idx]?.click();
+    ({ menuSel, itemsSel, pos }: { menuSel: string; itemsSel: string; pos: number }) => {
+      const doc = window.documentPictureInPicture?.window?.document;
+      const menu = Array.from(doc?.querySelectorAll<HTMLElement>(menuSel) ?? []).find(
+        (m) => m.style.display !== 'none'
+      );
+      const items = menu ? Array.from(menu.querySelectorAll<HTMLElement>(itemsSel)) : [];
+      items[items.length - 1 - pos]?.click();
     },
-    { selector: E2E_SELECTORS.PANEL_MENU_ITEMS, idx: index }
+    { menuSel: E2E_SELECTORS.CONTEXT_MENU, itemsSel: MENU_ITEMS_IN_MENU, pos: positionFromEnd }
   );
 }

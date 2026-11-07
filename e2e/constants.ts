@@ -22,3 +22,15 @@ export const E2E_PIP_AD_STABILITY_MS = 500;
 
 /** Poll interval to click "Skip ad" in PiP (button appears after a few seconds). */
 export const E2E_PIP_SKIP_AD_POLL_MS = 500;
+
+/**
+ * Copy items in the player context menu, counted from the end (0 = "Stats for nerds"). Optional items above
+ * them (Loop, Miniplayer, Picture-in-picture) depend on experiment flags, so absolute indices are not stable.
+ * Mirrors COPY_MENU_POSITIONS_FROM_END in src/constants/ui.ts.
+ */
+export const COPY_MENU_POSITIONS_FROM_END = {
+  VIDEO_URL: 5,
+  URL_AT_TIME: 4,
+  EMBED: 3,
+  DEBUG_INFO: 2,
+} as const;

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.5.1] - 2026-11-07
+
+### Fixed
+
+- **Context menu copy with flag-dependent menu items** — Copy items in PiP were identified by absolute index (plus a "+1" offset for Shorts). YouTube adds optional items above them depending on experiment flags: without `web_player_miniplayer_in_context_menu` (no "Miniplayer" item) a copy click was not recognised and nothing was copied; with `web_watch_pip_context_menu_button` (extra "Picture-in-picture" item) the wrong text was copied. Copy items are now identified by their position from the end of their own menu (`COPY_MENU_POSITIONS_FROM_END`); the last six items are always the four copy items, "Troubleshoot playback issue" and "Stats for nerds". Not seen on default profiles; reproduced by forcing the flags.
+
+### Changed
+
+- **E2E flag matrix** — Flags can be forced off with `name=false`. `chromium-yt-pip` adds `web_watch_pip_context_menu_button`; new `chromium-legacy-ui` (`web_player_miniplayer_in_context_menu=false`, `web_migrate_reel_player_overlay_to_cow=false`); `chromium-all-flags` also adds `kevlar_watch_while_v2`. 5 projects, 40 tests.
+- **E2E context menu helpers** — `waitForContextMenuItemVisible` / `clickContextMenuItem` take a position from the end of the visible menu (shared `COPY_MENU_POSITIONS_FROM_END`).
+- **Docs** — `docs/YOUTUBE_EXPERIMENT_FLAGS.md`: findings from a Kevlar/player bundle review (context menu items, `appendTo` killswitch, Shorts overlay migration, watch-while, speedmaster/spacebar, hotkey routing), flags checked and not relevant, updated matrix. `docs/E2E_TESTS.md`.
+
 ## [2.5.0] - 2026-11-07
 
 ### Added
@@ -1136,6 +1148,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.5.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.5.0...refs/tags/v2.5.1
 [2.5.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.8...refs/tags/v2.5.0
 [2.4.8]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.7...refs/tags/v2.4.8
 [2.4.7]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.6...refs/tags/v2.4.7

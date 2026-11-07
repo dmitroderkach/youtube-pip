@@ -12,10 +12,12 @@ import {
   waitForContextMenuItemVisible,
   waitForShortsPlayerVisibleInPip,
 } from '../fixtures';
-import { E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS, E2E_WAIT_TIMEOUT_MS } from '../constants';
+import {
+  COPY_MENU_POSITIONS_FROM_END,
+  E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
+  E2E_WAIT_TIMEOUT_MS,
+} from '../constants';
 import { E2E_SELECTORS } from '../selectors';
-
-const COPY_MENU_INDICES = { VIDEO_URL: 1, URL_AT_TIME: 2, EMBED: 3, DEBUG_INFO: 4 } as const;
 
 test.describe('Context menu copy in Shorts PiP', () => {
   test.use({ authState: true });
@@ -31,11 +33,11 @@ test.describe('Context menu copy in Shorts PiP', () => {
 
     await waitForContextMenuItemVisible(
       page,
-      COPY_MENU_INDICES.VIDEO_URL,
+      COPY_MENU_POSITIONS_FROM_END.VIDEO_URL,
       E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
       E2E_SELECTORS.SHORTS_PLAYER
     );
-    await clickContextMenuItem(page, COPY_MENU_INDICES.VIDEO_URL);
+    await clickContextMenuItem(page, COPY_MENU_POSITIONS_FROM_END.VIDEO_URL);
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()), {
         timeout: E2E_WAIT_TIMEOUT_MS,
@@ -45,11 +47,11 @@ test.describe('Context menu copy in Shorts PiP', () => {
     await page.waitForTimeout(5000); // wait for video current time to be updated
     await waitForContextMenuItemVisible(
       page,
-      COPY_MENU_INDICES.URL_AT_TIME,
+      COPY_MENU_POSITIONS_FROM_END.URL_AT_TIME,
       E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
       E2E_SELECTORS.SHORTS_PLAYER
     );
-    await clickContextMenuItem(page, COPY_MENU_INDICES.URL_AT_TIME);
+    await clickContextMenuItem(page, COPY_MENU_POSITIONS_FROM_END.URL_AT_TIME);
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()), {
         timeout: E2E_WAIT_TIMEOUT_MS,
@@ -63,11 +65,11 @@ test.describe('Context menu copy in Shorts PiP', () => {
 
     await waitForContextMenuItemVisible(
       page,
-      COPY_MENU_INDICES.EMBED,
+      COPY_MENU_POSITIONS_FROM_END.EMBED,
       E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
       E2E_SELECTORS.SHORTS_PLAYER
     );
-    await clickContextMenuItem(page, COPY_MENU_INDICES.EMBED);
+    await clickContextMenuItem(page, COPY_MENU_POSITIONS_FROM_END.EMBED);
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()), {
         timeout: E2E_WAIT_TIMEOUT_MS,
@@ -81,11 +83,11 @@ test.describe('Context menu copy in Shorts PiP', () => {
 
     await waitForContextMenuItemVisible(
       page,
-      COPY_MENU_INDICES.DEBUG_INFO,
+      COPY_MENU_POSITIONS_FROM_END.DEBUG_INFO,
       E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
       E2E_SELECTORS.SHORTS_PLAYER
     );
-    await clickContextMenuItem(page, COPY_MENU_INDICES.DEBUG_INFO);
+    await clickContextMenuItem(page, COPY_MENU_POSITIONS_FROM_END.DEBUG_INFO);
     await expect
       .poll(
         () =>
