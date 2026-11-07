@@ -17,6 +17,7 @@ import { PiPError } from '../errors/PiPError';
 import { PiPCriticalError } from '../errors/PiPCriticalError';
 import { PiPWindowHandlers } from './PiPWindowHandlers';
 import { PipShortsWindowHandlers } from './PipShortsWindowHandlers';
+import { TitleSyncHandler } from '../handlers/TitleSyncHandler';
 import { inject, injectable } from '../di';
 
 /**
@@ -61,7 +62,8 @@ export class PiPManager {
     @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider,
     @inject(PiPWindowHandlers) private readonly pipWindowHandlers: PiPWindowHandlers,
     @inject(PipShortsWindowHandlers)
-    private readonly pipShortsWindowHandlers: PipShortsWindowHandlers
+    private readonly pipShortsWindowHandlers: PipShortsWindowHandlers,
+    @inject(TitleSyncHandler) private readonly titleSyncHandler: TitleSyncHandler
   ) {
     this.logger = loggerFactory.create('PiPManager');
   }
@@ -120,8 +122,12 @@ export class PiPManager {
           if (typeof result === 'function') {
             this.onBeforeReturn = result;
           }
+        } else {
+          this.titleSyncHandler.cleanup();
         }
       } catch (error) {
+        // Opening failed after the title was held (movePlayerToPIP): let YouTube manage it again
+        if (!this.onBeforeReturn) this.titleSyncHandler.cleanup();
         if (error instanceof PiPCriticalError) {
           throw error;
         }
@@ -144,6 +150,8 @@ export class PiPManager {
       // Let YouTube run pending low-priority jobs first: with kevlar_watch_while_v2 a delayed watch-while job
       // built from the stale "player visible" entry would deactivate the mini player we activate now.
       await YouTubeScheduler.waitForLowPriorityJobs();
+      // YouTube sets the title "YouTube" as soon as the mini player is active; keep the video title instead
+      this.titleSyncHandler.holdPageTitle();
       this.miniPlayerController.toggleMiniPlayer();
 
       // Wait for mini player container and for YouTube to move the player into it: the container can

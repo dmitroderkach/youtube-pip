@@ -14,7 +14,9 @@ import { YtdShortsProvider } from '../core/YtdShortsProvider';
  * Observes the video element (src) and the notify renderer element (childList) and updates title from getVideoData().
  * While PiP is open the page itself is not the watch page (the player went through the mini player), so YouTube
  * sets its own page title ("(1) YouTube") after navigations / data updates; the main document's <title> is
- * watched too and our title put back.
+ * watched too and our title put back. Opening PiP from the watch page activates the mini player first, and YouTube
+ * switches the title to "YouTube" right away: holdPageTitle() keeps the current title from before that step, so
+ * the tab title never flickers.
  * Does not depend on PiPManager to avoid circular dependencies.
  */
 /** At most this many title restores per window; more means something fights back. */
@@ -94,9 +96,19 @@ export class TitleSyncHandler {
     this.logger.debug('Title sync observing video src and notify renderer subtree');
   }
 
+  /**
+   * Keep the current page title while PiP is being opened (call before activating the mini player; released by
+   * cleanup()). initialize() then switches to the synced title.
+   */
+  public holdPageTitle(): void {
+    if (!document.title) return;
+    this.expectedTitle = document.title;
+    this.observePageTitle();
+  }
+
   /** Put our title back when YouTube changes the page title (text or the <title> element itself). */
   private observePageTitle(): void {
-    if (!document.head) return;
+    if (!document.head || this.titleObserver) return;
     this.titleObserver = new MutationObserver(() => {
       if (!this.expectedTitle || document.title === this.expectedTitle) return;
       const now = Date.now();

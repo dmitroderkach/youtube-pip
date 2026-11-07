@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.6.2] - 2026-11-08
+
+### Fixed
+
+- **Tab title flickered to "YouTube" when opening PiP from the watch page** — The player goes to PiP through the mini player, and YouTube sets the page title "YouTube" as soon as the mini player is active; the video title was put back only once the PiP window had opened (~70 ms later), so the tab title flickered. `TitleSyncHandler.holdPageTitle()` now keeps the current title from right before the mini player is activated (released if opening fails).
+
+### Added
+
+- **E2E: tab title checked frame by frame while PiP opens** (`pip-stub`, all flag sets): no title other than the video's (`e2e/fixtures/page-title.ts`).
+- **On-call: flag culprit** (`docs/ONCALL.md`, #143) — for up to 2 failed or flaky tests, the flags job finds the experiment flag that breaks them: re-runs with the flags of the failed attempt forced on, then off, and bisects; the result is a fixed line in the Telegram message. E2E records the relevant flags of failed attempts and passing retries (`e2e/fixtures/page-flags.ts`).
+
+### Changed
+
+- **CI: no repeat build after the merge** — `build.yml` (lint, unit tests, build, e2e) runs on pull requests only. Main requires the PR branch to be up to date with a green `build` check before the squash merge, so the merge commit has exactly the tree the PR checked; the push to main no longer starts a runner (the daily Manual E2E covers main, `release.yml` builds the tag). A new commit in a PR cancels the run of the previous one.
+
 ## [2.6.1] - 2026-11-07
 
 ### Fixed
@@ -1198,6 +1213,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.6.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.1...refs/tags/v2.6.2
 [2.6.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.0...refs/tags/v2.6.1
 [2.6.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.5.1...refs/tags/v2.6.0
 [2.5.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.5.0...refs/tags/v2.5.1

@@ -1,10 +1,18 @@
 name: Build Check
 
+# Pull requests only: main requires the PR branch to be up to date and this `build` check green before the squash
+# merge (ruleset "Protect main branch", strict status checks), so the merge commit has exactly the tree checked here.
+# A run on the push to main would only start another runner for the same result; the daily Manual E2E covers main
+# and release.yml builds the tagged version.
 on:
-  push:
-    branches: [main, master]
   pull_request:
     branches: [main, master]
+
+# A new commit in the PR cancels the run of the previous one (its result no longer matters). A runner already started
+# for the cancelled job picks up the new one or stops after its idle timeout (terraform runner_idle_timeout_seconds).
+concurrency:
+  group: build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 jobs:
   build:
