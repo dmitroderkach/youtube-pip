@@ -221,10 +221,11 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 
 ## Experiment flag matrix (`fixtures/experiment-flags.ts`)
 
-The test account only sees the YouTube experiments it is bucketed into, so rollout-specific bugs are invisible or show up as rare flakes. `playwright.config.ts` therefore runs the whole suite once per flag set (projects `chromium`, `chromium-yt-pip`, `chromium-cow-player`, `chromium-all-flags`). Flags are forced through the `experimentFlags` fixture option (page `EXPERIMENT_FLAGS` and player `serializedExperimentFlags`).
+The test account only sees the YouTube experiments it is bucketed into, so rollout-specific bugs are invisible or show up as rare flakes. `playwright.config.ts` therefore runs the whole suite once per flag set (projects `chromium`, `chromium-yt-pip`, `chromium-cow-player`, `chromium-legacy-ui`, `chromium-all-flags`). Flags are forced through the `experimentFlags` fixture option (page `EXPERIMENT_FLAGS` and player `serializedExperimentFlags`).
 
 - One cell locally: `npx playwright test --project=chromium-yt-pip`.
-- Ad hoc extra flags on top of a project's set: `E2E_FORCE_EXPERIMENT_FLAGS=<flag,…>`.
+- Ad hoc extra flags on top of a project's set: `E2E_FORCE_EXPERIMENT_FLAGS=<flag,…>` (`flag=false` forces a flag off).
+- Context menu helpers take the item's position **from the end** of the visible menu (`COPY_MENU_POSITIONS_FROM_END`), because flags add/remove items above the copy items.
 - Which flags exist, what they change and which flows they cover: **[`docs/YOUTUBE_EXPERIMENT_FLAGS.md`](YOUTUBE_EXPERIMENT_FLAGS.md)**.
 - The stub's `__E2E_PIP__.ready()` (used by the page-ready fixtures) waits until the userscript installed its Media Session guard, because with `web_*_pip` YouTube registers its own handler first.
 

@@ -25,6 +25,7 @@ const FLAG_MATRIX: { name: string; flags: string[] }[] = [
   { name: 'chromium', flags: EXPERIMENT_FLAG_SETS.NONE },
   { name: 'chromium-yt-pip', flags: [...EXPERIMENT_FLAG_SETS.YT_PIP] },
   { name: 'chromium-cow-player', flags: [...EXPERIMENT_FLAG_SETS.COW_PLAYER] },
+  { name: 'chromium-legacy-ui', flags: [...EXPERIMENT_FLAG_SETS.LEGACY_UI] },
   { name: 'chromium-all-flags', flags: ALL_EXPERIMENT_FLAGS },
 ];
 
