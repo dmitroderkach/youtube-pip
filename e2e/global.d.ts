@@ -5,6 +5,7 @@
 interface E2EPipApi {
   trigger(action: string): Promise<void>;
   has(action: string): boolean;
+  ready(): boolean;
 }
 
 declare global {

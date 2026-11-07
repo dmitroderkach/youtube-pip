@@ -5,14 +5,26 @@ import type { Page } from '@playwright/test';
 import { E2E_CONTEXT_MENU_REOPEN_INTERVAL_MS, E2E_WAIT_TIMEOUT_MS } from '../constants';
 import { E2E_SELECTORS } from '../selectors';
 
-/** Open context menu in PiP by dispatching contextmenu on the player. */
+/**
+ * Open context menu in PiP by dispatching contextmenu on the player.
+ * Must be cancelable like a real right-click: the player opens the menu and calls preventDefault(); with
+ * web_watch_pip / web_shorts_pip its "contextmenu outside the menu" close listener is on the PiP document,
+ * and a non-cancelable event reaches it un-prevented, so the menu would close right after opening.
+ */
 export function openContextMenuInPip(page: Page, playerSelector?: string): Promise<void> {
   const sel = playerSelector ?? E2E_SELECTORS.MOVIE_PLAYER;
   return page.evaluate((s) => {
     const pip = window.documentPictureInPicture?.window;
     const player = pip?.document.querySelector(s);
     player?.dispatchEvent(
-      new MouseEvent('contextmenu', { bubbles: true, button: 2, clientX: 0, clientY: 0 })
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        cancelable: true,
+        composed: true,
+        button: 2,
+        clientX: 0,
+        clientY: 0,
+      })
     );
   }, sel);
 }

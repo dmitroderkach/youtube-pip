@@ -86,6 +86,42 @@ describe('DocumentFocusHandler', () => {
     handler.cleanup();
   });
 
+  it('onKey keeps modifier keys on the synthetic event sent to the player (Shift+N next video)', () => {
+    const pipDoc = document.implementation.createHTMLDocument();
+    mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));
+    mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
+    const player = document.createElement('div');
+    const dispatched: KeyboardEvent[] = [];
+    player.addEventListener('keydown', (e) => dispatched.push(e as KeyboardEvent));
+    mockPlayerManager.getPlayer.mockReturnValue(player as never);
+    mockContextMenuHandler.subscribeContextMenu.mockReturnValue(() => {});
+
+    handler.initialize(false);
+    const keyEvent = {
+      isTrusted: true,
+      key: 'N',
+      code: 'KeyN',
+      type: 'keydown',
+      keyCode: 78,
+      which: 78,
+      shiftKey: true,
+      ctrlKey: false,
+      altKey: false,
+      metaKey: false,
+      repeat: false,
+      location: 0,
+      view: null,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+    handler['onKey'](keyEvent);
+
+    expect(dispatched).toHaveLength(1);
+    expect(dispatched[0].shiftKey).toBe(true);
+    expect(dispatched[0].code).toBe('KeyN');
+    handler.cleanup();
+  });
+
   it('onKey dispatches synthetic keyup to ytdApp', () => {
     const pipDoc = document.implementation.createHTMLDocument();
     mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));

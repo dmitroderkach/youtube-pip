@@ -12,8 +12,10 @@ export function initHandlerStub(userscriptBody: string): void {
   function installE2EHandlerStub(): {
     trigger: (action: string) => Promise<void>;
     has: (action: string) => boolean;
+    ready: () => boolean;
   } {
     const handlers: Record<string, () => void | Promise<void>> = {};
+    let stubSetter: unknown = null;
     if (
       typeof navigator !== 'undefined' &&
       navigator.mediaSession &&
@@ -28,6 +30,7 @@ export function initHandlerStub(userscriptBody: string): void {
           handler as MediaSessionActionHandler | null
         );
       };
+      stubSetter = navigator.mediaSession.setActionHandler;
     }
     const api = {
       trigger(action: string): Promise<void> {
@@ -42,6 +45,18 @@ export function initHandlerStub(userscriptBody: string): void {
       },
       has(action: string): boolean {
         return typeof handlers[action] === 'function';
+      },
+      /**
+       * The userscript is ready: it registered its handler and then replaced setActionHandler with its guard
+       * (MediaSessionHandler). Only after that is the stored enterpictureinpicture handler guaranteed to be ours:
+       * with web_watch_pip / web_shorts_pip YouTube registers its own handler first, which `has` alone accepts.
+       */
+      ready(): boolean {
+        return (
+          typeof handlers.enterpictureinpicture === 'function' &&
+          stubSetter !== null &&
+          navigator.mediaSession.setActionHandler !== stubSetter
+        );
       },
     };
     if (typeof globalThis !== 'undefined')
