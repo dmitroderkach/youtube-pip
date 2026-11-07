@@ -69,6 +69,36 @@ describe('MediaSessionHandler', () => {
     expect(mockPipManager.open).toHaveBeenCalled();
   });
 
+  it('ignores later page attempts to replace or clear enterpictureinpicture handler', () => {
+    const setActionHandler = vi.fn();
+    const mediaSession = { setActionHandler } as unknown as MediaSession;
+    vi.stubGlobal('navigator', { ...navigator, mediaSession });
+    handler.initialize();
+    const ours = setActionHandler.mock.calls[0][1] as () => void;
+
+    mediaSession.setActionHandler('enterpictureinpicture', () => {});
+    mediaSession.setActionHandler('enterpictureinpicture', null);
+
+    expect(setActionHandler).toHaveBeenCalledTimes(1);
+    mockPipManager.open.mockResolvedValue(undefined);
+    ours();
+    expect(mockPipManager.open).toHaveBeenCalled();
+  });
+
+  it('passes other media session actions through to the original setActionHandler', () => {
+    const setActionHandler = vi.fn();
+    const mediaSession = { setActionHandler } as unknown as MediaSession;
+    vi.stubGlobal('navigator', { ...navigator, mediaSession });
+    handler.initialize();
+    const play = (): void => {};
+
+    mediaSession.setActionHandler('play', play);
+    mediaSession.setActionHandler('pause', null);
+
+    expect(setActionHandler).toHaveBeenCalledWith('play', play);
+    expect(setActionHandler).toHaveBeenCalledWith('pause', null);
+  });
+
   it('registerActionHandler throws AppInitializationError when setActionHandler throws', () => {
     const setActionHandler = vi.fn().mockImplementation(() => {
       throw new Error('not supported');
