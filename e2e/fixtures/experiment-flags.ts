@@ -3,24 +3,60 @@
  *
  * Set env `E2E_FORCE_EXPERIMENT_FLAGS` to a comma-separated list of flag names, e.g.
  *   E2E_FORCE_EXPERIMENT_FLAGS=kevlar_player_cow_player_component_all_contexts npx playwright test
- * Each listed flag is set to `true` in `ytcfg.data_.EXPERIMENT_FLAGS` before YouTube's scripts read it.
+ * Each listed flag is set to `true` in `ytcfg.data_.EXPERIMENT_FLAGS` (page/Kevlar) and in every
+ * `WEB_PLAYER_CONTEXT_CONFIGS[*].serializedExperimentFlags` (player) before YouTube's scripts read them.
  */
 export const FORCED_EXPERIMENT_FLAGS: string[] = (process.env.E2E_FORCE_EXPERIMENT_FLAGS ?? '')
   .split(',')
   .map((f) => f.trim())
   .filter(Boolean);
 
+/** Fixture option: YouTube experiment flags to force for a test/project (see playwright.config.ts matrix). */
+export type ExperimentFlagsOption = string[];
+
+/**
+ * Flag sets for the e2e matrix. Each Playwright project runs the whole suite with one set.
+ * What each flag changes: docs/YOUTUBE_EXPERIMENT_FLAGS.md.
+ */
+export const EXPERIMENT_FLAG_SETS = {
+  /** What the test account gets by default. */
+  NONE: [] as string[],
+  /** YouTube's own Document PiP rollout (menus/listeners live in the PiP document, minimized PiP UI). */
+  YT_PIP: ['web_watch_pip', 'web_shorts_pip', 'web_pip_minimize_breakages'],
+  /** Player rendered as a CoW component (disposes on plain DOM moves). */
+  COW_PLAYER: ['kevlar_player_cow_player_component_all_contexts'],
+} as const satisfies Record<string, readonly string[]>;
+
+export const ALL_EXPERIMENT_FLAGS: string[] = [
+  ...EXPERIMENT_FLAG_SETS.YT_PIP,
+  ...EXPERIMENT_FLAG_SETS.COW_PLAYER,
+];
+
 type YtcfgLike = {
   set?: (...args: unknown[]) => unknown;
-  data_?: { EXPERIMENT_FLAGS?: Record<string, unknown> };
+  data_?: {
+    EXPERIMENT_FLAGS?: Record<string, unknown>;
+    WEB_PLAYER_CONTEXT_CONFIGS?: Record<string, { serializedExperimentFlags?: string }>;
+  };
 };
 
 /** Runs in the browser via addInitScript: wraps window.ytcfg so every ytcfg.set keeps the flags on. */
 export function installForcedExperimentFlags(flags: string[]): void {
   const forced = Object.fromEntries(flags.map((f) => [f, true]));
+  // Page-level flags (read by ytd-app / Kevlar) live in EXPERIMENT_FLAGS; the player reads its own copy from
+  // each WEB_PLAYER_CONTEXT_CONFIGS entry's serializedExperimentFlags ("a=true&b=1"). Force both.
+  const forcePlayerFlags = (serialized: string | undefined): string => {
+    const params = new URLSearchParams(serialized ?? '');
+    for (const flag of flags) params.set(flag, 'true');
+    return params.toString();
+  };
   const patch = (cfg: YtcfgLike | undefined): void => {
-    if (cfg?.data_) {
-      cfg.data_.EXPERIMENT_FLAGS = { ...(cfg.data_.EXPERIMENT_FLAGS ?? {}), ...forced };
+    if (!cfg?.data_) return;
+    cfg.data_.EXPERIMENT_FLAGS = { ...(cfg.data_.EXPERIMENT_FLAGS ?? {}), ...forced };
+    for (const ctx of Object.values(cfg.data_.WEB_PLAYER_CONTEXT_CONFIGS ?? {})) {
+      if (ctx && typeof ctx === 'object') {
+        ctx.serializedExperimentFlags = forcePlayerFlags(ctx.serializedExperimentFlags);
+      }
     }
   };
   let current: YtcfgLike | undefined;

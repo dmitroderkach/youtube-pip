@@ -24,11 +24,19 @@ export class DocumentFocusHandler {
     if (e.key === 'Tab' || e.key === 'Escape') return;
     if (this.isContextMenuOpen) return;
     const ytdApp = this.ytdAppProvider.getApp();
+    // Copy modifiers too: YouTube's player shortcuts check them on the event (Shift+N / Shift+P next /
+    // previous video, Shift+, / Shift+. playback speed); without them Shift+N arrives as a plain "N".
     const opts: KeyboardEventInit = {
       key: e.key,
       code: e.code,
       keyCode: e.keyCode,
       which: e.which,
+      shiftKey: e.shiftKey,
+      ctrlKey: e.ctrlKey,
+      altKey: e.altKey,
+      metaKey: e.metaKey,
+      repeat: e.repeat,
+      location: e.location,
       bubbles: true,
       cancelable: true,
       view: e.view,

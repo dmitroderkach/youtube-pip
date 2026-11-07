@@ -219,23 +219,16 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 
 ---
 
-## Forcing YouTube experiment flags (`fixtures/experiment-flags.ts`)
+## Experiment flag matrix (`fixtures/experiment-flags.ts`)
 
-The test account only sees the YouTube experiments it happens to be bucketed into, so rollout-specific bugs (e.g. a feature only some real profiles get) are invisible or show up as rare flakes. To reproduce them deterministically, set `E2E_FORCE_EXPERIMENT_FLAGS` to a comma-separated list of flag names:
+The test account only sees the YouTube experiments it is bucketed into, so rollout-specific bugs are invisible or show up as rare flakes. `playwright.config.ts` therefore runs the whole suite once per flag set (projects `chromium`, `chromium-yt-pip`, `chromium-cow-player`, `chromium-all-flags`). Flags are forced through the `experimentFlags` fixture option (page `EXPERIMENT_FLAGS` and player `serializedExperimentFlags`).
 
-```bash
-E2E_FORCE_EXPERIMENT_FLAGS=kevlar_player_cow_player_component_all_contexts npx playwright test
-```
+- One cell locally: `npx playwright test --project=chromium-yt-pip`.
+- Ad hoc extra flags on top of a project's set: `E2E_FORCE_EXPERIMENT_FLAGS=<flag,…>`.
+- Which flags exist, what they change and which flows they cover: **[`docs/YOUTUBE_EXPERIMENT_FLAGS.md`](YOUTUBE_EXPERIMENT_FLAGS.md)**.
+- The stub's `__E2E_PIP__.ready()` (used by the page-ready fixtures) waits until the userscript installed its Media Session guard, because with `web_*_pip` YouTube registers its own handler first.
 
-The `context` fixture then adds an init script that wraps `window.ytcfg` so each listed flag stays `true` in `ytcfg.data_.EXPERIMENT_FLAGS` before YouTube's scripts read it.
-
-Useful flags:
-
-| Flag                                              | What it changes                                                                                                                                                                                                                             |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `kevlar_player_cow_player_component_all_contexts` | The player is rendered as a CoW component (see `docs/ARCHITECTURE_DECISIONS.md` §17). Before 2.4.8 this made PiP show an empty player and broke the mini player after closing PiP (~3–7% "flaky" `mini-player` failures on anonymous runs). |
-
-Prefer 1–3 targeted runs with a forced flag over stress runs (`--repeat-each` in the tens): hundreds of YouTube page loads from one IP trigger Google's "unusual traffic" CAPTCHA.
+Prefer 1–3 targeted runs over stress runs (`--repeat-each` in the tens): hundreds of YouTube page loads from one IP trigger Google's "unusual traffic" CAPTCHA.
 
 ---
 

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.5.0] - 2026-11-07
+
+### Added
+
+- **E2E experiment flag matrix** — `playwright.config.ts` runs the whole suite once per YouTube experiment flag set: `chromium` (none), `chromium-yt-pip` (`web_watch_pip`, `web_shorts_pip`, `web_pip_minimize_breakages`), `chromium-cow-player` (`kevlar_player_cow_player_component_all_contexts`), `chromium-all-flags`. Flags come from the `experimentFlags` fixture option and are forced in both the page `EXPERIMENT_FLAGS` and the player `serializedExperimentFlags`. Run one cell locally with `--project=<name>`.
+- **`docs/YOUTUBE_EXPERIMENT_FLAGS.md`** — Which YouTube experiment flags affect the userscript, what each changes, which flows they touch, how we handle them, and how to add a new one.
+
+### Fixed
+
+- **Shift+N / Shift+P in PiP** — Keyboard events forwarded from PiP to the player now keep `shiftKey` / `ctrlKey` / `altKey` / `metaKey` (and `repeat`, `location`). The player checks the modifier on the event, so Shift+N arrived as a plain "N" and next/previous video did nothing.
+
+### Changed
+
+- **E2E handler stub** — New `__E2E_PIP__.ready()`; page-ready fixtures wait until the userscript installed its Media Session guard. With `web_*_pip` YouTube registers its own `enterpictureinpicture` handler first, so "a handler exists" could trigger YouTube's PiP instead of ours.
+- **E2E `openContextMenuInPip`** — Dispatches a cancelable `contextmenu` like a real right-click. With `web_*_pip` YouTube's close listener is on the PiP document and closed a non-cancelable (un-prevented) menu immediately.
+- **Docs** — `docs/E2E_TESTS.md` (matrix), `CLAUDE.md`.
+
 ## [2.4.8] - 2026-11-07
 
 ### Fixed
@@ -1119,6 +1136,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.5.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.8...refs/tags/v2.5.0
 [2.4.8]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.7...refs/tags/v2.4.8
 [2.4.7]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.6...refs/tags/v2.4.7
 [2.4.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.5...refs/tags/v2.4.6

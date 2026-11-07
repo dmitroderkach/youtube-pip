@@ -20,7 +20,11 @@ import {
   type StoreAuthStateOption,
 } from './auth';
 import { getUserscriptBody, initHandlerStub } from './handler-stub';
-import { FORCED_EXPERIMENT_FLAGS, installForcedExperimentFlags } from './experiment-flags';
+import {
+  FORCED_EXPERIMENT_FLAGS,
+  installForcedExperimentFlags,
+  type ExperimentFlagsOption,
+} from './experiment-flags';
 
 const defaultContextOptions = {
   viewport: null,
@@ -73,6 +77,7 @@ export {
 export const test = base.extend<{
   authState: AuthStateOption;
   storeAuthState: StoreAuthStateOption;
+  experimentFlags: ExperimentFlagsOption;
   userscriptBody: string;
   acceptYouTubeConsent: AcceptYouTubeConsentFn;
   videoPageReady: Page;
@@ -84,9 +89,10 @@ export const test = base.extend<{
 }>({
   authState: [undefined, { option: true }],
   storeAuthState: [undefined, { option: true }],
+  experimentFlags: [[], { option: true }],
 
   context: async (
-    { userscriptBody, browser, authState, storeAuthState },
+    { userscriptBody, browser, authState, storeAuthState, experimentFlags },
     use,
     testInfo: TestInfo
   ) => {
@@ -95,8 +101,10 @@ export const test = base.extend<{
     }
 
     const addInitAndUse = async (ctx: Awaited<ReturnType<typeof browser.newContext>>) => {
-      if (FORCED_EXPERIMENT_FLAGS.length > 0) {
-        await ctx.addInitScript(installForcedExperimentFlags, FORCED_EXPERIMENT_FLAGS);
+      // Project flag set (playwright.config.ts matrix) plus any ad-hoc E2E_FORCE_EXPERIMENT_FLAGS
+      const flags = [...new Set([...experimentFlags, ...FORCED_EXPERIMENT_FLAGS])];
+      if (flags.length > 0) {
+        await ctx.addInitScript(installForcedExperimentFlags, flags);
       }
       await ctx.addInitScript(initHandlerStub, userscriptBody);
       await use(ctx);
@@ -154,7 +162,7 @@ export const test = base.extend<{
   videoPageReady: async ({ page, acceptYouTubeConsent }, use) => {
     await page.goto(VIDEO_URL, { waitUntil: 'domcontentloaded' });
     await acceptYouTubeConsent(page);
-    await page.waitForFunction(() => window.__E2E_PIP__?.has('enterpictureinpicture'), {
+    await page.waitForFunction(() => window.__E2E_PIP__?.ready(), {
       timeout: E2E_WAIT_TIMEOUT_MS,
     });
     await use(page);
@@ -163,7 +171,7 @@ export const test = base.extend<{
   playlistVideoPageReady: async ({ page, acceptYouTubeConsent }, use) => {
     await page.goto(PLAYLIST_VIDEO_URL, { waitUntil: 'domcontentloaded' });
     await acceptYouTubeConsent(page);
-    await page.waitForFunction(() => window.__E2E_PIP__?.has('enterpictureinpicture'), {
+    await page.waitForFunction(() => window.__E2E_PIP__?.ready(), {
       timeout: E2E_WAIT_TIMEOUT_MS,
     });
     await use(page);
@@ -173,8 +181,7 @@ export const test = base.extend<{
     await page.goto(SHORTS_URL, { waitUntil: 'domcontentloaded' });
     await acceptYouTubeConsent(page);
     await page.waitForFunction(
-      ({ shortsSel }) =>
-        !!window.__E2E_PIP__?.has('enterpictureinpicture') && !!document.querySelector(shortsSel),
+      ({ shortsSel }) => !!window.__E2E_PIP__?.ready() && !!document.querySelector(shortsSel),
       { shortsSel: E2E_SELECTORS.YTD_SHORTS },
       { timeout: E2E_WAIT_TIMEOUT_MS }
     );
