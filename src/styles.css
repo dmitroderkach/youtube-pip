@@ -146,3 +146,22 @@ ytd-shorts ytd-reel-video-renderer .overlay.ytd-reel-video-renderer {
 ytd-shorts yt-info-panel-overview-view-model {
   pointer-events: none !important;
 }
+
+/*
+ * YouTube's web_pip_minimize_breakages experiment adds [minimize-pip-breakages] to playlist rows and,
+ * under @media (display-mode: picture-in-picture), hides #action-buttons and #menu for its own PiP.
+ * Our Document PiP matches that media query too. Bring back only the like/dislike toggles;
+ * everything else hidden by the experiment (#menu, playlist header, other action buttons) stays hidden.
+ */
+ytd-playlist-panel-video-renderer[minimize-pip-breakages]
+  #action-buttons.ytd-playlist-panel-video-renderer:has(
+    > ytd-slim-metadata-toggle-button-renderer
+  ) {
+  display: block !important;
+}
+
+ytd-playlist-panel-video-renderer[minimize-pip-breakages]
+  #action-buttons.ytd-playlist-panel-video-renderer
+  > :not(ytd-slim-metadata-toggle-button-renderer) {
+  display: none !important;
+}
