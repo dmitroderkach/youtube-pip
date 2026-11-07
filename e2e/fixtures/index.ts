@@ -23,6 +23,11 @@ import {
 } from './auth';
 import { getUserscriptBody, initHandlerStub } from './handler-stub';
 import {
+  installMiniplayerTimeline,
+  MINIPLAYER_TIMELINE_LIMITS,
+  readMiniplayerTimeline,
+} from './miniplayer-timeline';
+import {
   FORCED_EXPERIMENT_FLAGS,
   installForcedExperimentFlags,
   type ExperimentFlagsOption,
@@ -101,6 +106,7 @@ export const test = base.extend<{
   triggerEnterPictureInPicture: TriggerEnterPictureInPictureFn;
   assertPiPWindowHasPlayer: AssertPiPWindowHasPlayerFn;
   waitForPiPAdToEnd: WaitForPiPAdToEndFn;
+  miniplayerTimelineOnFailure: void;
 }>({
   authState: [undefined, { option: true }],
   storeAuthState: [undefined, { option: true }],
@@ -122,6 +128,7 @@ export const test = base.extend<{
         await ctx.addInitScript(installForcedExperimentFlags, flags);
       }
       await ctx.addInitScript(initHandlerStub, userscriptBody);
+      await ctx.addInitScript(installMiniplayerTimeline, MINIPLAYER_TIMELINE_LIMITS);
       await use(ctx);
       if (storeAuthState === true) {
         mkdirSync(dirname(E2E_STORAGE_STATE_PATH), { recursive: true });
@@ -145,6 +152,18 @@ export const test = base.extend<{
     const ctx = await browser.newContext(defaultContextOptions);
     await addInitAndUse(ctx);
   },
+
+  /** On failure, print and attach the mini player timeline (see miniplayer-timeline.ts) for CI flakes. */
+  miniplayerTimelineOnFailure: [
+    async ({ page }, use, testInfo) => {
+      await use();
+      if (testInfo.status === testInfo.expectedStatus || page.isClosed()) return;
+      const timeline = await readMiniplayerTimeline(page);
+      console.log(`\n[mini player timeline] ${testInfo.titlePath.join(' › ')}\n${timeline}\n`);
+      await testInfo.attach('miniplayer-timeline', { body: timeline, contentType: 'text/plain' });
+    },
+    { auto: true },
+  ],
 
   userscriptBody: async ({}, use) => {
     await use(getUserscriptBody());
