@@ -6,6 +6,7 @@ import { ContextMenuHandler } from '../ui/ContextMenuHandler';
 import { inject, injectable } from '../di';
 import { YtdAppProvider } from '../core/YtdAppProvider';
 import { PlayerManager } from '../core/PlayerManager';
+import { SELECTORS } from '../selectors';
 
 /**
  * Miniplayer: listens to click on body and keyup on document; returns focus to player when it moves outside, unless context menu is open.
@@ -22,7 +23,11 @@ export class DocumentFocusHandler {
   private readonly onKey = (e: KeyboardEvent): void => {
     if (!e.isTrusted) return;
     if (e.key === 'Tab' || e.key === 'Escape') return;
-    if (this.isContextMenuOpen) return;
+    // Leave every key to an open player menu (arrows, Enter, Space, Home/End…): YouTube's menus handle them
+    // in the PiP document. Check the DOM too: menus YouTube opens in PiP itself (web_watch_pip /
+    // web_shorts_pip) are not reported through subscribeContextMenu, and their keys went to the player.
+    if (this.isContextMenuOpen || this.contextMenuHandler.isMenuOpenInPip()) return;
+    if ((e.target as Element | null)?.closest?.(SELECTORS.PLAYER_POPUP)) return;
     const ytdApp = this.ytdAppProvider.getApp();
     // Copy modifiers too: YouTube's player shortcuts check them on the event (Shift+N / Shift+P next /
     // previous video, Shift+, / Shift+. playback speed); without them Shift+N arrives as a plain "N".

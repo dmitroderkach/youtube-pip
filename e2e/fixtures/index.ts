@@ -5,9 +5,13 @@
 import { test as base, expect, type Page, type TestInfo } from '@playwright/test';
 import {
   E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
+  E2E_PAGE_HYDRATION_TIMEOUT_MS,
+  E2E_PIP_AD_MAX_WAIT_MS,
   E2E_PIP_AD_STABILITY_MS,
   E2E_PIP_SKIP_AD_POLL_MS,
   E2E_WAIT_TIMEOUT_MS,
+  E2E_YT_LOW_PRIORITY_JOBS_TIMEOUT_MS,
+  E2E_YT_SCHEDULER,
   SKIP_AUTH_E2E_ON_CI,
 } from '../constants';
 import { E2E_SELECTORS } from '../selectors';
@@ -21,6 +25,11 @@ import {
 } from './auth';
 import { getUserscriptBody, initHandlerStub } from './handler-stub';
 import {
+  installMiniplayerTimeline,
+  MINIPLAYER_TIMELINE_LIMITS,
+  readMiniplayerTimeline,
+} from './miniplayer-timeline';
+import {
   FORCED_EXPERIMENT_FLAGS,
   installForcedExperimentFlags,
   type ExperimentFlagsOption,
@@ -33,6 +42,12 @@ const defaultContextOptions = {
   baseURL: 'https://www.youtube.com',
 };
 
+/** localStorage flag that turns on userscript debug logs (src/constants/app.ts DEBUG_FLAG). */
+const USERSCRIPT_DEBUG_FLAG = 'YOUTUBE_PIP_DEBUG';
+/** Tag in every userscript log line (src/logger.ts). */
+const USERSCRIPT_LOG_TAG = '[YouTube PiP]';
+/** Userscript log lines kept for the failure output. */
+const USERSCRIPT_LOG_MAX_LINES = 300;
 const VIDEO_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
 /** Shorts feed page with vertical reels. */
@@ -65,6 +80,11 @@ export {
 } from './pip-like-dislike';
 export {
   clickContextMenuItem,
+  clickCopyMenuItemInPip,
+  focusContextMenuItemInPip,
+  focusedContextMenuItemPositionInPip,
+  watchCopiedBezelInPip,
+  waitForCopyFeedbackInPip,
   openContextMenuInPip,
   waitForContextMenuItemVisible,
 } from './pip-context-menu';
@@ -73,6 +93,55 @@ export {
   waitForShortsPlayerVisibleInPip,
   scrollToNextShortInPip,
 } from './pip-shorts';
+
+/**
+ * Userscript initialized and the watch page has its watch response. On slow runners the page is still a skeleton
+ * after the consent reload when the userscript is ready; triggering PiP or pressing 'i' then does nothing because
+ * YouTube drops mini player activation without a watch response.
+ */
+async function waitForWatchPageReady(page: Page): Promise<void> {
+  await page.waitForFunction(
+    ({ watchSel }) => {
+      const watch = document.querySelector(watchSel) as
+        | (Element & { data?: { currentVideoEndpoint?: unknown } })
+        | null;
+      return !!window.__E2E_PIP__?.ready() && !!watch?.data?.currentVideoEndpoint;
+    },
+    { watchSel: E2E_SELECTORS.WATCH_PAGE },
+    { timeout: E2E_PAGE_HYDRATION_TIMEOUT_MS }
+  );
+  await waitForYouTubeLowPriorityJobs(page);
+}
+
+/**
+ * Wait until YouTube has run the low-priority jobs queued so far (same barrier as the userscript's
+ * YouTubeScheduler.waitForLowPriorityJobs). With kevlar_watch_while_v2 the watch page's first IntersectionObserver
+ * callback queues a job that deactivates an active mini player; on CI YouTube holds it back for ~2-3 s, so a mini
+ * player activated right after page load ('i' or PiP) was dropped ~100 ms after it appeared.
+ */
+async function waitForYouTubeLowPriorityJobs(page: Page): Promise<void> {
+  await page.evaluate(
+    ({ priority, delayMs, timeoutMs }) =>
+      new Promise<void>((resolve) => {
+        const addJob = window.yt?.scheduler?.instance?.addJob;
+        if (typeof addJob !== 'function') return resolve();
+        const timeoutId = setTimeout(resolve, timeoutMs);
+        addJob(
+          () => {
+            clearTimeout(timeoutId);
+            resolve();
+          },
+          priority,
+          delayMs
+        );
+      }),
+    {
+      priority: E2E_YT_SCHEDULER.LOW_PRIORITY,
+      delayMs: E2E_YT_SCHEDULER.WATCH_WHILE_JOB_DELAY_MS,
+      timeoutMs: E2E_YT_LOW_PRIORITY_JOBS_TIMEOUT_MS,
+    }
+  );
+}
 
 export const test = base.extend<{
   authState: AuthStateOption;
@@ -86,6 +155,7 @@ export const test = base.extend<{
   triggerEnterPictureInPicture: TriggerEnterPictureInPictureFn;
   assertPiPWindowHasPlayer: AssertPiPWindowHasPlayerFn;
   waitForPiPAdToEnd: WaitForPiPAdToEndFn;
+  miniplayerTimelineOnFailure: void;
 }>({
   authState: [undefined, { option: true }],
   storeAuthState: [undefined, { option: true }],
@@ -106,7 +176,16 @@ export const test = base.extend<{
       if (flags.length > 0) {
         await ctx.addInitScript(installForcedExperimentFlags, flags);
       }
+      // Userscript debug logs on (before it runs): they land in traces and in the failure output below
+      await ctx.addInitScript((flag: string) => {
+        try {
+          localStorage.setItem(flag, 'true');
+        } catch {
+          /* opaque origins (about:blank frames) */
+        }
+      }, USERSCRIPT_DEBUG_FLAG);
       await ctx.addInitScript(initHandlerStub, userscriptBody);
+      await ctx.addInitScript(installMiniplayerTimeline, MINIPLAYER_TIMELINE_LIMITS);
       await use(ctx);
       if (storeAuthState === true) {
         mkdirSync(dirname(E2E_STORAGE_STATE_PATH), { recursive: true });
@@ -130,6 +209,37 @@ export const test = base.extend<{
     const ctx = await browser.newContext(defaultContextOptions);
     await addInitAndUse(ctx);
   },
+
+  /** On failure, print and attach the mini player timeline (see miniplayer-timeline.ts) for CI flakes. */
+  miniplayerTimelineOnFailure: [
+    async ({ page }, use, testInfo) => {
+      // Userscript log lines of the main page (PiP logs go through the main window's console too)
+      const userscriptLog: string[] = [];
+      page.on('console', (msg) => {
+        const text = msg.text();
+        if (!text.includes(USERSCRIPT_LOG_TAG)) return;
+        userscriptLog.push(
+          text
+            .replace(/%c/g, '')
+            .replace(/\s*(?:color|font-weight):[^;]*;/g, '')
+            // global metadata repeated on every line
+            .replace(/\s*\{youtubeVersion:[^}]*\}\s*$/, '')
+        );
+        if (userscriptLog.length > USERSCRIPT_LOG_MAX_LINES) userscriptLog.shift();
+      });
+      await use();
+      if (testInfo.status === testInfo.expectedStatus) return;
+      const timeline = page.isClosed() ? 'page closed' : await readMiniplayerTimeline(page);
+      const log = userscriptLog.join('\n');
+      console.log(
+        `\n[mini player timeline] ${testInfo.titlePath.join(' › ')}\n${timeline}\n` +
+          `\n[userscript log] ${testInfo.titlePath.join(' › ')}\n${log}\n`
+      );
+      await testInfo.attach('miniplayer-timeline', { body: timeline, contentType: 'text/plain' });
+      await testInfo.attach('userscript-log', { body: log, contentType: 'text/plain' });
+    },
+    { auto: true },
+  ],
 
   userscriptBody: async ({}, use) => {
     await use(getUserscriptBody());
@@ -162,18 +272,14 @@ export const test = base.extend<{
   videoPageReady: async ({ page, acceptYouTubeConsent }, use) => {
     await page.goto(VIDEO_URL, { waitUntil: 'domcontentloaded' });
     await acceptYouTubeConsent(page);
-    await page.waitForFunction(() => window.__E2E_PIP__?.ready(), {
-      timeout: E2E_WAIT_TIMEOUT_MS,
-    });
+    await waitForWatchPageReady(page);
     await use(page);
   },
 
   playlistVideoPageReady: async ({ page, acceptYouTubeConsent }, use) => {
     await page.goto(PLAYLIST_VIDEO_URL, { waitUntil: 'domcontentloaded' });
     await acceptYouTubeConsent(page);
-    await page.waitForFunction(() => window.__E2E_PIP__?.ready(), {
-      timeout: E2E_WAIT_TIMEOUT_MS,
-    });
+    await waitForWatchPageReady(page);
     await use(page);
   },
 
@@ -240,28 +346,38 @@ export const test = base.extend<{
       return false;
     };
 
+    /**
+     * One deadline for all ads in a row (YouTube can show 2+ unskippable ones, together longer than 30s). A
+     * timeout of a single wait used to throw on the first attempt, so the old attempt loop never retried.
+     */
     const waitFn: WaitForPiPAdToEndFn = async (page) => {
-      const timeout = E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS;
-      const maxAttempts = 10;
-      for (let i = 0; i < maxAttempts; i++) {
-        const skipPoll = setInterval(() => void tryClickSkipAdInPip(page), E2E_PIP_SKIP_AD_POLL_MS);
-        try {
-          await page.waitForFunction(
-            (adOverlaySel: string) => {
-              const pip = window.documentPictureInPicture?.window;
-              const overlay = pip?.document.querySelector(adOverlaySel);
-              if (!overlay) return true;
-              const style = pip?.document.defaultView?.getComputedStyle(overlay);
-              return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
-            },
-            E2E_SELECTORS.AD_PLAYER_OVERLAY,
-            { timeout }
-          );
-        } finally {
-          clearInterval(skipPoll);
+      const deadline = Date.now() + E2E_PIP_AD_MAX_WAIT_MS;
+      const skipPoll = setInterval(() => void tryClickSkipAdInPip(page), E2E_PIP_SKIP_AD_POLL_MS);
+      try {
+        for (;;) {
+          const remaining = deadline - Date.now();
+          const ended = await page
+            .waitForFunction(
+              (adOverlaySel: string) => {
+                const pip = window.documentPictureInPicture?.window;
+                const overlay = pip?.document.querySelector(adOverlaySel);
+                if (!overlay) return true;
+                const style = pip?.document.defaultView?.getComputedStyle(overlay);
+                return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
+              },
+              E2E_SELECTORS.AD_PLAYER_OVERLAY,
+              { timeout: Math.max(remaining, 1) }
+            )
+            .then(() => true)
+            .catch(() => false);
+          if (!ended) {
+            throw new Error(`Ads in PiP did not end within ${E2E_PIP_AD_MAX_WAIT_MS}ms`);
+          }
+          await page.waitForTimeout(E2E_PIP_AD_STABILITY_MS);
+          if (await isAdOverlayGone(page)) return;
         }
-        await page.waitForTimeout(E2E_PIP_AD_STABILITY_MS);
-        if (await isAdOverlayGone(page)) return;
+      } finally {
+        clearInterval(skipPoll);
       }
     };
     await use(waitFn);

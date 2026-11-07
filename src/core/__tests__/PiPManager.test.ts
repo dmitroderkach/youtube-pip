@@ -497,6 +497,28 @@ describe('PiPManager (integration)', () => {
     expect(mockPlayerManager.restorePlayingState).toHaveBeenCalled();
   });
 
+  it('open with mini player inactive waits for YouTube low-priority jobs before activating it', async () => {
+    mockMiniController.isVisible.mockReturnValue(false);
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    const { YouTubeScheduler } = await import('../../utils/YouTubeScheduler');
+    vi.spyOn(DOMUtils, 'waitForElementSelector').mockResolvedValue(containerEl as never);
+    const order: string[] = [];
+    const barrier = vi
+      .spyOn(YouTubeScheduler, 'waitForLowPriorityJobs')
+      .mockImplementation(async () => {
+        order.push('barrier');
+      });
+    mockMiniController.toggleMiniPlayer.mockImplementation(() => {
+      order.push('toggle');
+    });
+
+    await manager.open();
+
+    expect(order).toEqual(['barrier', 'toggle']);
+    barrier.mockRestore();
+    vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
+  });
+
   it('full flow: open with mini player inactive waits for container then opens', async () => {
     mockMiniController.isVisible.mockReturnValue(false);
     const { DOMUtils } = await import('../../utils/DOMUtils');
@@ -505,8 +527,27 @@ describe('PiPManager (integration)', () => {
     await manager.open();
 
     expect(DOMUtils.waitForElementSelector).toHaveBeenCalledWith(SELECTORS.MINIPLAYER_CONTAINER);
+    expect(DOMUtils.waitForElementSelector).toHaveBeenCalledWith(
+      SELECTORS.MOVIE_PLAYER,
+      containerEl
+    );
     expect(mockMiniController.toggleMiniPlayer).toHaveBeenCalled();
     expect(manager.isOpen()).toBe(true);
+    vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
+  });
+
+  it('open with mini inactive fails without opening a window when the player never reaches the container', async () => {
+    mockMiniController.isVisible.mockReturnValue(false);
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    vi.spyOn(DOMUtils, 'waitForElementSelector').mockImplementation(((sel: string) =>
+      sel === SELECTORS.MOVIE_PLAYER
+        ? Promise.reject(new Error(`Timeout: ${sel} not found`))
+        : Promise.resolve(containerEl)) as never);
+
+    await expect(manager.open()).rejects.toThrow('Error opening PiP');
+
+    expect(window.documentPictureInPicture!.requestWindow).not.toHaveBeenCalled();
+    expect(manager.isOpen()).toBe(false);
     vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
   });
 

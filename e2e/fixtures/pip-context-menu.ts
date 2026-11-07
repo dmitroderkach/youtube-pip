@@ -113,3 +113,89 @@ export function clickContextMenuItem(page: Page, positionFromEnd: number): Promi
     { menuSel: E2E_SELECTORS.CONTEXT_MENU, itemsSel: MENU_ITEMS_IN_MENU, pos: positionFromEnd }
   );
 }
+
+type PipWindowWithBezelFlag = Window & { __e2eCopiedBezelShown?: boolean };
+
+/**
+ * Start recording whether YouTube's "copied" bezel shows in the PiP player (it is visible for ~500 ms, so a
+ * MutationObserver records it). Call before the action that copies; then waitForCopyFeedbackInPip.
+ */
+export async function watchCopiedBezelInPip(page: Page): Promise<void> {
+  await page.evaluate((bezelSel: string) => {
+    const win = window.documentPictureInPicture?.window as PipWindowWithBezelFlag | undefined;
+    const doc = win?.document;
+    if (!win || !doc) return;
+    win.__e2eCopiedBezelShown = false;
+    const bezelShown = () =>
+      Array.from(doc.querySelectorAll<HTMLElement>(bezelSel)).some(
+        (b) => !!b.parentElement && win.getComputedStyle(b.parentElement).display !== 'none'
+      );
+    const observer = new MutationObserver(() => {
+      if (bezelShown()) {
+        win.__e2eCopiedBezelShown = true;
+        observer.disconnect();
+      }
+    });
+    observer.observe(doc.body, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['style', 'class'],
+    });
+  }, E2E_SELECTORS.PLAYER_BEZEL);
+}
+
+/** Expect the same feedback as on the page after a copy: the "copied" bezel showed and the menu closed. */
+export async function waitForCopyFeedbackInPip(page: Page): Promise<void> {
+  await page.waitForFunction(
+    (menuSel: string) => {
+      const win = window.documentPictureInPicture?.window as PipWindowWithBezelFlag | undefined;
+      const menuOpen = Array.from(win?.document.querySelectorAll<HTMLElement>(menuSel) ?? []).some(
+        (m) => win!.getComputedStyle(m).display !== 'none'
+      );
+      return !!win?.__e2eCopiedBezelShown && !menuOpen;
+    },
+    E2E_SELECTORS.CONTEXT_MENU,
+    { timeout: E2E_WAIT_TIMEOUT_MS }
+  );
+}
+
+/** Click a copy item (position from the end) in the visible context menu in PiP and expect copy feedback. */
+export async function clickCopyMenuItemInPip(page: Page, positionFromEnd: number): Promise<void> {
+  await watchCopiedBezelInPip(page);
+  await clickContextMenuItem(page, positionFromEnd);
+  await waitForCopyFeedbackInPip(page);
+}
+
+/** Focus the item at `positionFromEnd` in the visible context menu in PiP (keyboard navigation starts there). */
+export function focusContextMenuItemInPip(page: Page, positionFromEnd: number): Promise<boolean> {
+  return page.evaluate(
+    ({ menuSel, itemsSel, pos }: { menuSel: string; itemsSel: string; pos: number }) => {
+      const doc = window.documentPictureInPicture?.window?.document;
+      const menu = Array.from(doc?.querySelectorAll<HTMLElement>(menuSel) ?? []).find(
+        (m) => m.style.display !== 'none'
+      );
+      const items = menu ? Array.from(menu.querySelectorAll<HTMLElement>(itemsSel)) : [];
+      const item = items[items.length - 1 - pos];
+      item?.focus();
+      return !!item && doc?.activeElement === item;
+    },
+    { menuSel: E2E_SELECTORS.CONTEXT_MENU, itemsSel: MENU_ITEMS_IN_MENU, pos: positionFromEnd }
+  );
+}
+
+/** Position from the end of the focused item in the visible context menu in PiP, or -1. */
+export function focusedContextMenuItemPositionInPip(page: Page): Promise<number> {
+  return page.evaluate(
+    ({ menuSel, itemsSel }: { menuSel: string; itemsSel: string }) => {
+      const doc = window.documentPictureInPicture?.window?.document;
+      const menu = Array.from(doc?.querySelectorAll<HTMLElement>(menuSel) ?? []).find(
+        (m) => m.style.display !== 'none'
+      );
+      const items = menu ? Array.from(menu.querySelectorAll<HTMLElement>(itemsSel)) : [];
+      const index = items.indexOf(doc?.activeElement as HTMLElement);
+      return index === -1 ? -1 : items.length - 1 - index;
+    },
+    { menuSel: E2E_SELECTORS.CONTEXT_MENU, itemsSel: MENU_ITEMS_IN_MENU }
+  );
+}

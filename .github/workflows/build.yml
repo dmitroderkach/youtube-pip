@@ -54,7 +54,9 @@ jobs:
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v7
-        if: always() && (steps.e2e.outcome == 'success' || steps.e2e.outcome == 'failure')
+        # Also on cancel: Playwright stops on SIGINT and still writes the report (traces of failures so far),
+        # so a run can be cancelled as soon as a flake shows up
+        if: always() && steps.e2e.outcome != 'skipped'
         with:
           name: playwright-report.zip
           path: playwright-report/

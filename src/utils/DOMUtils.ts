@@ -92,6 +92,38 @@ export class DOMUtils {
   }
 
   /**
+   * Make the next `doc.execCommand('copy')` in the current task return true without copying anything; other
+   * commands pass through. The override is removed on first use or at the next task.
+   * @returns function telling whether the override was used
+   */
+  public static reportNextCopyCommandAsSucceeded(doc: Document): () => boolean {
+    let used = false;
+    const ownDescriptor = Object.getOwnPropertyDescriptor(doc, 'execCommand');
+    const original = doc.execCommand;
+    const restore = (): void => {
+      if (ownDescriptor) {
+        Object.defineProperty(doc, 'execCommand', ownDescriptor);
+      } else {
+        delete (doc as { execCommand?: unknown }).execCommand;
+      }
+    };
+    Object.defineProperty(doc, 'execCommand', {
+      configurable: true,
+      writable: true,
+      value: (commandId: string, showUI?: boolean, value?: string): boolean => {
+        if (commandId.toLowerCase() === 'copy') {
+          used = true;
+          restore();
+          return true;
+        }
+        return original.call(doc, commandId, showUI, value);
+      },
+    });
+    window.setTimeout(restore, 0);
+    return () => used;
+  }
+
+  /**
    * Unwrap element by moving all children to parent and removing wrapper
    */
   public static unwrap(wrapper: Nullable<Element>): void {

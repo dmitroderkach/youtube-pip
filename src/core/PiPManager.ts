@@ -3,6 +3,7 @@ import { LoggerFactory } from '../logger';
 import { DOMUtils } from '../utils/DOMUtils';
 import { StyleUtils } from '../utils/StyleUtils';
 import { AsyncLock } from '../utils/AsyncLock';
+import { YouTubeScheduler } from '../utils/YouTubeScheduler';
 import { MiniPlayerController } from '../ui/MiniPlayerController';
 import { PlayerManager } from './PlayerManager';
 import { YtdAppProvider } from './YtdAppProvider';
@@ -131,10 +132,15 @@ export class PiPManager {
 
     if (!this.playerManager.getWasMiniPlayerActiveBeforePiP()) {
       this.playerManager.saveMainPlayerTimeBeforeOpenPiP();
+      // Let YouTube run pending low-priority jobs first: with kevlar_watch_while_v2 a delayed watch-while job
+      // built from the stale "player visible" entry would deactivate the mini player we activate now.
+      await YouTubeScheduler.waitForLowPriorityJobs();
       this.miniPlayerController.toggleMiniPlayer();
 
-      // Wait for mini player container
-      await DOMUtils.waitForElementSelector(SELECTORS.MINIPLAYER_CONTAINER);
+      // Wait for mini player container and for YouTube to move the player into it: the container can
+      // appear first (CoW player), and moving an empty container leaves PiP black.
+      const container = await DOMUtils.waitForElementSelector(SELECTORS.MINIPLAYER_CONTAINER);
+      await DOMUtils.waitForElementSelector(SELECTORS.MOVIE_PLAYER, container);
       this.playerManager.restoreMainPlayerIfShortsStolePlayback();
       this.logger.debug('Mini player container ready');
     }

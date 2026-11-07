@@ -442,6 +442,22 @@ This runs only after the Shorts element has been moved back to the main page (e.
 
 ---
 
+## YouTube Scheduler: `yt.scheduler.instance`
+
+`scheduler.js` (loaded on every page) exposes YouTube's job scheduler on `window.yt.scheduler.instance`:
+
+| Method                           | Meaning                                                                                                                         |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `addJob(fn, priority, delayMs?)` | Queue `fn`. With a delay, a `setTimeout` adds it to the queue later. Returns a job id.                                          |
+| `cancelJob(id)`                  | Cancel a queued or delayed job.                                                                                                 |
+| `setPriorityThreshold(p)`        | Hold back jobs below priority `p`; resets to 0 about 800 ms after the last call (`kevlar_tuner_scheduler_soft_state_timer_ms`). |
+
+- Kevlar's `addLowPriorityJob(fn, delay)` is `addJob(fn, 1, delay)`. Priority-1 jobs run in idle time (`requestIdleCallback`, 3 s timeout), in FIFO order within the priority. On a busy page (ad, navigation) they can wait for seconds.
+- **Used by the userscript**: `YouTubeScheduler.waitForLowPriorityJobs()` (`src/utils/YouTubeScheduler.ts`) queues its own priority-1 job with a 100 ms delay and waits for it, so YouTube's already pending low-priority jobs (e.g. the `kevlar_watch_while_v2` job that deactivates the mini player) run first. See ARCHITECTURE_DECISIONS §18.
+- The scheduler instance itself is `ytglobal.schedulerInstanceInstance_`; its fields are minified, do not use them.
+
+---
+
 ## Kevlar Command System (deprecated — do not call from the userscript)
 
 > ⚠️ **Deprecated since Nov 2026.** The userscript no longer calls any Kevlar command dispatcher. Like/dislike in the mini player PiP goes through the [PiP Event Bridge](#pip-event-bridge), the same way Shorts always did. This section is kept as history and as a debugging aid.

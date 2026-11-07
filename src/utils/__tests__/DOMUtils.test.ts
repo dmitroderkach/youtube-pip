@@ -101,6 +101,71 @@ describe('DOMUtils', () => {
     expect(el.attributes.length).toBe(0);
   });
 
+  describe('reportNextCopyCommandAsSucceeded', () => {
+    const protoDescriptor = Object.getOwnPropertyDescriptor(Document.prototype, 'execCommand');
+
+    afterEach(() => {
+      if (protoDescriptor)
+        Object.defineProperty(Document.prototype, 'execCommand', protoDescriptor);
+    });
+
+    function docWithExecCommand() {
+      const doc = document.implementation.createHTMLDocument();
+      const original = vi.fn(() => false);
+      Object.defineProperty(Document.prototype, 'execCommand', {
+        configurable: true,
+        writable: true,
+        value: original,
+      });
+      return { doc, original };
+    }
+
+    it('reports the next copy as succeeded without calling the real command, once', () => {
+      const { doc, original } = docWithExecCommand();
+      const used = DOMUtils.reportNextCopyCommandAsSucceeded(doc);
+
+      expect(used()).toBe(false);
+      expect(doc.execCommand('copy')).toBe(true);
+      expect(used()).toBe(true);
+      expect(original).not.toHaveBeenCalled();
+      expect(doc.execCommand('copy')).toBe(false);
+      expect(original).toHaveBeenCalledOnce();
+    });
+
+    it('passes other commands through to the original', () => {
+      const { doc, original } = docWithExecCommand();
+      DOMUtils.reportNextCopyCommandAsSucceeded(doc);
+
+      expect(doc.execCommand('bold')).toBe(false);
+      expect(original).toHaveBeenCalledWith('bold', undefined, undefined);
+    });
+
+    it('removes the override at the next task when unused', async () => {
+      vi.useFakeTimers();
+      const { doc, original } = docWithExecCommand();
+      const used = DOMUtils.reportNextCopyCommandAsSucceeded(doc);
+
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(Object.prototype.hasOwnProperty.call(doc, 'execCommand')).toBe(false);
+      expect(doc.execCommand('copy')).toBe(false);
+      expect(original).toHaveBeenCalledOnce();
+      expect(used()).toBe(false);
+      vi.useRealTimers();
+    });
+
+    it('restores an own execCommand that was already set', () => {
+      const { doc } = docWithExecCommand();
+      const own = vi.fn(() => false);
+      Object.defineProperty(doc, 'execCommand', { configurable: true, writable: true, value: own });
+      DOMUtils.reportNextCopyCommandAsSucceeded(doc);
+
+      doc.execCommand('copy');
+
+      expect(doc.execCommand).toBe(own);
+    });
+  });
+
   it('copyViaTextarea creates textarea and returns execCommand result', () => {
     const doc = document;
     const ok = DOMUtils.copyViaTextarea(doc, 'hello');

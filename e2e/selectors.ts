@@ -6,6 +6,12 @@ export const E2E_SELECTORS = {
   /** <video> element inside the player (query relative to player root) */
   PLAYER_VIDEO: 'video',
   YTD_APP: 'ytd-app',
+  /**
+   * Watch page element; it holds the watch response in `.data` (`currentVideoEndpoint`, `contents`). Until the
+   * response is there the page is a skeleton and YouTube ignores mini player activation ('i',
+   * yt-activate-miniplayer-*). `[has-metadata]` is not used: YouTube can defer the metadata render during an ad.
+   */
+  WATCH_PAGE: 'ytd-watch-flexy[video-id], ytd-watch-grid[video-id]',
   /** Shorts root element on Shorts page/feed. */
   YTD_SHORTS: 'ytd-shorts',
   /** Shorts player container inside Shorts. */
@@ -21,6 +27,8 @@ export const E2E_SELECTORS = {
   PLAYLIST_VIDEO_ROW: 'ytd-playlist-panel-video-renderer',
   /** Link inside playlist row (use for click). */
   PLAYLIST_VIDEO_ITEM: 'ytd-playlist-panel-video-renderer > a',
+  /** Player bezel (center icon feedback, e.g. after a successful copy); its parent toggles visibility. */
+  PLAYER_BEZEL: '.ytp-bezel',
   /** Context menu popup (YouTube player). */
   CONTEXT_MENU: '.ytp-popup.ytp-contextmenu',
   /** Copy menu items container. */

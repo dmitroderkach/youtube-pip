@@ -27,6 +27,7 @@ export {
   YT_ACTION_NAMES,
   WEB_PAGE_TYPES,
   ROOT_VE,
+  YT_SCHEDULER,
 } from './youtube';
 
 export { COPY_MENU_POSITIONS_FROM_END, KEYS, MOUSE_BUTTONS } from './ui';

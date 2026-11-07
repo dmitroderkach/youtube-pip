@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { PiPError } from '../errors/PiPError';
 
 const DEBUG_FLAG = 'YOUTUBE_PIP_DEBUG';
 
@@ -44,6 +45,27 @@ describe('Logger', () => {
   it('error is always logged regardless of debug flag', () => {
     Logger.getInstance('E').error('err');
     expect(console.error).toHaveBeenCalled();
+  });
+
+  it('error prints the cause chain of a wrapped error', () => {
+    const root = new Error('requestWindow rejected');
+    const middle = new PiPError('inner step failed', root);
+    const top = new PiPError('Error opening PiP', middle);
+
+    Logger.getInstance('C').error('Error opening PiP from media session:', top);
+
+    const args = vi.mocked(console.error).mock.lastCall!;
+    expect(args).toContain(top);
+    expect(args).toContain(middle);
+    expect(args).toContain(root);
+    expect(args.filter((a) => a === '\nCaused by:')).toHaveLength(2);
+  });
+
+  it('error with a non-Error meta prints no cause section', () => {
+    Logger.getInstance('C').error('plain', { detail: 1 });
+
+    const args = vi.mocked(console.error).mock.lastCall!;
+    expect(args).not.toContain('\nCaused by:');
   });
 
   it('log is not called when debug disabled', () => {

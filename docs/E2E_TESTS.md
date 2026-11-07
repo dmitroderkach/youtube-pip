@@ -45,11 +45,20 @@ The userscript body is read from `dist/userscript.js` (without the UserScript he
 
 ### Ready pages
 
-| Fixture                  | Description                                                                                                                                                       |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `videoPageReady`         | Opens a fixed video URL (`VIDEO_URL`), accepts YouTube cookie consent when the dialog appears, waits until the userscript has registered `enterpictureinpicture`. |
-| `playlistVideoPageReady` | Same for a playlist URL (`PLAYLIST_VIDEO_URL`) — used for playlist navigation tests in PiP.                                                                       |
-| `shortsPageReady`        | Opens the Shorts feed URL (`SHORTS_URL`), accepts consent when shown, waits until the userscript has registered `enterpictureinpicture` and `ytd-shorts` exists.  |
+| Fixture                  | Description                                                                                                                                                                                                                                                |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `videoPageReady`         | Opens a fixed video URL (`VIDEO_URL`), accepts YouTube cookie consent when the dialog appears, waits until the userscript has registered `enterpictureinpicture`, the watch page is hydrated and YouTube's pending low-priority jobs have run (see below). |
+| `playlistVideoPageReady` | Same for a playlist URL (`PLAYLIST_VIDEO_URL`) — used for playlist navigation tests in PiP.                                                                                                                                                                |
+| `shortsPageReady`        | Opens the Shorts feed URL (`SHORTS_URL`), accepts consent when shown, waits until the userscript has registered `enterpictureinpicture` and `ytd-shorts` exists.                                                                                           |
+
+**Why the watch page wait is more than "userscript ready"** (both found as CI flakes; CI runners are slow and get pre-roll ads):
+
+1. **Watch response** — `ytd-watch-flexy` / `ytd-watch-grid` has the watch response in `.data` (`currentVideoEndpoint`). After the consent reload the userscript can be ready while the page is still a skeleton; YouTube then ignores mini player activation (`i`, `yt-activate-miniplayer-from-watch-action` returns without a watch response), so PiP or the mini player never opened. `[has-metadata]` is not used: during a pre-roll ad YouTube can defer rendering the metadata for more than 30 s although the response is there.
+2. **YouTube's low-priority jobs** — the same barrier as the userscript's `YouTubeScheduler.waitForLowPriorityJobs()` (queue a priority-1 job with 100 ms delay, wait until it runs; up to `E2E_YT_LOW_PRIORITY_JOBS_TIMEOUT_MS`). With `kevlar_watch_while_v2` (`chromium-all-flags`) a delayed watch-while job deactivated a mini player activated right after load (`i` in `mini-player.spec.ts`). See ARCHITECTURE_DECISIONS §18.
+
+### Diagnosing flakes: mini player timeline
+
+Every test records a timeline in the page (`fixtures/miniplayer-timeline.ts`, installed as an init script): sampled state (URL, mini player visible/active, where `#movie_player` is, ad showing, player state, PiP content), mini player related `yt-action`s, navigations, watch-while `IntersectionObserver` callbacks, and the **stack of every mini player `setActive()`** (captured from the `yt-close-popup-action` it dispatches synchronously), which shows who called `activate()` / `deactivate()`. On failure the `miniplayerTimelineOnFailure` auto fixture prints it to the log and attaches it to the report, together with the userscript's own log lines (`[YouTube PiP] …`; debug logs are switched on in e2e via the `YOUTUBE_PIP_DEBUG` localStorage flag). The CI report is uploaded also when the run is cancelled, so a run can be stopped once a flake has shown up. To hunt a flake on CI, run only the affected specs with `--repeat-each` (temporarily in `build.yml`) instead of the full suite.
 
 ### PiP helpers
 
@@ -152,6 +161,10 @@ All selectors live in `E2E_SELECTORS` and do not import from `src/`, so e2e does
 - `SKIP_AUTH_E2E_ON_CI` — parsed from `process.env.SKIP_AUTH_E2E_ON_CI`; when set to `true`, tests using `authState: true` are skipped by the `context` fixture.
 - `E2E_WAIT_TIMEOUT_MS` — default timeout for waits (e.g. 10s).
 - `E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS` — longer timeout for context menu items to appear (ads can delay them).
+- `E2E_PAGE_HYDRATION_TIMEOUT_MS` — max wait for the watch page to hydrate after load / consent reload.
+- `E2E_YT_SCHEDULER`, `E2E_YT_LOW_PRIORITY_JOBS_TIMEOUT_MS` — YouTube scheduler barrier in the page-ready fixtures (mirrors `YT_SCHEDULER` in `src/constants/youtube.ts`).
+- `E2E_PIP_AD_MAX_WAIT_MS` — total wait for all ads in PiP to end (`waitForPiPAdToEnd`).
+- `E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S` — playback time required before "Copy video URL at current time".
 - `E2E_PIP_AD_STABILITY_MS` — how long the ad overlay must stay gone to consider all ads finished.
 - `E2E_PIP_SKIP_AD_POLL_MS` — poll interval for clicking "Skip ad".
 - `E2E_CONTEXT_MENU_REOPEN_INTERVAL_MS` — retry interval when opening the context menu in PiP. Right after a menu closes, YouTube's player still treats it as open during its fade-out and ignores the next right-click, so `waitForContextMenuItemVisible` right-clicks again.
@@ -184,7 +197,7 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 ### 3. `context-menu-copy.spec.ts` — copy from context menu
 
 - **Scenario:** Open PiP, wait for ads to end, then for each item (Copy video URL, Copy URL at time, Copy embed iframe, Copy debug info): wait for the item to be visible, click it, assert clipboard content via `expect.poll(() => navigator.clipboard.readText())`.
-- **Details:** Longer timeout for menu items (ads); before asserting "URL at time", a short delay so `currentTime` updates; for debug info, assert clipboard contains valid JSON.
+- **Details:** Longer timeout for menu items (ads); `waitForPiPAdToEnd` waits up to `E2E_PIP_AD_MAX_WAIT_MS` for all ads in a row; before "URL at time" the test waits until the PiP video has played `E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S` seconds (starting it if paused), since YouTube omits `t=` near 0 — if the video never plays (CI runners sometimes get the ads but not the video stream: stuck at 0:00 with a spinner), `t=` is not checked and a `warning` annotation is added; every copy click goes through `clickCopyMenuItemInPip`, which expects YouTube's "copied" bezel in the PiP player and the menu to close (same feedback as on the page); for debug info, assert clipboard contains valid JSON. Test timeout 180 s.
 - **Menu access:** Context menu is opened in PiP via `dispatchEvent(contextmenu)` on the player; items are selected by index using `.ytp-panel-menu > .ytp-menuitem`.
 
 ### 4. `playlist-navigation.spec.ts` — playlist navigation in PiP
@@ -205,6 +218,8 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 
 ### 7. `shorts-context-menu-copy.spec.ts` — context menu copy in Shorts PiP
 
+- **Copy feedback:** copy clicks use `clickCopyMenuItemInPip` (YouTube's "copied" bezel shown in PiP, menu closed).
+
 - **Scenario:** `shortsPageReady` (with **`authState: true` recommended** to bypass bot detection on Shorts) → trigger PiP → wait for Shorts player in PiP → for each menu item (Copy Shorts URL, Copy URL at time, Copy embed iframe, Copy debug info): open context menu in PiP on `#shorts-player`, click item, assert clipboard content via `expect.poll(...)`.
 - **Details:** URL assertions are Shorts-specific:
   - "Copy video URL" → `https://www.youtube.com/shorts/VIDEO_ID?feature=share`;
@@ -218,6 +233,16 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 - **Goal:** Verify that keyboard navigation (ArrowDown) inside the PiP window correctly advances to the next Shorts reel and the underlying video source changes.
 
 ---
+
+### 9. `context-menu-after-pip.spec.ts` — page context menu after using it in PiP
+
+- **Scenario:** Open PiP, open the context menu in PiP, close PiP with the menu open, right-click the player on the page, click the last item → the menu closes.
+- **Goal:** With `web_watch_pip` / `web_shorts_pip` YouTube opens the menu in the PiP document; it must be returned to the page on close, otherwise YouTube keeps reusing the stranded element and items stop closing the menu.
+
+### 10. `context-menu-keyboard.spec.ts` — keyboard in the PiP context menu
+
+- **Scenario:** Open PiP, wait for ads, open the context menu in PiP, focus "Copy video URL", press **ArrowDown** in the PiP window (focus moves to "Copy video URL at current time"), press **Enter** → "copied" bezel, menu closed, URL in the clipboard.
+- **Goal:** Keys reach the menu in every flag configuration, including menus YouTube opens in PiP itself (`web_watch_pip` / `web_shorts_pip`), where `DocumentFocusHandler` used to forward them to the player.
 
 ## Experiment flag matrix (`fixtures/experiment-flags.ts`)
 

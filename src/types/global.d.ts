@@ -28,8 +28,21 @@ interface MediaSession {
   ): void;
 }
 
+/**
+ * YouTube's job scheduler (scheduler.js), exposed as window.yt.scheduler.instance.
+ * Jobs of one priority run in FIFO order; Kevlar's addLowPriorityJob(fn, delay) is addJob(fn, 1, delay).
+ */
+interface YouTubeSchedulerInstance {
+  addJob?(job: () => void, priority: number, delayMs?: number): number;
+}
+
 interface Window {
   documentPictureInPicture?: DocumentPictureInPicture;
+  yt?: {
+    scheduler?: {
+      instance?: YouTubeSchedulerInstance;
+    };
+  };
   ytcfg?: {
     data_?: {
       INNERTUBE_CONTEXT?: {
