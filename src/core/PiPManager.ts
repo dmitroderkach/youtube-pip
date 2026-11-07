@@ -11,7 +11,7 @@ import { PipWindowProvider } from './PipWindowProvider';
 import { DEFAULT_DIMENSIONS, TIMEOUTS } from '../constants';
 import { SELECTORS } from '../selectors';
 import type { Nullable, PiPCleanupCallback } from '../types/app';
-import type { YouTubeShortsElement } from '../types/youtube';
+import type { YouTubeShortsElement, YtdPlayerElement } from '../types/youtube';
 import { PiPError } from '../errors/PiPError';
 import { PiPCriticalError } from '../errors/PiPCriticalError';
 import { PiPWindowHandlers } from './PiPWindowHandlers';
@@ -188,6 +188,9 @@ export class PiPManager {
     DOMUtils.copyAttributes(ytdApp, pipApp);
     pipDoc.body.appendChild(pipApp);
 
+    // Park the player in PiP first with YouTube's own move, so CoW player components survive
+    const parked = await this.parkYtdPlayer(this.miniPlayerContainer, pipDoc);
+
     // Move mini player to PiP
     this.placeholder = DOMUtils.createPlaceholder('mini_player_placeholder');
     DOMUtils.insertPlaceholderBefore(miniplayer, this.placeholder);
@@ -202,6 +205,8 @@ export class PiPManager {
     ytDraggable.prepend(this.miniPlayerContainer);
 
     DOMUtils.unwrap(ytDraggable);
+
+    await this.unparkYtdPlayer(parked);
   }
 
   /**
@@ -262,8 +267,11 @@ export class PiPManager {
     this.placeholder = DOMUtils.createPlaceholder('shorts_placeholder');
     DOMUtils.insertPlaceholderBefore(shorts, this.placeholder);
 
+    // Park the Shorts player first with YouTube's own move, so CoW player components survive
+    const parked = await this.parkYtdPlayer(shorts, pipDoc, SELECTORS.SHORTS_PLAYER);
     this.ytdShortsProvider.lockLoadVideo();
     pipApp.appendChild(shorts);
+    await this.unparkYtdPlayer(parked);
     if (!shorts.dispatch) {
       this.logger.warn('shorts.dispatch not found');
       return;
@@ -328,8 +336,10 @@ export class PiPManager {
     const shorts = this.ytdShortsProvider.getShorts();
 
     if (shorts) {
+      const parked = await this.parkYtdPlayer(shorts, document, SELECTORS.SHORTS_PLAYER);
       this.ytdShortsProvider.lockLoadVideo();
       DOMUtils.restoreElementFromPlaceholder(shorts, this.placeholder);
+      await this.unparkYtdPlayer(parked);
       shorts.player?.setSize?.();
       shorts.player?.setInternalSize?.();
     } else {
@@ -354,6 +364,9 @@ export class PiPManager {
     const player = this.playerManager.getPlayer();
     this.playerManager.savePlayingState(player);
 
+    // Park the player in the main document first with YouTube's own move (CoW-safe)
+    const parked = await this.parkYtdPlayer(this.miniPlayerContainer, document);
+
     // Move mini player back
     DOMUtils.restoreElementFromPlaceholder(miniplayer, this.placeholder);
     this.placeholder = null;
@@ -365,17 +378,14 @@ export class PiPManager {
     }
     ytDraggable.prepend(this.miniPlayerContainer);
 
+    // Put the player back into its slot before YouTube (toggle to full player) looks for it there
+    await this.unparkYtdPlayer(parked);
+
     if (!this.playerManager.getWasMiniPlayerActiveBeforePiP()) {
       this.miniPlayerController.toggleMiniPlayer();
 
       // Wait for main player
       await this.playerManager.waitForMainPlayer();
-    }
-
-    // Remove mini player container
-    const miniplayerContainer = document.querySelector(SELECTORS.MINIPLAYER_CONTAINER);
-    if (miniplayerContainer) {
-      miniplayerContainer.remove();
     }
 
     // Restore playback state
@@ -385,9 +395,102 @@ export class PiPManager {
         if (this.playerManager.getWasMiniPlayerActiveBeforePiP()) {
           this.miniPlayerController.activateMiniPlayer();
           await this.playerManager.waitForMiniPlayer().catch(() => {});
+          // The mini player (a CoW component) re-rendered after the move and has its own fresh player
+          // container; the player belongs there, not in our old one.
+          await this.moveIntoLiveMiniplayerContainer(miniplayer);
         }
         resolve();
       });
     });
+
+    this.removeOldContainerIfEmpty();
+  }
+
+  /**
+   * After returning to the mini player, YouTube renders a fresh ytd-miniplayer-player-container next to
+   * our old one. Move ytd-player into the fresh one (unless YouTube already did) so there is a single,
+   * YouTube-managed container; otherwise both stay visible and the layout breaks.
+   */
+  private async moveIntoLiveMiniplayerContainer(miniplayer: Element): Promise<void> {
+    const old = this.miniPlayerContainer;
+    const ytdPlayer = old?.querySelector<YtdPlayerElement>(SELECTORS.YTD_PLAYER);
+    if (!old || !ytdPlayer) {
+      return;
+    }
+    const live = Array.from(miniplayer.querySelectorAll(SELECTORS.MINIPLAYER_CONTAINER)).find(
+      (c) => c !== old
+    );
+    const slot = live?.querySelector(SELECTORS.MINIPLAYER_PLAYER_SLOT);
+    if (!slot) {
+      this.logger.debug('No fresh mini player container; keeping the player in ours');
+      return;
+    }
+    await this.moveYtdPlayer(ytdPlayer, slot);
+  }
+
+  /** Drop our old mini player container once the player has left it; never while the player is inside. */
+  private removeOldContainerIfEmpty(): void {
+    const old = this.miniPlayerContainer;
+    if (!old?.isConnected) {
+      return;
+    }
+    if (old.querySelector(SELECTORS.MOVIE_PLAYER)) {
+      this.logger.debug('Player is still inside our mini player container; keeping it');
+      return;
+    }
+    old.remove();
+  }
+
+  /**
+   * Move ytd-player out of the mini player container into a temporary holder in `targetDoc`.
+   * The mini player and (with kevlar_player_cow_player_component_*) the player are YouTube "CoW"
+   * components: a plain DOM move disconnects them, they dispose and drop #movie_player, and a fresh
+   * empty player is rendered instead (video and position lost). ytd-player.appendTo() is YouTube's own
+   * move that marks it as a reparent, so the player survives. Returns what unparkYtdPlayer needs.
+   */
+  private async parkYtdPlayer(
+    root: Element,
+    targetDoc: Document,
+    playerSelector: string = SELECTORS.MOVIE_PLAYER
+  ): Promise<Nullable<{ ytdPlayer: YtdPlayerElement; slot: Element; holder: HTMLElement }>> {
+    const ytdPlayer =
+      root.querySelector(playerSelector)?.closest<YtdPlayerElement>(SELECTORS.YTD_PLAYER) ?? null;
+    const slot = ytdPlayer?.parentElement;
+    if (!ytdPlayer || !slot || !root.contains(ytdPlayer)) {
+      this.logger.debug('ytd-player not found; moving element as is');
+      return null;
+    }
+    const holder = targetDoc.createElement('div');
+    targetDoc.body.appendChild(holder);
+    await this.moveYtdPlayer(ytdPlayer, holder);
+    return { ytdPlayer, slot, holder };
+  }
+
+  /** Move the parked ytd-player back into its slot (now in its new document) and drop the holder. */
+  private async unparkYtdPlayer(
+    parked: Nullable<{ ytdPlayer: YtdPlayerElement; slot: Element; holder: HTMLElement }>
+  ): Promise<void> {
+    if (!parked) {
+      return;
+    }
+    await this.moveYtdPlayer(parked.ytdPlayer, parked.slot);
+    parked.holder.remove();
+  }
+
+  private async moveYtdPlayer(ytdPlayer: YtdPlayerElement, target: Element): Promise<void> {
+    if (typeof ytdPlayer.appendTo === 'function') {
+      try {
+        await ytdPlayer.appendTo(target);
+        if (ytdPlayer.parentElement === target) {
+          return;
+        }
+        this.logger.warn(
+          'ytd-player.appendTo did not move the player; falling back to appendChild'
+        );
+      } catch (e) {
+        this.logger.warn('ytd-player.appendTo failed; falling back to appendChild', e);
+      }
+    }
+    target.appendChild(ytdPlayer);
   }
 }

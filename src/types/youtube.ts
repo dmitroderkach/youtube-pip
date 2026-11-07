@@ -148,6 +148,14 @@ export interface MediaImage {
 export type MiniPlayerElement = HTMLElement;
 
 /**
+ * ytd-player element. `appendTo` is YouTube's own way to move the player: with CoW player components
+ * (kevlar_player_cow_player_component_*) it marks the move as a reparent so the player is not disposed.
+ */
+export interface YtdPlayerElement extends HTMLElement {
+  appendTo?(target: Element, element?: Element, prepend?: boolean): Promise<void>;
+}
+
+/**
  * YouTube event name type from YT_EVENTS constant
  * Possible values:
  * - ACTION: 'yt-action'

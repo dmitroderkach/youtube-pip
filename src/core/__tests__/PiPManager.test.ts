@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
+import type { YtdPlayerElement } from '../../types/youtube';
 import {
   createTestContainer,
   createMockLogger,
@@ -550,6 +551,84 @@ describe('PiPManager (integration)', () => {
 
     expect(manager.getWindow()).toBeNull();
     querySpy.mockRestore();
+  });
+
+  describe('ytd-player parking (CoW-safe move)', () => {
+    function addYtdPlayer(appendTo?: YtdPlayerElement['appendTo']): {
+      ytdPlayer: YtdPlayerElement;
+      slot: HTMLElement;
+    } {
+      const slot = document.createElement('div');
+      const ytdPlayer = document.createElement(SELECTORS.YTD_PLAYER) as YtdPlayerElement;
+      const moviePlayer = document.createElement('div');
+      moviePlayer.id = SELECTORS.MOVIE_PLAYER.slice(1);
+      ytdPlayer.appendChild(moviePlayer);
+      if (appendTo) ytdPlayer.appendTo = appendTo;
+      slot.appendChild(ytdPlayer);
+      containerEl.appendChild(slot);
+      return { ytdPlayer, slot };
+    }
+
+    it('moves ytd-player with appendTo via a holder and back into its slot on open and close', async () => {
+      const appendTo = vi.fn(function (this: YtdPlayerElement, target: Element) {
+        target.appendChild(this);
+        return Promise.resolve();
+      });
+      const { ytdPlayer, slot } = addYtdPlayer(appendTo);
+
+      await manager.open();
+      expect(appendTo).toHaveBeenCalledTimes(2);
+      expect(ytdPlayer.parentElement).toBe(slot);
+
+      await awaitClose(manager);
+      expect(appendTo).toHaveBeenCalledTimes(4);
+      expect(ytdPlayer.parentElement).toBe(slot);
+    });
+
+    it('falls back to appendChild when appendTo rejects', async () => {
+      const { ytdPlayer, slot } = addYtdPlayer(vi.fn().mockRejectedValue(new Error('boom')));
+
+      await manager.open();
+
+      expect(ytdPlayer.parentElement).toBe(slot);
+    });
+
+    it('falls back to appendChild when appendTo resolves without moving the player', async () => {
+      const { ytdPlayer, slot } = addYtdPlayer(vi.fn().mockResolvedValue(undefined));
+
+      await manager.open();
+
+      expect(ytdPlayer.parentElement).toBe(slot);
+    });
+
+    it('uses appendChild when ytd-player has no appendTo', async () => {
+      const { ytdPlayer, slot } = addYtdPlayer();
+
+      await manager.open();
+      await awaitClose(manager);
+
+      expect(ytdPlayer.parentElement).toBe(slot);
+    });
+  });
+
+  it('full flow: close keeps mini player container while the player is still inside it', async () => {
+    await manager.open();
+    const playerInside = document.createElement('div');
+    playerInside.id = SELECTORS.MOVIE_PLAYER.slice(1);
+    containerEl.appendChild(playerInside);
+
+    await awaitClose(manager);
+
+    expect(containerEl.isConnected).toBe(true);
+    expect(playerInside.isConnected).toBe(true);
+  });
+
+  it('full flow: close removes empty mini player container', async () => {
+    await manager.open();
+
+    await awaitClose(manager);
+
+    expect(containerEl.isConnected).toBe(false);
   });
 
   it('full flow: onBeforeReturn is called when closing', async () => {

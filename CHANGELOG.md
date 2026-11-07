@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.4.8] - 2026-11-07
+
+### Fixed
+
+- **PiP and mini player with YouTube's CoW player experiment** — With `kevlar_player_cow_player_component_*` the player (and the mini player) are YouTube "CoW" components that dispose and drop `#movie_player` when moved with a plain DOM move. PiP then showed a fresh empty player, and after closing PiP the mini player had no player (also the cause of ~3–7% `mini-player` e2e flakes on anonymous runs). `PiPManager` now parks `ytd-player` with YouTube's own `ytd-player.appendTo()` (reparent-safe) around every move into and out of PiP, for both the mini player and Shorts, and on return moves the player into the fresh mini player container YouTube renders, dropping our old one once it is empty.
+- **Player missing after closing PiP from the full watch page** — `waitForMainPlayer` resolved immediately because `#movie_player` was still inside the mini player container we had just moved back, so the container could be removed with the player in it. It now waits for `#movie_player` outside the mini player container, and a container that still holds the player is never removed.
+- **Context menu item click left the menu open** — Clicking a copy item in PiP also ran YouTube's own copy, which copies via `execCommand` in the main document and fails while the PiP window has focus; YouTube then kept the menu open, showed the text in a sub-panel and switched items to "Get …" for the rest of the session. After our copy succeeds the click is stopped and the menu is dismissed.
+- **Escape did not close the context menu in PiP** — YouTube handles Escape only on the focused menu element; `ContextMenuHandler` now closes a visible menu on Escape when YouTube did not.
+- **Context menu overflowed the PiP window** — Without `web_watch_pip` / `web_shorts_pip`, YouTube positions the menu for the main window; after moving it into PiP it is now shifted to fit the PiP window, like YouTube's own in-PiP placement.
+
+### Added
+
+- **E2E: `E2E_FORCE_EXPERIMENT_FLAGS`** — Comma-separated YouTube experiment flags forced on via an init script (`e2e/fixtures/experiment-flags.ts`) to reproduce rollout-specific bugs deterministically.
+
+### Changed
+
+- **E2E context menu helpers** — `waitForContextMenuItemVisible` waits for no _visible_ menu (closed menus stay in the PiP document with `web_*_pip`) and right-clicks again if YouTube ignores the first one during its fade-out.
+- **Docs** — `docs/ARCHITECTURE_DECISIONS.md` §17 (CoW-safe player moves, menu positioning), `docs/E2E_TESTS.md` (forcing experiment flags, keep local e2e volume small), `CLAUDE.md`.
+
 ## [2.4.7] - 2026-11-07
 
 ### Fixed
@@ -1099,6 +1118,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.4.8]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.7...refs/tags/v2.4.8
 [2.4.7]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.6...refs/tags/v2.4.7
 [2.4.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.5...refs/tags/v2.4.6
 [2.4.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.4...refs/tags/v2.4.5

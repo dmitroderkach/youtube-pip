@@ -154,6 +154,7 @@ All selectors live in `E2E_SELECTORS` and do not import from `src/`, so e2e does
 - `E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS` — longer timeout for context menu items to appear (ads can delay them).
 - `E2E_PIP_AD_STABILITY_MS` — how long the ad overlay must stay gone to consider all ads finished.
 - `E2E_PIP_SKIP_AD_POLL_MS` — poll interval for clicking "Skip ad".
+- `E2E_CONTEXT_MENU_REOPEN_INTERVAL_MS` — retry interval when opening the context menu in PiP. Right after a menu closes, YouTube's player still treats it as open during its fade-out and ignores the next right-click, so `waitForContextMenuItemVisible` right-clicks again.
 
 ---
 
@@ -215,6 +216,26 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 
 - **Scenario:** `shortsPageReady` (again, **best run with `authState: true` to avoid Shorts-specific bot checks**) → trigger PiP → wait for Shorts player in PiP → read current `video.currentSrc || video.src` from `#shorts-player` inside PiP → send a real `ArrowDown` key press to the PiP `Page` via `scrollToNextShortInPip` → poll `video.currentSrc/src` again and assert it differs from the initial value.
 - **Goal:** Verify that keyboard navigation (ArrowDown) inside the PiP window correctly advances to the next Shorts reel and the underlying video source changes.
+
+---
+
+## Forcing YouTube experiment flags (`fixtures/experiment-flags.ts`)
+
+The test account only sees the YouTube experiments it happens to be bucketed into, so rollout-specific bugs (e.g. a feature only some real profiles get) are invisible or show up as rare flakes. To reproduce them deterministically, set `E2E_FORCE_EXPERIMENT_FLAGS` to a comma-separated list of flag names:
+
+```bash
+E2E_FORCE_EXPERIMENT_FLAGS=kevlar_player_cow_player_component_all_contexts npx playwright test
+```
+
+The `context` fixture then adds an init script that wraps `window.ytcfg` so each listed flag stays `true` in `ytcfg.data_.EXPERIMENT_FLAGS` before YouTube's scripts read it.
+
+Useful flags:
+
+| Flag                                              | What it changes                                                                                                                                                                                                                             |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `kevlar_player_cow_player_component_all_contexts` | The player is rendered as a CoW component (see `docs/ARCHITECTURE_DECISIONS.md` §17). Before 2.4.8 this made PiP show an empty player and broke the mini player after closing PiP (~3–7% "flaky" `mini-player` failures on anonymous runs). |
+
+Prefer 1–3 targeted runs with a forced flag over stress runs (`--repeat-each` in the tens): hundreds of YouTube page loads from one IP trigger Google's "unusual traffic" CAPTCHA.
 
 ---
 

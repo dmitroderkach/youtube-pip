@@ -11,6 +11,12 @@ export const E2E_WAIT_TIMEOUT_MS = 10000;
 /** Timeout for context menu item visibility (ads can be longer than 5s). */
 export const E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS = 30_000;
 
+/**
+ * Retry interval for opening the context menu in PiP. Right after a menu closes, YouTube's player
+ * still treats it as open during its fade-out and ignores the next right-click; we right-click again.
+ */
+export const E2E_CONTEXT_MENU_REOPEN_INTERVAL_MS = 500;
+
 /** How long the ad overlay must stay gone to consider all ads finished (YouTube can show 2+). */
 export const E2E_PIP_AD_STABILITY_MS = 500;
 

@@ -11,6 +11,11 @@ export const COPY_MENU_INDICES = {
 } as const;
 
 /** Mouse button codes (MouseEvent.button) */
+/** KeyboardEvent.key values used by handlers */
+export const KEYS = {
+  ESCAPE: 'Escape',
+} as const;
+
 export const MOUSE_BUTTONS = {
   PRIMARY: 0, // Left button
   AUXILIARY: 1, // Middle button (wheel)

@@ -238,8 +238,10 @@ export class PlayerManager {
    */
   public async waitForMainPlayer(): Promise<Nullable<Element>> {
     try {
+      // The player is already in the document inside the mini player container we just moved back;
+      // wait until YouTube has moved it out of that container onto the watch page.
       const player = await DOMUtils.waitForElementSelector(
-        SELECTORS.MOVIE_PLAYER,
+        SELECTORS.MOVIE_PLAYER_OUTSIDE_MINIPLAYER,
         document,
         TIMEOUTS.ELEMENT_WAIT
       );

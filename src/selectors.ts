@@ -5,12 +5,18 @@
 export const SELECTORS = {
   MINIPLAYER: 'ytd-miniplayer',
   MINIPLAYER_CONTAINER: 'ytd-miniplayer-player-container',
+  /** Slot inside the mini player container where ytd-player lives. */
+  MINIPLAYER_PLAYER_SLOT: '#player-container',
   MINIPLAYER_HOST: '.ytdMiniplayerComponentHost.ytdMiniplayerComponentVisible',
   MOVIE_PLAYER: '#movie_player',
+  /** Player that is back on the page, i.e. not inside the mini player container. */
+  MOVIE_PLAYER_OUTSIDE_MINIPLAYER: '#movie_player:not(ytd-miniplayer-player-container *)',
   SHORTS_PLAYER: '#shorts-player',
   /** <video> element inside the player (query relative to player root) */
   PLAYER_VIDEO: 'video',
   YTD_APP: 'ytd-app',
+  /** Player component wrapper inside the mini player container (holds #movie_player). */
+  YTD_PLAYER: 'ytd-player',
   YTD_SHORTS: 'ytd-shorts',
   /** Scroll container inside ytd-shorts; use to preserve scrollTop when moving to PiP. */
   SHORTS_CONTAINER: '#shorts-container',

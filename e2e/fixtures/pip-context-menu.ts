@@ -2,7 +2,7 @@
  * E2E PiP context menu helpers: open menu, wait for item visible, click item (shared by context-menu-copy and pip-focus).
  */
 import type { Page } from '@playwright/test';
-import { E2E_WAIT_TIMEOUT_MS } from '../constants';
+import { E2E_CONTEXT_MENU_REOPEN_INTERVAL_MS, E2E_WAIT_TIMEOUT_MS } from '../constants';
 import { E2E_SELECTORS } from '../selectors';
 
 /** Open context menu in PiP by dispatching contextmenu on the player. */
@@ -24,26 +24,40 @@ export async function waitForContextMenuItemVisible(
   timeoutMs: number,
   playerSelector?: string
 ): Promise<void> {
+  // Wait until no menu is visible in PiP. With web_watch_pip / web_shorts_pip the closed menu stays
+  // in the PiP document (hidden), so "absent" alone would never become true there.
   await page.waitForFunction(
     (menuSel) => {
       const pip = window.documentPictureInPicture?.window;
-      return !pip?.document.querySelector(menuSel);
+      const menu = pip?.document.querySelector<HTMLElement>(menuSel);
+      return !menu || pip?.getComputedStyle(menu).display === 'none';
     },
     E2E_SELECTORS.CONTEXT_MENU,
     { timeout: E2E_WAIT_TIMEOUT_MS }
   );
+  const deadline = Date.now() + timeoutMs;
   await openContextMenuInPip(page, playerSelector);
-  await page.waitForFunction(
-    (menuSel) => {
-      const pip = window.documentPictureInPicture?.window;
-      const menu = pip?.document.querySelector(menuSel);
-      if (!menu) return false;
-      const style = pip?.document.defaultView?.getComputedStyle(menu);
-      return style?.display !== 'none' && menu.getBoundingClientRect().height > 0;
-    },
-    E2E_SELECTORS.CONTEXT_MENU,
-    { timeout: timeoutMs }
-  );
+  while (
+    !(await page
+      .waitForFunction(
+        (menuSel) => {
+          const pip = window.documentPictureInPicture?.window;
+          const menu = pip?.document.querySelector(menuSel);
+          if (!menu) return false;
+          const style = pip?.document.defaultView?.getComputedStyle(menu);
+          return style?.display !== 'none' && menu.getBoundingClientRect().height > 0;
+        },
+        E2E_SELECTORS.CONTEXT_MENU,
+        { timeout: E2E_CONTEXT_MENU_REOPEN_INTERVAL_MS }
+      )
+      .then(() => true)
+      .catch(() => false))
+  ) {
+    if (Date.now() > deadline) {
+      throw new Error(`Context menu did not open in PiP within ${timeoutMs}ms`);
+    }
+    await openContextMenuInPip(page, playerSelector);
+  }
   const itemsSelector = E2E_SELECTORS.PANEL_MENU_ITEMS;
   await page.waitForFunction(
     ({ selector, idx }: { selector: string; idx: number }) => {
