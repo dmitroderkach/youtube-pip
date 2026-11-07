@@ -191,7 +191,7 @@ youtube-pip/
 │
 ├── .github/
 │   └── workflows/
-│       └── build.yml       # Lint, type-check, unit tests, build, Playwright e2e (Chromium), report artifact
+│       └── build.yml       # Lint, type-check, unit tests, build, Playwright e2e (Chromium, PRs only), report artifact
 │
 ├── dist/
 │   └── userscript.js        # Built userscript (IIFE, inline source map)

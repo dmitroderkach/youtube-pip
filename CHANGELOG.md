@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **E2E: tab title checked frame by frame while PiP opens** (`pip-stub`, all flag sets): no title other than the video's (`e2e/fixtures/page-title.ts`).
 - **On-call: flag culprit** (`docs/ONCALL.md`, #143) — for up to 2 failed or flaky tests, the flags job finds the experiment flag that breaks them: re-runs with the flags of the failed attempt forced on, then off, and bisects; the result is a fixed line in the Telegram message. E2E records the relevant flags of failed attempts and passing retries (`e2e/fixtures/page-flags.ts`).
 
+### Changed
+
+- **CI: no repeat e2e after the merge** — `build.yml` runs e2e on pull requests only. Main requires the PR branch to be up to date with a green `build` check before the squash merge, so the merge commit has exactly the tree the PR's e2e ran on; the push to main skips it (the daily Manual E2E covers main).
+
 ## [2.6.1] - 2026-11-07
 
 ### Fixed

@@ -57,6 +57,10 @@ jobs:
 
       - name: Run e2e tests
         id: e2e
+        # Only on pull requests: main requires the PR branch to be up to date and its `build` check green before the
+        # squash merge (ruleset "Protect main branch", strict status checks), so the merge commit has exactly the
+        # tree the PR's e2e already ran on. The daily Manual E2E covers main.
+        if: github.event_name == 'pull_request'
         env:
           SKIP_AUTH_E2E_ON_CI: ${{ vars.SKIP_AUTH_E2E_ON_CI || 'false' }}
         run: npm run test:e2e

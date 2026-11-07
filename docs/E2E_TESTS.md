@@ -91,7 +91,7 @@ Some tests need a logged-in YouTube session (e.g. like/dislike **and all Shorts 
 
 **Local:** Create `e2e/.auth/storageState.json` yourself (Playwright storage state format) or use **`storeAuthState: true`** once (one-off run with `authState: true` + `storeAuthState: true` while logged in) to save state. If the stored state is broken, delete the file and run again with `storeAuthState: true` while logged in to re-login and save a fresh state. Tests that use `authState: true` (e.g. like-dislike) do not set `storeAuthState` by default.
 
-**CI:** The workflow passes the secret `E2E_STORAGE_STATE_BASE64` (base64-encoded `storageState.json`) into the e2e step. The file does not exist in a fresh job, so the fixture creates it from the secret. No write-back on test end.
+**CI:** `build.yml` runs e2e on pull requests only: main requires the PR branch to be up to date with a green `build` check before the squash merge, so the push to main skips the repeat run (the daily Manual E2E covers main). The workflow passes the secret `E2E_STORAGE_STATE_BASE64` (base64-encoded `storageState.json`) into the e2e step. The file does not exist in a fresh job, so the fixture creates it from the secret. No write-back on test end.
 
 ### Auth-backed tests on CI
 
