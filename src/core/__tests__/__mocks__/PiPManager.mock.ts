@@ -18,10 +18,19 @@ export interface PiPManagerMocks {
 }
 
 export function createPiPManagerMocks(): PiPManagerMocks {
+  // Keep "was mini player active before PiP" stateful like PlayerManager, so open() takes the same branch
+  // (mini player already visible vs. activate it first) that the test set up via isVisible().
+  const playerManager = mock<PlayerManager>();
+  let wasMiniPlayerActive = false;
+  playerManager.setWasMiniPlayerActiveBeforePiP.mockImplementation((value: boolean) => {
+    wasMiniPlayerActive = value;
+  });
+  playerManager.getWasMiniPlayerActiveBeforePiP.mockImplementation(() => wasMiniPlayerActive);
+
   return {
     pipProvider: mock<PipWindowProvider>(),
     miniPlayerController: mock<MiniPlayerController>(),
-    playerManager: mock<PlayerManager>(),
+    playerManager,
     ytdAppProvider: mock<YtdAppProvider>(),
     ytdShortsProvider: mock<YtdShortsProvider>(),
     pipWindowHandlers: mock<PiPWindowHandlers>(),

@@ -133,8 +133,10 @@ export class PiPManager {
       this.playerManager.saveMainPlayerTimeBeforeOpenPiP();
       this.miniPlayerController.toggleMiniPlayer();
 
-      // Wait for mini player container
-      await DOMUtils.waitForElementSelector(SELECTORS.MINIPLAYER_CONTAINER);
+      // Wait for mini player container and for YouTube to move the player into it: the container can
+      // appear first (CoW player), and moving an empty container leaves PiP black.
+      const container = await DOMUtils.waitForElementSelector(SELECTORS.MINIPLAYER_CONTAINER);
+      await DOMUtils.waitForElementSelector(SELECTORS.MOVIE_PLAYER, container);
       this.playerManager.restoreMainPlayerIfShortsStolePlayback();
       this.logger.debug('Mini player container ready');
     }

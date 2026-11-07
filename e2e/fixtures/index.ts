@@ -5,6 +5,7 @@
 import { test as base, expect, type Page, type TestInfo } from '@playwright/test';
 import {
   E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
+  E2E_PAGE_HYDRATION_TIMEOUT_MS,
   E2E_PIP_AD_STABILITY_MS,
   E2E_PIP_SKIP_AD_POLL_MS,
   E2E_WAIT_TIMEOUT_MS,
@@ -73,6 +74,19 @@ export {
   waitForShortsPlayerVisibleInPip,
   scrollToNextShortInPip,
 } from './pip-shorts';
+
+/**
+ * Userscript initialized and the watch page hydrated. On slow runners the page is still a skeleton after the
+ * consent reload when the userscript is ready; triggering PiP or pressing 'i' then does nothing because YouTube
+ * drops miniplayer activation without a watch response.
+ */
+async function waitForWatchPageReady(page: Page): Promise<void> {
+  await page.waitForFunction(
+    ({ hydratedSel }) => !!window.__E2E_PIP__?.ready() && !!document.querySelector(hydratedSel),
+    { hydratedSel: E2E_SELECTORS.WATCH_PAGE_HYDRATED },
+    { timeout: E2E_PAGE_HYDRATION_TIMEOUT_MS }
+  );
+}
 
 export const test = base.extend<{
   authState: AuthStateOption;
@@ -162,18 +176,14 @@ export const test = base.extend<{
   videoPageReady: async ({ page, acceptYouTubeConsent }, use) => {
     await page.goto(VIDEO_URL, { waitUntil: 'domcontentloaded' });
     await acceptYouTubeConsent(page);
-    await page.waitForFunction(() => window.__E2E_PIP__?.ready(), {
-      timeout: E2E_WAIT_TIMEOUT_MS,
-    });
+    await waitForWatchPageReady(page);
     await use(page);
   },
 
   playlistVideoPageReady: async ({ page, acceptYouTubeConsent }, use) => {
     await page.goto(PLAYLIST_VIDEO_URL, { waitUntil: 'domcontentloaded' });
     await acceptYouTubeConsent(page);
-    await page.waitForFunction(() => window.__E2E_PIP__?.ready(), {
-      timeout: E2E_WAIT_TIMEOUT_MS,
-    });
+    await waitForWatchPageReady(page);
     await use(page);
   },
 

@@ -505,8 +505,27 @@ describe('PiPManager (integration)', () => {
     await manager.open();
 
     expect(DOMUtils.waitForElementSelector).toHaveBeenCalledWith(SELECTORS.MINIPLAYER_CONTAINER);
+    expect(DOMUtils.waitForElementSelector).toHaveBeenCalledWith(
+      SELECTORS.MOVIE_PLAYER,
+      containerEl
+    );
     expect(mockMiniController.toggleMiniPlayer).toHaveBeenCalled();
     expect(manager.isOpen()).toBe(true);
+    vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
+  });
+
+  it('open with mini inactive fails without opening a window when the player never reaches the container', async () => {
+    mockMiniController.isVisible.mockReturnValue(false);
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    vi.spyOn(DOMUtils, 'waitForElementSelector').mockImplementation(((sel: string) =>
+      sel === SELECTORS.MOVIE_PLAYER
+        ? Promise.reject(new Error(`Timeout: ${sel} not found`))
+        : Promise.resolve(containerEl)) as never);
+
+    await expect(manager.open()).rejects.toThrow('Error opening PiP');
+
+    expect(window.documentPictureInPicture!.requestWindow).not.toHaveBeenCalled();
+    expect(manager.isOpen()).toBe(false);
     vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
   });
 

@@ -8,6 +8,9 @@ export const SKIP_AUTH_E2E_ON_CI = String(process.env.SKIP_AUTH_E2E_ON_CI).toLow
 /** Default timeout for all e2e wait operations (ms). */
 export const E2E_WAIT_TIMEOUT_MS = 10000;
 
+/** Timeout for the watch page to hydrate after load / consent reload (slow on CI runners). */
+export const E2E_PAGE_HYDRATION_TIMEOUT_MS = 30_000;
+
 /** Timeout for context menu item visibility (ads can be longer than 5s). */
 export const E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS = 30_000;
 

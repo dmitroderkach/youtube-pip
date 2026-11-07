@@ -10,10 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 ### Fixed
 
 - **Context menu broken on the page after using it in PiP** — With `web_watch_pip` / `web_shorts_pip` YouTube opens the player context menu directly in the PiP document. When PiP closed, that menu element stayed in the closed PiP document and YouTube kept reusing it, so on the page the menu stopped closing on item clicks. `ContextMenuHandler.stop()` now returns menus opened in PiP to the main document (closing a still-open one first).
+- **Black PiP window when the player reached the mini player late** — Opening PiP from the full watch page waited only for `ytd-miniplayer-player-container`. With the CoW player the container can appear before YouTube moves the player into it, and the empty container was moved to PiP (black window, player left on the page). `movePlayerToPIP` now also waits for `#movie_player` inside the container; if it never arrives, opening fails with an error instead of a black window.
 
 ### Added
 
 - **E2E `context-menu-after-pip.spec.ts`** — Menu opened in PiP, PiP closed with the menu open, then the menu on the page must close on an item click. Fails without the fix in `chromium-yt-pip`.
+- **E2E: watch page ready = hydrated** — `videoPageReady` / `playlistVideoPageReady` now also wait for `ytd-watch-flexy[has-metadata]` (or `ytd-watch-grid`). On slow CI runners the page was still a skeleton after the consent reload when the userscript was ready, and YouTube silently drops miniplayer activation (`i`, `yt-activate-miniplayer-from-watch-action`) without a watch response. This caused the CI flakes in `chromium-yt-pip`, `chromium-all-flags` and `chromium-legacy-ui` (PiP/mini player not opening).
+- **TypeScript 6 in the editor** — `tsconfig.json` sets `types: ["node"]` explicitly (TS 6 no longer includes `@types/*` by default; Cursor bundles TS 6.0.3, so `process`, `node:fs`, `Error.captureStackTrace` were errors in the editor) and includes the root config files (`playwright.config.ts`, `vite.config.ts`, `vitest.config.ts`).
 
 ### Changed
 

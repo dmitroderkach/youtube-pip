@@ -6,6 +6,11 @@ export const E2E_SELECTORS = {
   /** <video> element inside the player (query relative to player root) */
   PLAYER_VIDEO: 'video',
   YTD_APP: 'ytd-app',
+  /**
+   * Watch page after YouTube applied the watch response (has-metadata is computed from videoPrimaryInfoRenderer).
+   * Before that the page is a skeleton and YouTube ignores miniplayer activation ('i', yt-activate-miniplayer-*).
+   */
+  WATCH_PAGE_HYDRATED: 'ytd-watch-flexy[has-metadata], ytd-watch-grid[has-metadata]',
   /** Shorts root element on Shorts page/feed. */
   YTD_SHORTS: 'ytd-shorts',
   /** Shorts player container inside Shorts. */
