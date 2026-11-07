@@ -33,8 +33,8 @@ export const E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS = 30_000;
 export const E2E_CONTEXT_MENU_REOPEN_INTERVAL_MS = 500;
 
 /**
- * Total time for ads in PiP to end. waitForPiPAdToEnd clicks any skip button (~5 s in) and plays unskippable ads
- * to their end, so ads normally take seconds; this is the safety limit.
+ * Total time for ads in PiP to end. waitForPiPAdToEnd clicks any skip button (~5 s in); specs that cannot afford an
+ * unskippable ad pod run without ads (`blockAds`, fixtures/block-ads.ts).
  */
 export const E2E_PIP_AD_MAX_WAIT_MS = 40_000;
 

@@ -25,6 +25,7 @@ import {
   type StoreAuthStateOption,
 } from './auth';
 import { getUserscriptBody, initHandlerStub } from './handler-stub';
+import { installAdBlock, type BlockAdsOption } from './block-ads';
 import {
   installMiniplayerTimeline,
   MINIPLAYER_TIMELINE_LIMITS,
@@ -161,6 +162,7 @@ export const test = base.extend<{
   authState: AuthStateOption;
   storeAuthState: StoreAuthStateOption;
   experimentFlags: ExperimentFlagsOption;
+  blockAds: BlockAdsOption;
   userscriptBody: string;
   acceptYouTubeConsent: AcceptYouTubeConsentFn;
   videoPageReady: Page;
@@ -174,9 +176,10 @@ export const test = base.extend<{
   authState: [undefined, { option: true }],
   storeAuthState: [undefined, { option: true }],
   experimentFlags: [[], { option: true }],
+  blockAds: [false, { option: true }],
 
   context: async (
-    { userscriptBody, browser, authState, storeAuthState, experimentFlags },
+    { userscriptBody, browser, authState, storeAuthState, experimentFlags, blockAds },
     use,
     testInfo: TestInfo
   ) => {
@@ -200,6 +203,7 @@ export const test = base.extend<{
       }, USERSCRIPT_DEBUG_FLAG);
       await ctx.addInitScript(initHandlerStub, userscriptBody);
       await ctx.addInitScript(installMiniplayerTimeline, MINIPLAYER_TIMELINE_LIMITS);
+      if (blockAds) await ctx.addInitScript(installAdBlock);
       await use(ctx);
       if (storeAuthState === true) {
         mkdirSync(dirname(E2E_STORAGE_STATE_PATH), { recursive: true });
@@ -387,17 +391,7 @@ export const test = base.extend<{
           if (clicked) return true;
         }
       }
-      // Unskippable ad (no skip button, often several in a row): play it to its end so the test does not wait
-      // the ads out. Test environment only.
-      return page
-        .evaluate((adPlayerSel: string) => {
-          const doc = window.documentPictureInPicture?.window?.document;
-          const video = doc?.querySelector<HTMLVideoElement>(`${adPlayerSel} video`);
-          if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return false;
-          if (video.currentTime < video.duration - 0.5) video.currentTime = video.duration - 0.1;
-          return true;
-        }, E2E_SELECTORS.AD_SHOWING_PLAYER)
-        .catch(() => false);
+      return false;
     };
 
     /**

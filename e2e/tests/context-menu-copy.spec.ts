@@ -19,6 +19,9 @@ import {
 } from '../constants';
 
 test.describe('Context menu copy in PiP', () => {
+  // No ads: an unskippable ad pod could not be ended from the page (fixtures/block-ads.ts)
+  test.use({ blockAds: true });
+
   test('copy video URL, URL at time, embed iframe, debug info work', async ({
     videoPageReady: page,
     triggerEnterPictureInPicture,
