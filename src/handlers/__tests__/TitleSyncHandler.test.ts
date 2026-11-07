@@ -118,6 +118,29 @@ describe('TitleSyncHandler', () => {
     expect(document.title).toBe('YouTube');
   });
 
+  it('holdPageTitle keeps the current title while PiP is being opened', async () => {
+    document.title = 'Held Video - YouTube';
+    handler.holdPageTitle();
+
+    // Mini player activation: YouTube switches the title before the PiP window exists
+    document.title = 'YouTube';
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.title).toBe('Held Video - YouTube');
+  });
+
+  it('initialize after holdPageTitle switches to the synced title and keeps restoring it', async () => {
+    document.title = 'Held Video - YouTube';
+    handler.holdPageTitle();
+    handler.initialize();
+    expect(document.title).toBe('Test Video - YouTube');
+
+    document.title = 'YouTube';
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.title).toBe('Test Video - YouTube');
+  });
+
   it('does not touch the page title after cleanup', async () => {
     handler.initialize();
     handler.cleanup();

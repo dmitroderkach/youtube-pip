@@ -92,6 +92,7 @@ export {
   waitForContextMenuItemVisible,
 } from './pip-context-menu';
 export { waitForPlaybackTimeInPip, type PlaybackWaitResult } from './pip-playback';
+export { startPageTitleRecorder, stopPageTitleRecorder } from './page-title';
 export {
   waitForShortsPlayerVisibleInMain,
   waitForShortsPlayerVisibleInPip,

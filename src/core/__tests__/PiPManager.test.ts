@@ -15,6 +15,7 @@ import { YtdAppProvider } from '../YtdAppProvider';
 import { PipWindowProvider } from '../PipWindowProvider';
 import { PiPWindowHandlers } from '../PiPWindowHandlers';
 import { PipShortsWindowHandlers } from '../PipShortsWindowHandlers';
+import { TitleSyncHandler } from '../../handlers/TitleSyncHandler';
 import { YtdShortsProvider } from '../YtdShortsProvider';
 import { SELECTORS } from '../../selectors';
 import { TIMEOUTS } from '../../constants';
@@ -42,6 +43,7 @@ describe('PiPManager', () => {
     c.bind(PipWindowProvider).toInstance(mocks.pipProvider);
     c.bind(PiPWindowHandlers).toInstance(mocks.pipWindowHandlers);
     c.bind(PipShortsWindowHandlers).toInstance(mocks.pipShortsWindowHandlers);
+    c.bind(TitleSyncHandler).toInstance(mocks.titleSyncHandler);
     c.bind(PiPManager).toSelf();
     manager = c.get(PiPManager);
   });
@@ -165,6 +167,7 @@ describe('PiPManager', () => {
     c.bind(PipWindowProvider).toInstance(mocks.pipProvider);
     c.bind(PiPWindowHandlers).toInstance(mocks.pipWindowHandlers);
     c.bind(PipShortsWindowHandlers).toInstance(mocks.pipShortsWindowHandlers);
+    c.bind(TitleSyncHandler).toInstance(mocks.titleSyncHandler);
     c.bind(LoggerFactory).toInstance(createLoggerFactoryWithLogger(mockLogger));
     c.bind(PiPManager).toSelf();
     const mgr = c.get<PiPManager>(PiPManager);
@@ -392,6 +395,7 @@ describe('PiPManager (integration)', () => {
   let mockYtdShortsProvider: ReturnType<typeof createPiPManagerMocks>['ytdShortsProvider'];
   let mockPipHandlers: ReturnType<typeof createPiPManagerMocks>['pipWindowHandlers'];
   let mockPipShortsHandlers: ReturnType<typeof createPiPManagerMocks>['pipShortsWindowHandlers'];
+  let mockTitleSync: ReturnType<typeof createPiPManagerMocks>['titleSyncHandler'];
   let origDpp: typeof window.documentPictureInPicture;
   let pipQuerySelectorRestore: () => void;
 
@@ -438,6 +442,7 @@ describe('PiPManager (integration)', () => {
     mockYtdShortsProvider = mocks.ytdShortsProvider;
     mockPipHandlers = mocks.pipWindowHandlers;
     mockPipShortsHandlers = mocks.pipShortsWindowHandlers;
+    mockTitleSync = mocks.titleSyncHandler;
 
     mockMiniController.getMiniplayer.mockReturnValue(miniplayerEl as never);
     mockMiniController.isVisible.mockReturnValue(true);
@@ -466,6 +471,7 @@ describe('PiPManager (integration)', () => {
     c.bind(PipWindowProvider).toSelf();
     c.bind(PiPWindowHandlers).toInstance(mockPipHandlers);
     c.bind(PipShortsWindowHandlers).toInstance(mockPipShortsHandlers);
+    c.bind(TitleSyncHandler).toInstance(mockTitleSync);
     c.bind(PiPManager).toSelf();
     manager = c.get(PiPManager);
   });
@@ -511,10 +517,14 @@ describe('PiPManager (integration)', () => {
     mockMiniController.toggleMiniPlayer.mockImplementation(() => {
       order.push('toggle');
     });
+    mockTitleSync.holdPageTitle.mockImplementation(() => {
+      order.push('hold title');
+    });
 
     await manager.open();
 
-    expect(order).toEqual(['barrier', 'toggle']);
+    // The title is held before YouTube's mini player switches it to "YouTube"
+    expect(order).toEqual(['barrier', 'hold title', 'toggle']);
     barrier.mockRestore();
     vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
   });
@@ -548,6 +558,9 @@ describe('PiPManager (integration)', () => {
 
     expect(window.documentPictureInPicture!.requestWindow).not.toHaveBeenCalled();
     expect(manager.isOpen()).toBe(false);
+    // The held title is released: YouTube manages it again
+    expect(mockTitleSync.holdPageTitle).toHaveBeenCalled();
+    expect(mockTitleSync.cleanup).toHaveBeenCalled();
     vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
   });
 
