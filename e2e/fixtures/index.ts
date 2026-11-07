@@ -74,6 +74,7 @@ export {
 } from './pip-like-dislike';
 export {
   clickContextMenuItem,
+  clickCopyMenuItemInPip,
   openContextMenuInPip,
   waitForContextMenuItemVisible,
 } from './pip-context-menu';
@@ -84,14 +85,19 @@ export {
 } from './pip-shorts';
 
 /**
- * Userscript initialized and the watch page hydrated. On slow runners the page is still a skeleton after the
- * consent reload when the userscript is ready; triggering PiP or pressing 'i' then does nothing because YouTube
- * drops miniplayer activation without a watch response.
+ * Userscript initialized and the watch page has its watch response. On slow runners the page is still a skeleton
+ * after the consent reload when the userscript is ready; triggering PiP or pressing 'i' then does nothing because
+ * YouTube drops mini player activation without a watch response.
  */
 async function waitForWatchPageReady(page: Page): Promise<void> {
   await page.waitForFunction(
-    ({ hydratedSel }) => !!window.__E2E_PIP__?.ready() && !!document.querySelector(hydratedSel),
-    { hydratedSel: E2E_SELECTORS.WATCH_PAGE_HYDRATED },
+    ({ watchSel }) => {
+      const watch = document.querySelector(watchSel) as
+        | (Element & { data?: { currentVideoEndpoint?: unknown } })
+        | null;
+      return !!window.__E2E_PIP__?.ready() && !!watch?.data?.currentVideoEndpoint;
+    },
+    { watchSel: E2E_SELECTORS.WATCH_PAGE },
     { timeout: E2E_PAGE_HYDRATION_TIMEOUT_MS }
   );
   await waitForYouTubeLowPriorityJobs(page);

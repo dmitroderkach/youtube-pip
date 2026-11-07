@@ -43,6 +43,7 @@ vi.mock('../../utils/DOMUtils', () => ({
     insertPlaceholderBefore: vi.fn(),
     restoreElementFromPlaceholder: vi.fn(),
     copyViaTextarea: vi.fn().mockReturnValue(true),
+    reportNextCopyCommandAsSucceeded: vi.fn(() => () => true),
   },
 }));
 
@@ -389,7 +390,7 @@ describe('ContextMenuHandler', () => {
     handler.stop();
   });
 
-  it('successful copy stops YouTube item handler and dismisses menu with state reset', async () => {
+  it('successful copy lets the YouTube item handler run (closes menu, shows copied bezel) with its copy reported as succeeded', async () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const pipWindow = createFakeWindow({ document: pipDoc });
     mockPipProvider.getWindow.mockReturnValue(pipWindow);
@@ -408,6 +409,7 @@ describe('ContextMenuHandler', () => {
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
     vi.mocked(DOMUtils.copyViaTextarea).mockReturnValue(true);
+    vi.mocked(DOMUtils.reportNextCopyCommandAsSucceeded).mockReturnValue(() => true);
     mockPlayerManager.getVideoData.mockReturnValue({
       video_id: 'vid1',
       title: 'T',
@@ -426,9 +428,57 @@ describe('ContextMenuHandler', () => {
     pipDoc.body.addEventListener('contextmenu', bodyContextMenu);
 
     videoUrlItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(DOMUtils.copyViaTextarea).toHaveBeenCalledOnce();
-    expect(youtubeItemHandler).not.toHaveBeenCalled();
+    expect(DOMUtils.reportNextCopyCommandAsSucceeded).toHaveBeenCalledWith(document);
+    expect(youtubeItemHandler).toHaveBeenCalledOnce();
+    expect(menuEl.style.display).toBe('block');
+    expect(bodyContextMenu).not.toHaveBeenCalled();
+    handler.stop();
+  });
+
+  it('successful copy dismisses the menu with state reset when the YouTube handler did not copy', async () => {
+    const pipDoc = document.implementation.createHTMLDocument();
+    const pipWindow = createFakeWindow({ document: pipDoc });
+    mockPipProvider.getWindow.mockReturnValue(pipWindow);
+    const panelMenu = pipDoc.createElement('div');
+    panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
+    for (let i = 0; i < MENU_ITEM_COUNT; i++) {
+      const item = pipDoc.createElement('div');
+      item.className = SELECTORS.MENU_ITEM.slice(1);
+      panelMenu.appendChild(item);
+    }
+    const menuEl = pipDoc.createElement('div');
+    menuEl.className = CONTEXT_MENU_CLASS;
+    menuEl.style.display = 'block';
+    menuEl.appendChild(panelMenu);
+    pipDoc.body.appendChild(menuEl);
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
+    vi.mocked(DOMUtils.copyViaTextarea).mockReturnValue(true);
+    vi.mocked(DOMUtils.reportNextCopyCommandAsSucceeded).mockReturnValue(() => false);
+    mockPlayerManager.getVideoData.mockReturnValue({
+      video_id: 'vid1',
+      title: 'T',
+      list: undefined,
+    });
+    mockPlayerManager.getCurrentTime.mockReturnValue(0);
+    const cb: ContextMenuVisibilityCallback = vi.fn();
+    handler.subscribeContextMenu(cb);
+    await handler.initialize();
+    const videoUrlItem = pipDoc.querySelectorAll(SELECTORS.PANEL_MENU_ITEMS)[
+      copyItemIndex('VIDEO_URL')
+    ];
+    const youtubeItemHandler = vi.fn();
+    videoUrlItem.addEventListener('click', youtubeItemHandler);
+    const bodyContextMenu = vi.fn();
+    pipDoc.body.addEventListener('contextmenu', bodyContextMenu);
+
+    videoUrlItem.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(youtubeItemHandler).toHaveBeenCalledOnce();
     expect(menuEl.style.display).toBe('none');
     expect(cb).toHaveBeenLastCalledWith(false);
     expect(bodyContextMenu).toHaveBeenCalledOnce();

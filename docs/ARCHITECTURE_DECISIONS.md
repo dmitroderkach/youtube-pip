@@ -83,7 +83,8 @@ When we move elements (mini player, Shorts, context menu) into the PiP window, w
 YouTube's context menu "Copy" actions use a **hidden textarea** in the main window. When the menu is moved to the PiP window, that textarea is no longer in the same document, so native copy would fail or copy wrong content.
 
 - **Decision**: Intercept clicks on copy menu items (by index) in the PiP document; build the payload ourselves (URL, URL at time, embed, debug info) and copy to clipboard using a **temporary textarea** in the PiP document and `document.execCommand('copy')` (or `navigator.clipboard.writeText` where available).
-- **Why?**: Reusing YouTube's internal copy logic would require reverse-engineering and would break when they change it. We own the payload format (see `buildCopyPayload`, `COPY_MENU_INDICES`) and guarantee correct behaviour in PiP regardless of where the menu is rendered.
+- **Why?**: Reusing YouTube's internal copy logic would require reverse-engineering and would break when they change it. We own the payload format (see `buildCopyPayload`, `COPY_MENU_POSITIONS_FROM_END`) and guarantee correct behaviour in PiP regardless of where the menu is rendered.
+- **Feedback like on the page**: after our copy YouTube's own item handler still runs, so it closes the menu and shows its "copied" bezel in the player (link / embed / check icon). Its own copy (`execCommand('copy')` in the main document) fails while the user interacts with PiP — on failure YouTube keeps the menu open, shows the text in a sub-panel and switches the items to "Get …" — so `DOMUtils.reportNextCopyCommandAsSucceeded(document)` makes that one call return true without copying (the clipboard keeps our text; the override is removed on first use or at the next task). If YouTube's handler did not run, we close the menu ourselves (`dismissMenu`).
 
 ---
 

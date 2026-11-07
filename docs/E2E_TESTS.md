@@ -53,7 +53,7 @@ The userscript body is read from `dist/userscript.js` (without the UserScript he
 
 **Why the watch page wait is more than "userscript ready"** (both found as CI flakes; CI runners are slow and get pre-roll ads):
 
-1. **Hydration** — `ytd-watch-flexy[has-metadata]` / `ytd-watch-grid[has-metadata]`. After the consent reload the userscript can be ready while the page is still a skeleton; YouTube then ignores mini player activation (`i`, `yt-activate-miniplayer-from-watch-action` returns without a watch response), so PiP or the mini player never opened.
+1. **Watch response** — `ytd-watch-flexy` / `ytd-watch-grid` has the watch response in `.data` (`currentVideoEndpoint`). After the consent reload the userscript can be ready while the page is still a skeleton; YouTube then ignores mini player activation (`i`, `yt-activate-miniplayer-from-watch-action` returns without a watch response), so PiP or the mini player never opened. `[has-metadata]` is not used: during a pre-roll ad YouTube can defer rendering the metadata for more than 30 s although the response is there.
 2. **YouTube's low-priority jobs** — the same barrier as the userscript's `YouTubeScheduler.waitForLowPriorityJobs()` (queue a priority-1 job with 100 ms delay, wait until it runs; up to `E2E_YT_LOW_PRIORITY_JOBS_TIMEOUT_MS`). With `kevlar_watch_while_v2` (`chromium-all-flags`) a delayed watch-while job deactivated a mini player activated right after load (`i` in `mini-player.spec.ts`). See ARCHITECTURE_DECISIONS §18.
 
 ### Diagnosing flakes: mini player timeline
@@ -197,7 +197,7 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 ### 3. `context-menu-copy.spec.ts` — copy from context menu
 
 - **Scenario:** Open PiP, wait for ads to end, then for each item (Copy video URL, Copy URL at time, Copy embed iframe, Copy debug info): wait for the item to be visible, click it, assert clipboard content via `expect.poll(() => navigator.clipboard.readText())`.
-- **Details:** Longer timeout for menu items (ads); `waitForPiPAdToEnd` waits up to `E2E_PIP_AD_MAX_WAIT_MS` for all ads in a row; before "URL at time" the test waits until the PiP video has played `E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S` seconds (starting it if paused), since YouTube omits `t=` near 0; for debug info, assert clipboard contains valid JSON. Test timeout 180 s.
+- **Details:** Longer timeout for menu items (ads); `waitForPiPAdToEnd` waits up to `E2E_PIP_AD_MAX_WAIT_MS` for all ads in a row; before "URL at time" the test waits until the PiP video has played `E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S` seconds (starting it if paused), since YouTube omits `t=` near 0 — if the video never plays (CI runners sometimes get the ads but not the video stream: stuck at 0:00 with a spinner), `t=` is not checked and a `warning` annotation is added; every copy click goes through `clickCopyMenuItemInPip`, which expects YouTube's "copied" bezel in the PiP player and the menu to close (same feedback as on the page); for debug info, assert clipboard contains valid JSON. Test timeout 180 s.
 - **Menu access:** Context menu is opened in PiP via `dispatchEvent(contextmenu)` on the player; items are selected by index using `.ytp-panel-menu > .ytp-menuitem`.
 
 ### 4. `playlist-navigation.spec.ts` — playlist navigation in PiP
@@ -217,6 +217,8 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 - **Goal:** Verify that Shorts player is correctly moved between the main document and the PiP window without losing the current reel.
 
 ### 7. `shorts-context-menu-copy.spec.ts` — context menu copy in Shorts PiP
+
+- **Copy feedback:** copy clicks use `clickCopyMenuItemInPip` (YouTube's "copied" bezel shown in PiP, menu closed).
 
 - **Scenario:** `shortsPageReady` (with **`authState: true` recommended** to bypass bot detection on Shorts) → trigger PiP → wait for Shorts player in PiP → for each menu item (Copy Shorts URL, Copy URL at time, Copy embed iframe, Copy debug info): open context menu in PiP on `#shorts-player`, click item, assert clipboard content via `expect.poll(...)`.
 - **Details:** URL assertions are Shorts-specific:

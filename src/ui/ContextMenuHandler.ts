@@ -138,14 +138,21 @@ export class ContextMenuHandler {
       return;
     }
     this.logger.debug(`Copied ${copyType} to clipboard`);
-    // Stop YouTube's copy handler. It copies via execCommand in the main document, which fails
-    // while the user interacts with the PiP window; on failure YouTube keeps the menu open, shows
-    // the text in a sub-panel and permanently switches the items to "Get …". Close the menu ourselves.
-    e.stopPropagation();
+    // Let YouTube's copy handler run after us, as on the page: on success it closes the menu and shows the
+    // "copied" bezel in the player. Its own copy (execCommand in the main document) fails while the user
+    // interacts with the PiP window (then YouTube keeps the menu open, shows the text in a sub-panel and
+    // switches the items to "Get …"), so report that one command as successful; the clipboard keeps our text.
+    const handledByYouTube = DOMUtils.reportNextCopyCommandAsSucceeded(document);
     const menu = item.closest<HTMLElement>(SELECTORS.CONTEXT_MENU_CONTAINER);
-    if (menu) {
-      this.dismissMenu(menu);
-    }
+    window.setTimeout(() => {
+      if (handledByYouTube()) {
+        return;
+      }
+      this.logger.debug('YouTube copy handler did not run, closing the menu ourselves');
+      if (menu) {
+        this.dismissMenu(menu);
+      }
+    }, 0);
   };
 
   /**

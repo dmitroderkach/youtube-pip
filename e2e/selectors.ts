@@ -7,10 +7,11 @@ export const E2E_SELECTORS = {
   PLAYER_VIDEO: 'video',
   YTD_APP: 'ytd-app',
   /**
-   * Watch page after YouTube applied the watch response (has-metadata is computed from videoPrimaryInfoRenderer).
-   * Before that the page is a skeleton and YouTube ignores miniplayer activation ('i', yt-activate-miniplayer-*).
+   * Watch page element; it holds the watch response in `.data` (`currentVideoEndpoint`, `contents`). Until the
+   * response is there the page is a skeleton and YouTube ignores mini player activation ('i',
+   * yt-activate-miniplayer-*). `[has-metadata]` is not used: YouTube can defer the metadata render during an ad.
    */
-  WATCH_PAGE_HYDRATED: 'ytd-watch-flexy[has-metadata], ytd-watch-grid[has-metadata]',
+  WATCH_PAGE: 'ytd-watch-flexy[video-id], ytd-watch-grid[video-id]',
   /** Shorts root element on Shorts page/feed. */
   YTD_SHORTS: 'ytd-shorts',
   /** Shorts player container inside Shorts. */
@@ -26,6 +27,8 @@ export const E2E_SELECTORS = {
   PLAYLIST_VIDEO_ROW: 'ytd-playlist-panel-video-renderer',
   /** Link inside playlist row (use for click). */
   PLAYLIST_VIDEO_ITEM: 'ytd-playlist-panel-video-renderer > a',
+  /** Player bezel (center icon feedback, e.g. after a successful copy); its parent toggles visibility. */
+  PLAYER_BEZEL: '.ytp-bezel',
   /** Context menu popup (YouTube player). */
   CONTEXT_MENU: '.ytp-popup.ytp-contextmenu',
   /** Copy menu items container. */
