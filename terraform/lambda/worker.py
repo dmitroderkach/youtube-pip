@@ -132,7 +132,10 @@ def _process_message(body):
         task_definition = os.environ["TASK_DEFINITION_ONCALL_ARN"]
 
     token = _github_registration_token()
-    runner_name = f"fargate-{run_id}"
+    # One runner per job: a run has several jobs (e2e, flags, oncall), and runners with the same name replace each
+    # other's registration ("A session for this runner already exists"), leaving a job without a runner.
+    job_id = payload.get("job_id")
+    runner_name = f"fargate-{run_id}-{job_id}" if job_id else f"fargate-{run_id}"
     assign_public_ip = os.environ.get("ASSIGN_PUBLIC_IP", "DISABLED")
 
     run_task_args = {

@@ -84,6 +84,7 @@ def handler(event, _context):
         "repo_url": repo_url,
         "labels": labels,
         "run_id": job.get("run_id", "unknown"),
+        "job_id": job.get("id"),
     }
 
     _sqs_client.send_message(
