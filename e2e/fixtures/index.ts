@@ -6,6 +6,7 @@ import { test as base, expect, type Page, type TestInfo } from '@playwright/test
 import {
   E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
   E2E_PAGE_HYDRATION_TIMEOUT_MS,
+  E2E_PIP_AD_MAX_WAIT_MS,
   E2E_PIP_AD_STABILITY_MS,
   E2E_PIP_SKIP_AD_POLL_MS,
   E2E_WAIT_TIMEOUT_MS,
@@ -250,28 +251,38 @@ export const test = base.extend<{
       return false;
     };
 
+    /**
+     * One deadline for all ads in a row (YouTube can show 2+ unskippable ones, together longer than 30s). A
+     * timeout of a single wait used to throw on the first attempt, so the old attempt loop never retried.
+     */
     const waitFn: WaitForPiPAdToEndFn = async (page) => {
-      const timeout = E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS;
-      const maxAttempts = 10;
-      for (let i = 0; i < maxAttempts; i++) {
-        const skipPoll = setInterval(() => void tryClickSkipAdInPip(page), E2E_PIP_SKIP_AD_POLL_MS);
-        try {
-          await page.waitForFunction(
-            (adOverlaySel: string) => {
-              const pip = window.documentPictureInPicture?.window;
-              const overlay = pip?.document.querySelector(adOverlaySel);
-              if (!overlay) return true;
-              const style = pip?.document.defaultView?.getComputedStyle(overlay);
-              return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
-            },
-            E2E_SELECTORS.AD_PLAYER_OVERLAY,
-            { timeout }
-          );
-        } finally {
-          clearInterval(skipPoll);
+      const deadline = Date.now() + E2E_PIP_AD_MAX_WAIT_MS;
+      const skipPoll = setInterval(() => void tryClickSkipAdInPip(page), E2E_PIP_SKIP_AD_POLL_MS);
+      try {
+        for (;;) {
+          const remaining = deadline - Date.now();
+          const ended = await page
+            .waitForFunction(
+              (adOverlaySel: string) => {
+                const pip = window.documentPictureInPicture?.window;
+                const overlay = pip?.document.querySelector(adOverlaySel);
+                if (!overlay) return true;
+                const style = pip?.document.defaultView?.getComputedStyle(overlay);
+                return style?.display === 'none' || overlay.getBoundingClientRect().height === 0;
+              },
+              E2E_SELECTORS.AD_PLAYER_OVERLAY,
+              { timeout: Math.max(remaining, 1) }
+            )
+            .then(() => true)
+            .catch(() => false);
+          if (!ended) {
+            throw new Error(`Ads in PiP did not end within ${E2E_PIP_AD_MAX_WAIT_MS}ms`);
+          }
+          await page.waitForTimeout(E2E_PIP_AD_STABILITY_MS);
+          if (await isAdOverlayGone(page)) return;
         }
-        await page.waitForTimeout(E2E_PIP_AD_STABILITY_MS);
-        if (await isAdOverlayGone(page)) return;
+      } finally {
+        clearInterval(skipPoll);
       }
     };
     await use(waitFn);

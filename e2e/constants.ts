@@ -20,6 +20,12 @@ export const E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS = 30_000;
  */
 export const E2E_CONTEXT_MENU_REOPEN_INTERVAL_MS = 500;
 
+/** Total time for ads in PiP to end (several unskippable ads in a row are common on CI). */
+export const E2E_PIP_AD_MAX_WAIT_MS = 75_000;
+
+/** Video time (s) the player must reach before "Copy video URL at current time" (YouTube omits t= near 0). */
+export const E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S = 2;
+
 /** How long the ad overlay must stay gone to consider all ads finished (YouTube can show 2+). */
 export const E2E_PIP_AD_STABILITY_MS = 500;
 

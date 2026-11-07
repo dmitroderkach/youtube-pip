@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 - **E2E `context-menu-after-pip.spec.ts`** — Menu opened in PiP, PiP closed with the menu open, then the menu on the page must close on an item click. Fails without the fix in `chromium-yt-pip`.
 - **E2E: watch page ready = hydrated** — `videoPageReady` / `playlistVideoPageReady` now also wait for `ytd-watch-flexy[has-metadata]` (or `ytd-watch-grid`). On slow CI runners the page was still a skeleton after the consent reload when the userscript was ready, and YouTube silently drops miniplayer activation (`i`, `yt-activate-miniplayer-from-watch-action`) without a watch response. This caused the CI flakes in `chromium-yt-pip`, `chromium-all-flags` and `chromium-legacy-ui` (PiP/mini player not opening).
+- **E2E context-menu-copy waits for state, not fixed time** — `waitForPiPAdToEnd` uses one 75 s deadline for all ads in a row (a single 30 s wait threw on the first timeout, so its retry loop never ran); before "Copy URL at current time" the test waits until the PiP video has played 2 s (starting it if paused) instead of a fixed 5 s. Test timeout 180 s.
 - **TypeScript 6 in the editor** — `tsconfig.json` sets `types: ["node"]` explicitly (TS 6 no longer includes `@types/*` by default; Cursor bundles TS 6.0.3, so `process`, `node:fs`, `Error.captureStackTrace` were errors in the editor) and includes the root config files (`playwright.config.ts`, `vite.config.ts`, `vitest.config.ts`).
 
 ### Changed
