@@ -38,11 +38,16 @@ const skipped = [];
 for (const [name, f] of candidates) {
   const value = f.value === undefined ? undefined : String(f.value);
   if (value !== undefined && value !== 'true' && value !== 'false') {
-    skipped.push({ flag: name, reason: `non-boolean value "${value}"` });
+    skipped.push({ flag: name, kind: 'non_boolean', reason: `non-boolean value "${value}"` });
     continue;
   }
   if (probed.length >= MAX_PROBED_FLAGS) {
-    skipped.push({ flag: name, reason: `limit of ${MAX_PROBED_FLAGS} probes per run` });
+    // Not marked as seen by the on-call, so it is new again and probed in the next run
+    skipped.push({
+      flag: name,
+      kind: 'limit',
+      reason: `limit of ${MAX_PROBED_FLAGS} probes per run`,
+    });
     continue;
   }
   const forced = value === 'true' ? `${name}=false` : name;
