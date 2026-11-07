@@ -18,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 ### Changed
 
-- **CI: no repeat e2e after the merge** — `build.yml` runs e2e on pull requests only. Main requires the PR branch to be up to date with a green `build` check before the squash merge, so the merge commit has exactly the tree the PR's e2e ran on; the push to main skips it (the daily Manual E2E covers main).
+- **CI: no repeat build after the merge** — `build.yml` (lint, unit tests, build, e2e) runs on pull requests only. Main requires the PR branch to be up to date with a green `build` check before the squash merge, so the merge commit has exactly the tree the PR checked; the push to main no longer starts a runner (the daily Manual E2E covers main, `release.yml` builds the tag). A new commit in a PR cancels the run of the previous one.
 
 ## [2.6.1] - 2026-11-07
 
