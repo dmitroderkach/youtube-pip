@@ -1,0 +1,12 @@
+{
+  "extends": "../../e2e/tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../.."
+  },
+  "include": [
+    "*.ts",
+    "../../e2e/**/*.ts",
+    "../../src/types/global.d.ts",
+    "../../playwright.config.ts"
+  ]
+}

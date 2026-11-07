@@ -251,6 +251,7 @@ The test account only sees the YouTube experiments it is bucketed into, so rollo
 - One cell locally: `npx playwright test --project=chromium-yt-pip`.
 - Ad hoc extra flags on top of a project's set: `E2E_FORCE_EXPERIMENT_FLAGS=<flag,…>` (`flag=false` forces a flag off).
 - Context menu helpers take the item's position **from the end** of the visible menu (`COPY_MENU_POSITIONS_FROM_END`), because flags add/remove items above the copy items.
+- To check a flag set by hand in a visible browser: **[`docs/MANUAL_SESSION.md`](MANUAL_SESSION.md)**.
 - Which flags exist, what they change and which flows they cover: **[`docs/YOUTUBE_EXPERIMENT_FLAGS.md`](YOUTUBE_EXPERIMENT_FLAGS.md)**.
 - The stub's `__E2E_PIP__.ready()` (used by the page-ready fixtures) waits until the userscript installed its Media Session guard, because with `web_*_pip` YouTube registers its own handler first.
 
