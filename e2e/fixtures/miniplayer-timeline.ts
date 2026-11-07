@@ -62,13 +62,24 @@ export function installMiniplayerTimeline(limits: { maxEntries: number; sampleMs
     ].join(' ');
   };
 
-  const stackOf = () =>
-    (new Error().stack ?? '')
-      .split('\n')
-      .slice(2, 18)
-      // Keep function name + line; YouTube's bundle URLs are hundreds of characters long
-      .map((l) => `      ${l.trim().replace(/\(?https?:\/\/[^)\s]*?:(\d+):\d+\)?/, ':$1')}`)
-      .join('\n');
+  // Deep stack: YouTube's generator wrapper adds ~8 frames between deactivate() and its caller
+  const STACK_FRAMES = 40;
+  const stackOf = () => {
+    const prevLimit = Error.stackTraceLimit;
+    Error.stackTraceLimit = STACK_FRAMES + 2;
+    const stack = new Error().stack ?? '';
+    Error.stackTraceLimit = prevLimit;
+    return (
+      stack
+        .split('\n')
+        .slice(2)
+        // Drop the event-dispatch and generator-runner frames; keep YouTube's named functions
+        .filter((l) => !/at (?:new Promise|<anonymous>:)/.test(l))
+        // Keep function name + line; YouTube's bundle URLs are hundreds of characters long
+        .map((l) => `      ${l.trim().replace(/\(?https?:\/\/[^)\s]*?:(\d+):\d+\)?/, ':$1')}`)
+        .join('\n')
+    );
+  };
 
   let last = '';
   setInterval(() => {
