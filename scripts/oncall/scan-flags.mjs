@@ -23,6 +23,28 @@ const BASELINE_PATH = 'docs/experiment-flags-baseline.json';
 /** Flag names that can affect PiP, the mini player, menus, keyboard, Shorts or the player we move around. */
 const RELEVANT_FLAG_RE =
   /pip|picture|miniplayer|mini_player|cow|context_?menu|watch_while|hotkey|keyboard|shortcut|shorts|reel|speedmaster|draggable|popup|player_component|append_to|bezel|copy_?link/i;
+/**
+ * Code that our flows go through. A flag checked within ANCHOR_WINDOW characters of one of these (about one
+ * minified function) is relevant whatever its name, e.g. the watch-page code around mini player activation.
+ */
+const CODE_ANCHORS = [
+  'yt-activate-miniplayer',
+  'yt-deactivate-miniplayer',
+  'ytd-miniplayer',
+  'yt-miniplayer',
+  'onCollapseMiniplayer',
+  'SET_MINIPLAYER_IS_ACTIVE',
+  'enterpictureinpicture',
+  'documentPictureInPicture',
+  'pictureInPicture',
+  'setActionHandler',
+  'appendTo',
+  'ytd-player',
+  'ytd-shorts',
+  'ytp-contextmenu',
+  'ytp-bezel',
+];
+const ANCHOR_WINDOW = 600;
 /** A call target is a flag reader when it has this many distinct string arguments … */
 const FLAG_READER_MIN_ARGS = 20;
 /**
@@ -78,26 +100,48 @@ async function download(url, path) {
   writeFileSync(path, Buffer.from(await res.arrayBuffer()));
 }
 
-/** Flags checked in a bundle: arguments of call targets that mostly receive served flags (see header). */
+/**
+ * Flags checked in a bundle: arguments of call targets that mostly receive served flags (see header), and for each
+ * the code anchors (CODE_ANCHORS) found near one of its checks.
+ */
 function codeFlags(source, servedNames) {
+  const calls = [];
   const byCallee = new Map();
   const call = /([\w$.]{1,40})\(\s*"([a-z][a-z0-9]*(?:_[a-z0-9]+)+)"\s*\)/g;
   for (const m of source.matchAll(call)) {
     const callee = m[1].includes('.') ? m[1].slice(m[1].lastIndexOf('.')) : m[1]; // a.J.N → .N
+    calls.push({ callee, name: m[2], index: m.index });
     const args = byCallee.get(callee) ?? new Set();
     args.add(m[2]);
     byCallee.set(callee, args);
   }
-  const flags = new Set();
+  const readerNames = new Set();
   const readers = [];
   for (const [callee, args] of byCallee) {
     const served = [...args].filter((a) => servedNames.has(a)).length;
     if (args.size >= FLAG_READER_MIN_ARGS && served / args.size >= FLAG_READER_MIN_SERVED_SHARE) {
       readers.push(`${callee}(${args.size})`);
-      for (const a of args) flags.add(a);
+      readerNames.add(callee);
     }
   }
-  return { flags, readers };
+  const anchors = [];
+  for (const anchor of CODE_ANCHORS) {
+    for (let i = source.indexOf(anchor); i !== -1; i = source.indexOf(anchor, i + 1))
+      anchors.push({ anchor, i });
+  }
+  const flags = new Set();
+  const nearAnchors = new Map();
+  for (const c of calls) {
+    if (!readerNames.has(c.callee)) continue;
+    flags.add(c.name);
+    for (const { anchor, i } of anchors) {
+      if (Math.abs(i - c.index) > ANCHOR_WINDOW) continue;
+      const set = nearAnchors.get(c.name) ?? new Set();
+      set.add(anchor);
+      nearAnchors.set(c.name, set);
+    }
+  }
+  return { flags, readers, nearAnchors };
 }
 
 mkdirSync(join(outDir, 'js'), { recursive: true });
@@ -167,11 +211,15 @@ for (const [i, url] of [...new Set(scriptUrls)].entries()) {
 
 const servedNames = new Set([...Object.keys(pageFlags), ...Object.keys(playerFlags)]);
 const allCodeFlags = new Set();
+const codeNearAnchors = new Map();
 const flagReaders = [];
 for (const bundle of bundles) {
   if (!bundle.file) throw new Error(`bundle not downloaded: ${bundle.url} (${bundle.error})`);
-  const { flags, readers } = codeFlags(readFileSync(bundle.file, 'utf8'), servedNames);
+  const { flags, readers, nearAnchors } = codeFlags(readFileSync(bundle.file, 'utf8'), servedNames);
   for (const f of flags) allCodeFlags.add(f);
+  for (const [name, set] of nearAnchors) {
+    codeNearAnchors.set(name, new Set([...(codeNearAnchors.get(name) ?? []), ...set]));
+  }
   flagReaders.push(`${bundle.file.split('/').pop()}: ${readers.join(' ') || 'none'}`);
 }
 if (
@@ -182,7 +230,10 @@ if (
     `Kevlar or player bundle not found on the page: ${bundles.map((b) => b.url).join(', ')}`
   );
 }
-const codeRelevant = [...allCodeFlags].filter((name) => RELEVANT_FLAG_RE.test(name)).sort();
+// Relevant: the name says so, or it is checked next to code our flows go through
+const codeRelevant = [...allCodeFlags]
+  .filter((name) => RELEVANT_FLAG_RE.test(name) || codeNearAnchors.has(name))
+  .sort();
 if (codeRelevant.length < baselineCode.size * MIN_CODE_FLAGS_SHARE_OF_BASELINE) {
   throw new Error(
     `reading flags from the bundles looks broken: ${codeRelevant.length} relevant flags vs ${baselineCode.size} ` +
@@ -191,6 +242,10 @@ if (codeRelevant.length < baselineCode.size * MIN_CODE_FLAGS_SHARE_OF_BASELINE) 
 }
 const describeCodeFlag = (name) => ({
   name,
+  why: [
+    ...(RELEVANT_FLAG_RE.test(name) ? ['name'] : []),
+    ...[...(codeNearAnchors.get(name) ?? [])].map((a) => `near ${a}`),
+  ],
   served: servedNames.has(name),
   value: name in pageFlags ? String(pageFlags[name]) : playerFlags[name],
 });
