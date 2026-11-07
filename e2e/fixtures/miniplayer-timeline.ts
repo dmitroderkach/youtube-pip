@@ -62,6 +62,14 @@ export function installMiniplayerTimeline(limits: { maxEntries: number; sampleMs
     ].join(' ');
   };
 
+  const stackOf = () =>
+    (new Error().stack ?? '')
+      .split('\n')
+      .slice(2, 18)
+      // Keep function name + line; YouTube's bundle URLs are hundreds of characters long
+      .map((l) => `      ${l.trim().replace(/\(?https?:\/\/[^)\s]*?:(\d+):\d+\)?/, ':$1')}`)
+      .join('\n');
+
   let last = '';
   setInterval(() => {
     const s = summary();
@@ -76,6 +84,9 @@ export function installMiniplayerTimeline(limits: { maxEntries: number; sampleMs
     (e) => {
       const name = (e as CustomEvent<{ actionName?: string }>).detail?.actionName ?? '';
       if (/miniplayer|pip|picture/i.test(name)) push(`yt-action ${name}`);
+      // Mini player setActive(true/false) dispatches this synchronously, so its stack shows who (de)activated it.
+      if (name === 'yt-close-popup-action')
+        push(`yt-action ${name} (mini player setActive)\n${stackOf()}`);
     },
     true
   );
@@ -86,12 +97,6 @@ export function installMiniplayerTimeline(limits: { maxEntries: number; sampleMs
   // Who deactivates the mini player: wrap the ytd-watch-flexy methods that can do it (updatePlayerLocation →
   // deactivateMiniplayerAndResetPlayer with web_watch_pip / kevlar_watch_while_v2) and log every player state
   // change (watch-while mode deactivates on ENDED). Method names survive YouTube's minification.
-  const stackOf = () =>
-    (new Error().stack ?? '')
-      .split('\n')
-      .slice(3, 13)
-      .map((l) => `      ${l.trim()}`)
-      .join('\n');
   const argText = (x: unknown): string => {
     try {
       return JSON.stringify(x) ?? String(x);
