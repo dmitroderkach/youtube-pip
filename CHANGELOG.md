@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 - **Shorts PiP lost the player with `web_migrate_reel_video_renderer_to_cow`** — With this flag the Shorts video renderer is the CoW `ytd-reel-video-renderer-cow` holding the player's `#player-container`. Moving `ytd-shorts` into PiP makes it dispose and re-render, so the slot the player was parked from is detached and the player was put back into a detached node: no player in PiP or on the page. `PiPManager` now remembers the CoW host around the slot and puts the player into the fresh slot (ARCHITECTURE_DECISIONS §17). Found by forcing all relevant code flags in e2e.
 
+- **Tab title switched to "YouTube" during PiP** — While PiP is open the page is not the watch page (the player went through the mini player), and YouTube sets its own page title after navigations / data updates, replacing the video title we set. `TitleSyncHandler` now watches the page `<title>` and puts our title back, with a guard (at most 5 restores per second) so it never ping-pongs with code that keeps setting its own title.
+
 ### Added
 
 - **E2E: all relevant code flags at once** — `chromium-all-flags` forces, besides the curated flags, every relevant boolean flag the Kevlar / player code checks (`codeFlags` from the on-call baseline, ~115), except killswitches, YouTube's test switches (`*_for_testing`, `debug_*`), number flags and `NOT_FORCED_IN_ALL_FLAGS` (`kevlar_watch_fixie`: watch page `ytd-watch-fixie` in development, mini player activation broken in YouTube itself). New project `chromium-killswitches` with the 19 relevant killswitches on. 6 flag sets.
@@ -23,7 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 ### Fixed (tests)
 
-- E2E page-ready fixtures recognize the `ytd-watch-fixie` watch page; the e2e session file is written atomically (8 workers read it half-written); "Copy URL at current time" in the Shorts spec waits for playback like the watch spec (`waitForPlaybackTimeInPip`); the keyboard spec waits until YouTube stops moving focus to the first menu item before pressing ArrowDown; skipping ads in PiP works again: the test only looked for `.ytp-skip-ad-button`, while YouTube's other ad UIs use `.ytp-ad-skip-button` / `-modern` (ads then ran to the end and tests hit their timeouts) — all variants are clicked, ads are detected by `ad-showing` on the player, the ad budget is back to 40 s and the long test timeouts are gone.
+- E2E page-ready fixtures recognize the `ytd-watch-fixie` watch page; the e2e session file is written atomically (8 workers read it half-written); "Copy URL at current time" in the Shorts spec waits for playback like the watch spec (`waitForPlaybackTimeInPip`); the keyboard spec waits until YouTube stops moving focus to the first menu item before pressing ArrowDown; skipping ads in PiP works again: the test only looked for `.ytp-skip-ad-button`, while YouTube's other ad UIs use `.ytp-ad-skip-button` / `-modern` (ads then ran to the end and tests hit their timeouts) — all variants are clicked, unskippable ads are played to their end (the test seeks the ad video), ads are detected by `ad-showing` on the player, the ad budget is back to 40 s and the long test timeouts are gone.
 
 ## [2.6.0] - 2026-11-07
 

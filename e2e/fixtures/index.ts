@@ -387,7 +387,17 @@ export const test = base.extend<{
           if (clicked) return true;
         }
       }
-      return false;
+      // Unskippable ad (no skip button, often several in a row): play it to its end so the test does not wait
+      // the ads out. Test environment only.
+      return page
+        .evaluate((adPlayerSel: string) => {
+          const doc = window.documentPictureInPicture?.window?.document;
+          const video = doc?.querySelector<HTMLVideoElement>(`${adPlayerSel} video`);
+          if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return false;
+          if (video.currentTime < video.duration - 0.5) video.currentTime = video.duration - 0.1;
+          return true;
+        }, E2E_SELECTORS.AD_SHOWING_PLAYER)
+        .catch(() => false);
     };
 
     /**

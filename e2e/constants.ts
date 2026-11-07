@@ -33,8 +33,8 @@ export const E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS = 30_000;
 export const E2E_CONTEXT_MENU_REOPEN_INTERVAL_MS = 500;
 
 /**
- * Total time for ads in PiP to end. Skippable ads are skipped after ~5 s (waitForPiPAdToEnd clicks any skip button);
- * this covers up to two unskippable ads in a row.
+ * Total time for ads in PiP to end. waitForPiPAdToEnd clicks any skip button (~5 s in) and plays unskippable ads
+ * to their end, so ads normally take seconds; this is the safety limit.
  */
 export const E2E_PIP_AD_MAX_WAIT_MS = 40_000;
 
