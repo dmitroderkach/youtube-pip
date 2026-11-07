@@ -11,7 +11,6 @@ export {
   createFakePlayer,
   createFakeYtdApp,
   createFakeYtdAppWithFire,
-  createFakeYtdAppWithResolveCommand,
   createFakeResizeObserverEntry,
   createFakeNotifyRenderer,
 } from './test-helpers';

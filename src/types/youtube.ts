@@ -1,12 +1,5 @@
 import type { Nullable } from './app';
-import type {
-  PLAYER_STATES,
-  YT_ACTIONS,
-  YT_ACTION_NAMES,
-  YT_LIKE_ACTIONS,
-  WEB_PAGE_TYPES,
-  YT_EVENTS,
-} from '../constants';
+import type { PLAYER_STATES, YT_ACTION_NAMES, WEB_PAGE_TYPES, YT_EVENTS } from '../constants';
 
 /**
  * TypeScript interfaces for YouTube internal types
@@ -151,62 +144,6 @@ export interface MediaImage {
   type?: string;
 }
 
-/** Like endpoint target (videoId) */
-export interface LikeEndpointTarget {
-  videoId: string;
-}
-
-/**
- * YouTube action type from YT_ACTIONS constant
- * General-purpose type for all YouTube actions, extensible for future action types
- * Possible values:
- * - LIKE: 'LIKE'
- * - DISLIKE: 'DISLIKE'
- * - REMOVE: 'INDIFFERENT'
- */
-export type YouTubeActionType = (typeof YT_ACTIONS)[keyof typeof YT_ACTIONS];
-
-/**
- * Like action type from YT_LIKE_ACTIONS constant
- * Specific type for like/dislike endpoint actions only
- * Possible values:
- * - LIKE: 'LIKE'
- * - DISLIKE: 'DISLIKE'
- * - REMOVE: 'INDIFFERENT'
- */
-export type LikeActionType = (typeof YT_LIKE_ACTIONS)[keyof typeof YT_LIKE_ACTIONS];
-
-/**
- * Like endpoint command
- * Status values from YT_LIKE_ACTIONS constants
- */
-export interface LikeEndpoint {
-  status: LikeActionType;
-  target: LikeEndpointTarget;
-}
-
-/**
- * Like command structure
- */
-export interface LikeCommand {
-  likeEndpoint: LikeEndpoint;
-}
-
-/**
- * Registry of all YouTube command types
- * Add new command types here, and they automatically become part of YouTubeCommand
- */
-export interface YouTubeCommands {
-  like: LikeCommand;
-  // Future commands - just add here:
-}
-
-/**
- * Union of all YouTube command types
- * Automatically derived from YouTubeCommands registry
- */
-export type YouTubeCommand = YouTubeCommands[keyof YouTubeCommands];
-
 /** Mini player element (ytd-miniplayer). Type alias for future YouTube-specific props. */
 export type MiniPlayerElement = HTMLElement;
 
@@ -253,7 +190,6 @@ export type YouTubeFireDetail<E extends YouTubeEventName> = E extends keyof YouT
  * YouTube app element interface
  */
 export interface YouTubeAppElement extends HTMLElement {
-  resolveCommand?(command: YouTubeCommand): void;
   fire?<E extends YouTubeEventName>(eventName: E, detail?: YouTubeFireDetail<E>): void;
 
   miniplayerIsActive: boolean;

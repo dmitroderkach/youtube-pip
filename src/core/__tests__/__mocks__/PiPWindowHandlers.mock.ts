@@ -3,7 +3,7 @@ import { ResizeTracker } from '../../../ui/ResizeTracker';
 import { MenuObserver } from '../../../ui/MenuObserver';
 import { ContextMenuHandler } from '../../../ui/ContextMenuHandler';
 import { SeekHandler } from '../../../handlers/SeekHandler';
-import { LikeButtonHandler } from '../../../handlers/LikeButtonHandler';
+import { PiPEventBridgeHandler } from '../../../handlers/PiPEventBridgeHandler';
 import { NavigationHandler } from '../../NavigationHandler';
 import { DocumentFocusHandler } from '../../../handlers/DocumentFocusHandler';
 import { TitleSyncHandler } from '../../../handlers/TitleSyncHandler';
@@ -13,7 +13,7 @@ export interface PiPWindowHandlersMocks {
   menuObserver: MockProxy<MenuObserver>;
   contextMenuHandler: MockProxy<ContextMenuHandler>;
   seekHandler: MockProxy<SeekHandler>;
-  likeButtonHandler: MockProxy<LikeButtonHandler>;
+  pipEventBridgeHandler: MockProxy<PiPEventBridgeHandler>;
   navigationHandler: MockProxy<NavigationHandler>;
   documentFocusHandler: MockProxy<DocumentFocusHandler>;
   titleSyncHandler: MockProxy<TitleSyncHandler>;
@@ -25,7 +25,7 @@ export function createPiPWindowHandlersMocks(): PiPWindowHandlersMocks {
     menuObserver: mock<MenuObserver>(),
     contextMenuHandler: mock<ContextMenuHandler>(),
     seekHandler: mock<SeekHandler>(),
-    likeButtonHandler: mock<LikeButtonHandler>(),
+    pipEventBridgeHandler: mock<PiPEventBridgeHandler>(),
     navigationHandler: mock<NavigationHandler>(),
     documentFocusHandler: mock<DocumentFocusHandler>(),
     titleSyncHandler: mock<TitleSyncHandler>(),

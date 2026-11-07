@@ -14,7 +14,7 @@ This document describes how we interact with YouTube's internal Kevlar framework
 - [Shorts: SET_SHORTS_LAYOUT dispatch](#shorts-set_shorts_layout-dispatch)
 - [PiP Event Bridge](#pip-event-bridge)
 - [Shorts lifecycle workaround](#shorts-lifecycle-workaround)
-- [Kevlar Command System](#kevlar-command-system)
+- [Kevlar Command System (deprecated)](#kevlar-command-system-deprecated--do-not-call-from-the-userscript)
 - [How We Discovered This API](#how-we-discovered-this-api)
 - [Implementation Examples](#implementation-examples)
 - [Risks and Limitations](#risks-and-limitations)
@@ -40,8 +40,8 @@ This document describes how we interact with YouTube's internal Kevlar framework
 │  │    Event Bus (fire)          │  │  ← Event system
 │  └──────────────────────────────┘  │
 │  ┌──────────────────────────────┐  │
-│  │  Command System              │  │  ← Command dispatcher
-│  │  (resolveCommand)            │  │
+│  │  Command System (internal)   │  │  ← not used by us since Nov 2026
+│  │  (handleCommandWith…)        │  │
 │  └──────────────────────────────┘  │
 │  ┌──────────────────────────────┐  │
 │  │  State Management            │  │  ← Application state
@@ -65,9 +65,6 @@ export interface YouTubeAppElement extends HTMLElement {
   // Event dispatcher - sends events through Kevlar event bus
   fire(eventName: YouTubeEventName, detail?: unknown): void;
 
-  // Command dispatcher - executes YouTube commands (like, subscribe, etc)
-  resolveCommand?(command: Partial<YouTubeCommand>): void;
-
   // State properties
   miniplayerIsActive: boolean;
 }
@@ -78,10 +75,12 @@ export interface YouTubeAppElement extends HTMLElement {
 **Usage in Code**:
 
 ```typescript
-// src/core/YtActionSender.ts
-const mainApp = document.querySelector<YouTubeAppElement>(SELECTORS.YTD_APP);
-mainApp.resolveCommand({ likeEndpoint: { ... } });
+// src/handlers/PiPEventBridgeHandler.ts — forward native PiP events to the main app
+const app = this.ytdAppProvider.getApp();
+app.fire(YT_EVENTS.ACTION, e.detail);
 ```
+
+`ytd-app.resolveCommand()` is no longer available (see [Kevlar Command System (deprecated)](#kevlar-command-system-deprecated--do-not-call-from-the-userscript)).
 
 ---
 
@@ -391,9 +390,9 @@ After appending `ytd-shorts` to the PiP document, we call `dispatch` so the comp
 
 ## PiP Event Bridge
 
-When Shorts (or the mini player) run inside the Document PiP window, the PiP document has its own DOM and its own `ytd-app` instance. Navigation and actions triggered inside PiP (e.g. link clicks, buttons) often emit internal custom events (`yt-navigate`, `yt-action`) on the PiP document. To keep the main tab in sync and to perform actions that must run in the main page (e.g. like via `resolveCommand`), we **bridge** those events from the PiP document to the **main window’s** `ytd-app`.
+When Shorts **or the mini player** run inside the Document PiP window, their native Kevlar components still fire internal custom events (`yt-navigate`, `yt-action`) on click. Those events bubble up to the **PiP document** and stop there: the `ytd-app` we create in PiP is a plain, un-upgraded element (custom element registries are per window), so nothing handles them. To let YouTube perform these actions exactly as it would on the main page, we **bridge** the events from the PiP document to the **main window's** `ytd-app`.
 
-**Implementation**: `src/handlers/PiPEventBridgeHandler.ts`
+**Implementation**: `src/handlers/PiPEventBridgeHandler.ts`, initialized by both `PipShortsWindowHandlers` (Shorts) and `PiPWindowHandlers` (mini player).
 
 - Listen on the **PiP window document** for `yt-navigate` and `yt-action` (custom events).
 - On each event, call **main window** `ytdApp.fire(eventName, detail)` with the same `detail` so the main app performs the navigation or action.
@@ -405,7 +404,19 @@ doc.addEventListener(YT_EVENTS.NAVIGATE, (e) => app.fire(YT_EVENTS.NAVIGATE, e.d
 doc.addEventListener(YT_EVENTS.ACTION, (e) => app.fire(YT_EVENTS.ACTION, e.detail));
 ```
 
-**Note**: `YtdAppProvider.getApp()` returns the main page’s `ytd-app`. The bridge does **not** target the PiP’s `ytd-app`; it forwards into the main page so that state, navigation, and commands (e.g. like) are applied there.
+**Note**: `YtdAppProvider.getApp()` returns the main page's `ytd-app`. The bridge does **not** target the PiP's `ytd-app`; it forwards into the main page so that state, navigation, and commands (e.g. like) are applied there.
+
+#### Events observed from the mini player in PiP (Nov 2026)
+
+Captured by hooking `dispatchEvent` for `yt-*` events whose target lives in the PiP document:
+
+| User action in PiP             | Event reaching the PiP document                     | `actionName`                                                         | Result after bridging                                                                  |
+| ------------------------------ | --------------------------------------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| Like / dislike / remove rating | `yt-action`                                         | `yt-service-request`                                                 | Main app sends `/youtubei/v1/like/{like,dislike,removelike}`                           |
+| Click a playlist item          | `yt-action`                                         | `yt-miniplayer-endpoint-changed`, `yt-miniplayer-play-state-changed` | Main app receives the same updates it gets when the mini player lives in the main page |
+| Expand playlist panel          | — (only `yt-rendererstamper-finished`, not bridged) | —                                                                    | —                                                                                      |
+
+The mini player never fires `yt-navigate` on a playlist click; navigation inside PiP is still handled by `NavigationHandler` (capture-phase click → `popstate`), so the bridge does not double-navigate.
 
 ---
 
@@ -431,120 +442,61 @@ This runs only after the Shorts element has been moved back to the main page (e.
 
 ---
 
-## Kevlar Command System
+## Kevlar Command System (deprecated — do not call from the userscript)
 
-### Command Dispatcher: `ytdApp.resolveCommand()`
+> ⚠️ **Deprecated since Nov 2026.** The userscript no longer calls any Kevlar command dispatcher. Like/dislike in the mini player PiP goes through the [PiP Event Bridge](#pip-event-bridge), the same way Shorts always did. This section is kept as history and as a debugging aid.
 
-Kevlar uses a command pattern for executing user actions.
+### What used to be here: `ytdApp.resolveCommand()`
 
-#### Method Signature
+Until Nov 2026 the mini player flow handled like/dislike itself:
 
-```typescript
-resolveCommand?(command: Partial<YouTubeCommand>): void
-```
+1. `LikeButtonHandler` listened for clicks on `ytd-slim-metadata-toggle-button-renderer` in the PiP document, read `aria-pressed`, and picked `LIKE` / `DISLIKE` / `INDIFFERENT`.
+2. `YtActionSender` built `{ likeEndpoint: { status, target: { videoId } } }` and called the main window's `ytdApp.resolveCommand(command)`.
 
-#### Command Registry Pattern
+### What changed in YouTube
 
-**Defined in `src/types/youtube.ts`**:
+YouTube web builds around `2.20261030` / `2.20261105` **removed `resolveCommand` from `ytd-app`**. The resolver moved to an internal, minified service (seen as `_.Qr.instance.resolveCommand(...)` in `kevlar_base`), which is not reachable from outside. `ytd-app.handleCommandWithCommandHandler(command, element)` still exists and delegates to that service (it is the handler for the `yt-command-executor-command` action), but it is just as internal.
 
-```typescript
-// Registry of all command types
-export interface YouTubeCommands {
-  like: LikeCommand;
-  // Future: subscribe, share, etc.
-}
+**Symptom:** clicking like/dislike in the mini player PiP toggled the button visually (`aria-pressed` flips, because the native component updates itself), but no request was sent. Debug log: `[YtActionSender] Failed to find resolveCommand in main window`. The `like-dislike` e2e spec failed on the first `like/like` response (daily CI from 2026-10-15).
 
-// Union type derived from registry
-export type YouTubeCommand = YouTubeCommands[keyof YouTubeCommands];
+### Why we removed it instead of switching to `handleCommandWithCommandHandler`
 
-// Like command structure
-export interface LikeCommand {
-  likeEndpoint: LikeEndpoint;
-}
+- **It was redundant.** The native like button already knows its endpoint and already emits `yt-action` / `yt-service-request` on click. That event only got lost because it bubbled to the PiP document. Forwarding it (the bridge) lets YouTube build and send the request itself.
+- **Less private API surface.** Rebuilding `likeEndpoint` ourselves meant depending on the command shape, the toggle DOM order, `aria-pressed` semantics, and a dispatcher method name — four things YouTube can change. The bridge depends only on `yt-action` + `ytdApp.fire()`, which Shorts and the mini player toggle (`yt-activate-miniplayer`) already rely on.
+- **One mechanism for both flows.** Shorts and the mini player now share `PiPEventBridgeHandler`.
 
-export interface LikeEndpoint {
-  status: LikeActionType; // 'LIKE' | 'DISLIKE' | 'INDIFFERENT'
-  target: {
-    videoId: string;
-  };
-}
-```
+### Removed / deprecated code
 
----
+| Item                                                                                                                                                     | Status                                                                              |
+| -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `src/handlers/LikeButtonHandler.ts` (+ tests)                                                                                                            | Removed — replaced by the bridge                                                    |
+| `src/core/YtActionSender.ts` (+ tests)                                                                                                                   | Removed                                                                             |
+| `YouTubeCommand`, `YouTubeCommands`, `LikeCommand`, `LikeEndpoint`, `LikeEndpointTarget`, `LikeActionType`, `YouTubeActionType` (`src/types/youtube.ts`) | Removed                                                                             |
+| `YT_LIKE_ACTIONS`, `YT_ACTIONS` (`src/constants/youtube.ts`)                                                                                             | Removed                                                                             |
+| `YouTubeAppElement.resolveCommand`                                                                                                                       | Removed from our types                                                              |
+| `createFakeYtdAppWithResolveCommand` (`src/test-utils`)                                                                                                  | Removed                                                                             |
+| `ytdApp.resolveCommand()` (YouTube)                                                                                                                      | **Gone from `ytd-app`** in current builds — do not use                              |
+| `ytdApp.handleCommandWithCommandHandler()` (YouTube)                                                                                                     | Exists, internal — do not use in the userscript; OK for manual DevTools experiments |
 
-### Like/Dislike Commands
+### Manual experiments in DevTools
 
-**Purpose**: Execute like, dislike, or remove rating actions.
-
-#### Action Types
-
-**Defined in `src/constants.ts`**:
-
-```typescript
-export const YT_LIKE_ACTIONS = {
-  LIKE: 'LIKE', // Like video
-  DISLIKE: 'DISLIKE', // Dislike video
-  REMOVE: 'INDIFFERENT', // Remove rating
-} as const;
-```
-
-#### Example: Send Like Action
-
-**Implementation in `src/core/YtActionSender.ts`**:
-
-```typescript
-public sendLikeAction(actionType: LikeActionType): void {
-  const videoId = this.playerManager.getVideoId(this.pipWindow.document);
-  const mainApp = document.querySelector<YouTubeAppElement>(SELECTORS.YTD_APP);
-
-  const command: YouTubeCommand = {
-    likeEndpoint: {
-      status: actionType,  // 'LIKE', 'DISLIKE', or 'INDIFFERENT'
-      target: { videoId },
-    },
-  };
-
-  mainApp.resolveCommand(command);
-}
-```
-
-**What happens**:
-
-1. Command sent to Kevlar command dispatcher
-2. Kevlar validates command structure
-3. Backend API call is made
-4. UI is updated (button state, like count)
-
-**Usage in `src/handlers/LikeButtonHandler.ts`**:
-
-```typescript
-// Detect button click
-const isPressed = button.getAttribute('aria-pressed') === 'true';
-const actionType = isPressed
-  ? YT_LIKE_ACTIONS.REMOVE // Remove existing rating
-  : isLikeButton
-    ? YT_LIKE_ACTIONS.LIKE // Add like
-    : YT_LIKE_ACTIONS.DISLIKE; // Add dislike
-
-this.ytActionSender?.sendLikeAction(actionType);
-```
-
----
-
-### Add to playlist dialog: `addToPlaylistServiceEndpoint`
-
-To open the "Save video to…" (Add to playlist) dialog, call `resolveCommand` with **addToPlaylistServiceEndpoint** and **videoId**:
+Command objects are still useful for exploring YouTube by hand. On current builds use `handleCommandWithCommandHandler` instead of `resolveCommand`:
 
 ```javascript
 const ytdApp = document.querySelector('ytd-app');
-ytdApp.resolveCommand({
-  addToPlaylistServiceEndpoint: {
-    videoId: 'dqKpx51vKLc',
-  },
-});
+// Open the "Save video to…" dialog
+ytdApp.handleCommandWithCommandHandler(
+  { addToPlaylistServiceEndpoint: { videoId: 'dqKpx51vKLc' } },
+  ytdApp
+);
+// Like a video (main page only; this sends a real request for the signed-in account)
+ytdApp.handleCommandWithCommandHandler(
+  { likeEndpoint: { status: 'LIKE', target: { videoId: 'dqKpx51vKLc' } } },
+  ytdApp
+);
 ```
 
-Building the object: only `addToPlaylistServiceEndpoint.videoId` is required — the video ID for which to open the dialog. YouTube fetches the rest (playlist list, endpoints, etc.) itself.
+For anything a PiP component can already do on click, prefer bridging its event over constructing commands.
 
 ---
 
@@ -563,7 +515,7 @@ console.dir(app); // See all properties and methods
 **Discovered**:
 
 - `fire()` method
-- `resolveCommand()` method
+- `resolveCommand()` method (removed from `ytd-app` in Nov 2026)
 - `miniplayerIsActive` property
 
 #### Event Monitoring
@@ -605,7 +557,7 @@ Monitor XHR/Fetch requests when clicking like button:
 Examining YouTube's minified JavaScript:
 
 ```javascript
-// Found in YouTube source:
+// Found in YouTube source (historical — removed from ytd-app in Nov 2026, see Kevlar Command System):
 a.prototype.resolveCommand = function (command) {
   if (command.likeEndpoint) {
     this.sendLikeCommand(command.likeEndpoint);
@@ -698,71 +650,9 @@ public toggleMiniPlayer(): void {
 
 ---
 
-### Example 2: Like Button Handler
+### Example 2: Like / dislike in PiP (via the event bridge)
 
-**File**: `src/handlers/LikeButtonHandler.ts`
-
-```typescript
-private setupClickHandler(): void {
-  this.pipWindow.document.addEventListener('click', (event: MouseEvent) => {
-    // Find like/dislike button
-    const button = (event.target as Element)?.closest<HTMLButtonElement>(
-      SELECTORS.BUTTON_SHAPE
-    );
-
-    if (!button) return;
-
-    // Determine action type
-    const isPressed = button.getAttribute('aria-pressed') === 'true';
-    const isLikeButton = /* ... determine if like or dislike ... */;
-
-    const actionType = isPressed
-      ? YT_LIKE_ACTIONS.REMOVE
-      : isLikeButton
-        ? YT_LIKE_ACTIONS.LIKE
-        : YT_LIKE_ACTIONS.DISLIKE;
-
-    logger.log(`${actionType} button clicked`);
-
-    // Send command through YtActionSender
-    this.ytActionSender?.sendLikeAction(actionType);
-  }, true);
-}
-```
-
-**File**: `src/core/YtActionSender.ts`
-
-```typescript
-public sendLikeAction(actionType: LikeActionType): void {
-  const videoId = this.playerManager.getVideoId(this.pipWindow.document);
-
-  if (!videoId) {
-    logger.error('Video ID not found, cannot send like action');
-    return;
-  }
-
-  const mainApp = document.querySelector<YouTubeAppElement>(SELECTORS.YTD_APP);
-
-  if (!mainApp || typeof mainApp.resolveCommand !== 'function') {
-    logger.error('Failed to find resolveCommand in main window');
-    return;
-  }
-
-  const command: YouTubeCommand = {
-    likeEndpoint: {
-      status: actionType,
-      target: { videoId },
-    },
-  };
-
-  try {
-    mainApp.resolveCommand(command);
-    logger.log(`Sent ${actionType} for video ${videoId}`);
-  } catch (e) {
-    logger.error('Error sending YouTube action:', e);
-  }
-}
-```
+There is no like-specific code any more. The native toggle button in PiP fires `yt-action` (`yt-service-request`), and `PiPEventBridgeHandler` forwards it to the main `ytd-app`. See [PiP Event Bridge](#pip-event-bridge) and, for why `LikeButtonHandler` / `YtActionSender` were removed, [Kevlar Command System (deprecated)](#kevlar-command-system-deprecated--do-not-call-from-the-userscript).
 
 ---
 
@@ -848,11 +738,13 @@ private setupClickHandler(): void {
 **Example**:
 
 ```typescript
-if (!mainApp || typeof mainApp.resolveCommand !== 'function') {
-  logger.error('Failed to find resolveCommand in main window');
+if (typeof app.fire !== 'function') {
+  logger.warn('app.fire not available');
   return;
 }
 ```
+
+**Real case (Nov 2026):** `ytd-app.resolveCommand` disappeared; the guard turned it into a logged no-op instead of a crash, but the feature silently broke. We then removed the dependency entirely (see [Kevlar Command System (deprecated)](#kevlar-command-system-deprecated--do-not-call-from-the-userscript)). Prefer native events over private methods where possible.
 
 ---
 
@@ -894,7 +786,7 @@ if (!mainApp || typeof mainApp.resolveCommand !== 'function') {
 ```typescript
 export interface YouTubeAppElement extends HTMLElement {
   // Optional - might not exist
-  resolveCommand?(command: Partial<YouTubeCommand>): void;
+  fire?<E extends YouTubeEventName>(eventName: E, detail?: YouTubeFireDetail<E>): void;
 }
 ```
 
@@ -990,9 +882,9 @@ if (typeof ytdApp.fire === 'function') {
 ### 5. Extensive Logging
 
 ```typescript
-logger.log(`Sent ${actionType} for video ${videoId}`);
+logger.debug('Forwarding action event to app:', e.detail);
 logger.debug('Mini player activation event dispatched');
-logger.error('Failed to find resolveCommand in main window');
+logger.debug('Blocked override of enterpictureinpicture handler');
 logger.warn('Navigation endpoint has no href');
 ```
 
@@ -1019,7 +911,6 @@ When YouTube updates their internal API:
 - **Constants**: `src/constants.ts`
 - **Selectors**: `src/selectors.ts`
 - **Mini Player Controller**: `src/ui/MiniPlayerController.ts`
-- **Action Sender**: `src/core/YtActionSender.ts`
 - **Navigation Handler**: `src/core/NavigationHandler.ts`
 - **PiP Manager**: `src/core/PiPManager.ts` (Shorts move to PiP, `SET_SHORTS_LAYOUT`, return flow)
 - **Shorts Provider**: `src/core/YtdShortsProvider.ts` (reinit lifecycle workaround, engagement panel)
