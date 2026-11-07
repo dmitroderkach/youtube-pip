@@ -74,6 +74,49 @@ def _github_registration_token():
     return payload["token"]
 
 
+def _github_get(path, installation_token):
+    req = urllib.request.Request(
+        url=f"https://api.github.com{path}",
+        method="GET",
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {installation_token}",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "github-runner-dispatcher-worker",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _is_oncall_job(labels):
+    oncall_label = os.environ.get("ONCALL_LABEL", "").lower()
+    return bool(oncall_label) and oncall_label in {str(label).lower() for label in labels}
+
+
+def _oncall_run_allowed(run_id):
+    """The on-call task definition carries the Telegram / Claude secrets. Any workflow file (also one changed in a
+    pull request) can ask for the `oncall` label, so check the run itself: only scheduled or manual runs of our
+    repository's default branch get it."""
+    owner = os.environ["GITHUB_OWNER"]
+    repo = os.environ["GITHUB_REPO"]
+    allowed_events = {e.strip() for e in os.environ.get("ONCALL_ALLOWED_EVENTS", "").split(",") if e.strip()}
+    allowed_branch = os.environ.get("ONCALL_BRANCH", "main")
+    run = _github_get(f"/repos/{owner}/{repo}/actions/runs/{run_id}", _github_installation_token())
+    head_repo = ((run.get("head_repository") or {}).get("full_name") or "").lower()
+    allowed = (
+        run.get("event") in allowed_events
+        and run.get("head_branch") == allowed_branch
+        and head_repo == f"{owner}/{repo}".lower()
+    )
+    if not allowed:
+        print(
+            f"run {run_id}: on-call runner refused (event={run.get('event')}, "
+            f"branch={run.get('head_branch')}, repo={head_repo})"
+        )
+    return allowed
+
+
 def _process_message(body):
     payload = json.loads(body)
     repo_url = payload["repo_url"]
@@ -82,13 +125,19 @@ def _process_message(body):
 
     ecs = boto3.client("ecs")
 
+    task_definition = os.environ["TASK_DEFINITION_ARN"]
+    if _is_oncall_job(labels):
+        if not _oncall_run_allowed(run_id):
+            return
+        task_definition = os.environ["TASK_DEFINITION_ONCALL_ARN"]
+
     token = _github_registration_token()
     runner_name = f"fargate-{run_id}"
     assign_public_ip = os.environ.get("ASSIGN_PUBLIC_IP", "DISABLED")
 
     run_task_args = {
         "cluster": os.environ["ECS_CLUSTER_ARN"],
-        "taskDefinition": os.environ["TASK_DEFINITION_ARN"],
+        "taskDefinition": task_definition,
         "networkConfiguration": {
             "awsvpcConfiguration": {
                 "subnets": os.environ["SUBNET_IDS"].split(","),

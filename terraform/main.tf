@@ -55,6 +55,8 @@ locals {
   github_webhook_secret_name             = "youtube-pip-github-webhook-secret"
   project_budget_alert_email_secret_name = "youtube-pip-budget-alert-email"
   e2e_storage_state_secret_name          = "youtube-pip-e2e-storage-state-base64"
+  # JSON: claude_code_oauth_token, telegram_bot_token, telegram_chat_id (filled manually, docs/ONCALL.md)
+  oncall_secret_name = "youtube-pip-oncall"
 
   # Single source of truth: changing this string changes sha256 in null_resource triggers → replace → local-exec re-runs.
   appregistry_associate_by_tag_shell = "aws servicecatalog-appregistry put-configuration --configuration 'tagQueryConfiguration={tagKey=Project}' --region '${var.aws_region}' >/dev/null && aws servicecatalog-appregistry associate-resource --application '${aws_servicecatalogappregistry_application.project.id}' --resource-type RESOURCE_TAG_VALUE --resource '${var.project_name}' --region '${var.aws_region}'"
@@ -78,6 +80,10 @@ data "aws_secretsmanager_secret" "project_budget_alert_email" {
 
 data "aws_secretsmanager_secret" "e2e_storage_state" {
   name = local.e2e_storage_state_secret_name
+}
+
+data "aws_secretsmanager_secret" "oncall" {
+  name = local.oncall_secret_name
 }
 
 resource "aws_vpc" "runner" {
@@ -298,7 +304,8 @@ resource "aws_iam_role_policy" "task_execution_secrets" {
           "secretsmanager:GetSecretValue"
         ]
         Resource = [
-          data.aws_secretsmanager_secret.e2e_storage_state.arn
+          data.aws_secretsmanager_secret.e2e_storage_state.arn,
+          data.aws_secretsmanager_secret.oncall.arn
         ]
       }
     ]
@@ -358,6 +365,55 @@ resource "aws_ecs_task_definition" "runner" {
   ])
 }
 
+# On-call runner (docs/ONCALL.md): small task for the job that checks the Manual E2E results and scans YouTube
+# experiment flags, with the Telegram / Claude secrets that the CI runner never gets. The dispatcher Lambda only
+# uses it for jobs labelled `oncall` in scheduled / manual runs of the default branch (lambda/worker.py).
+resource "aws_ecs_task_definition" "runner_oncall" {
+  family                   = "${local.name_prefix}-runner-oncall"
+  network_mode             = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                      = tostring(var.oncall_runner_cpu)
+  memory                   = tostring(var.oncall_runner_memory)
+  execution_role_arn       = aws_iam_role.task_execution.arn
+  task_role_arn            = aws_iam_role.task_role.arn
+
+  container_definitions = jsonencode([
+    {
+      name      = "github-runner"
+      image     = local.resolved_runner_image
+      essential = true
+      environment = [
+        { name = "RUNNER_SCOPE", value = "repo" },
+        { name = "EPHEMERAL", value = "1" },
+        { name = "DISABLE_AUTO_UPDATE", value = "1" },
+        { name = "RUNNER_IDLE_TIMEOUT_SECONDS", value = tostring(var.runner_idle_timeout_seconds) }
+      ]
+      secrets = [
+        {
+          name      = "CLAUDE_CODE_OAUTH_TOKEN"
+          valueFrom = "${data.aws_secretsmanager_secret.oncall.arn}:claude_code_oauth_token::"
+        },
+        {
+          name      = "TELEGRAM_BOT_TOKEN"
+          valueFrom = "${data.aws_secretsmanager_secret.oncall.arn}:telegram_bot_token::"
+        },
+        {
+          name      = "TELEGRAM_CHAT_ID"
+          valueFrom = "${data.aws_secretsmanager_secret.oncall.arn}:telegram_chat_id::"
+        }
+      ]
+      logConfiguration = {
+        logDriver = "awslogs"
+        options = {
+          awslogs-group         = aws_cloudwatch_log_group.runner.name
+          awslogs-region        = var.aws_region
+          awslogs-stream-prefix = "runner-oncall"
+        }
+      }
+    }
+  ])
+}
+
 resource "aws_iam_role" "lambda" {
   name = "${local.name_prefix}-dispatcher-lambda-role"
 
@@ -388,7 +444,9 @@ resource "aws_iam_role_policy" "lambda" {
         ]
         Resource = [
           aws_ecs_task_definition.runner.arn,
-          "${aws_ecs_task_definition.runner.arn_without_revision}:*"
+          "${aws_ecs_task_definition.runner.arn_without_revision}:*",
+          aws_ecs_task_definition.runner_oncall.arn,
+          "${aws_ecs_task_definition.runner_oncall.arn_without_revision}:*"
         ]
       },
       # ListTasks is not scoped to task-definition ARNs; for Fargate IAM often evaluates
@@ -567,6 +625,10 @@ resource "aws_lambda_function" "dispatcher_worker" {
       GITHUB_APP_PRIVATE_KEY_SECRET_ARN = data.aws_secretsmanager_secret.github_app_private_key.arn
       ASSIGN_PUBLIC_IP                  = "DISABLED"
       USE_FARGATE_SPOT                  = tostring(var.runner_use_fargate_spot)
+      TASK_DEFINITION_ONCALL_ARN        = aws_ecs_task_definition.runner_oncall.arn
+      ONCALL_LABEL                      = "oncall"
+      ONCALL_ALLOWED_EVENTS             = "schedule,workflow_dispatch"
+      ONCALL_BRANCH                     = var.oncall_branch
     }
   }
 

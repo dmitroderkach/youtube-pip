@@ -8,6 +8,7 @@ Smart Picture-in-Picture mode for YouTube with full playback controls, SPA navig
 - **[YouTube Internal API Usage](docs/YOUTUBE_INTERNAL_API.md)** - Comprehensive guide on how we interact with YouTube's Kevlar framework
 - **[Resilience Report (Feb 18, 2026 Outage)](docs/RESILIENCE_REPORT.md)** - How the script maintained full functionality during YouTube's global infrastructure failure
 - **[E2E tests (Playwright)](docs/E2E_TESTS.md)** - Implementation details, fixtures, auth flow, and test descriptions
+- **[On-call](docs/ONCALL.md)** - After every daily e2e run: results summary, YouTube experiment flag scan, Claude investigation and a Telegram message when something is off
 - **[Manual session in a visible browser](docs/MANUAL_SESSION.md)** - Check a change by hand with the built userscript under a chosen set of YouTube experiment flags
 
 ## Disclaimer

@@ -11,6 +11,9 @@ export const E2E_WAIT_TIMEOUT_MS = 10000;
 /** Timeout for the watch page to hydrate after load / consent reload (slow on CI runners). */
 export const E2E_PAGE_HYDRATION_TIMEOUT_MS = 30_000;
 
+/** Page-ready attempts when YouTube reloads the document during the wait ("Execution context was destroyed"). */
+export const E2E_PAGE_READY_ATTEMPTS = 3;
+
 /**
  * YouTube scheduler: low priority (Kevlar addLowPriorityJob) and the delay of the watch-while
  * IntersectionObserver job. Mirrors YT_SCHEDULER in src/constants/youtube.ts.

@@ -2,6 +2,11 @@ name: Manual E2E
 
 on:
   workflow_dispatch:
+    inputs:
+      force_report:
+        description: 'On-call: investigate and send the Telegram report even if everything passed'
+        type: boolean
+        default: false
   schedule:
     # Daily at 16:00 UTC (~18:00 Warsaw during CEST; 17:00 during CET).
     - cron: '0 16 * * *'
@@ -47,12 +52,158 @@ jobs:
         id: e2e
         env:
           SKIP_AUTH_E2E_ON_CI: 'false'
-        run: npm run test:e2e
+          # JSON report and full output for the on-call job
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-results/results.json
+        run: |
+          set -o pipefail
+          mkdir -p e2e-results
+          npx playwright test --reporter=list,html,json 2>&1 | tee e2e-results/e2e-output.log
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v7
-        if: always() && (steps.e2e.outcome == 'success' || steps.e2e.outcome == 'failure')
+        if: always() && steps.e2e.outcome != 'skipped'
         with:
           name: playwright-report-manual-e2e
           path: playwright-report/
           retention-days: 7
+
+      - name: Upload e2e results (on-call)
+        uses: actions/upload-artifact@v7
+        if: always() && steps.e2e.outcome != 'skipped'
+        with:
+          name: e2e-results
+          path: e2e-results/
+          retention-days: 7
+
+  # On-call (docs/ONCALL.md): after every run, summarize the results, scan YouTube experiment flags, let Claude
+  # investigate regressions / new flags and send the finding to Telegram. Runs on the `oncall` runner (Telegram /
+  # Claude secrets from AWS Secrets Manager), which the dispatcher only starts for scheduled / manual runs of main.
+  oncall:
+    needs: e2e
+    if: always()
+    runs-on: [self-hosted, fargate, oncall]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Download e2e results
+        uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          name: e2e-results
+          path: oncall/e2e
+
+      - name: Download Playwright report
+        uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          name: playwright-report-manual-e2e
+          path: oncall/e2e/playwright-report
+
+      - name: Restore flags already reported
+        uses: actions/cache/restore@v5
+        with:
+          path: oncall/seen-flags.json
+          key: oncall-seen-flags-${{ github.run_id }}
+          restore-keys: oncall-seen-flags-
+
+      - name: Summarize results
+        run: node scripts/oncall/summarize-results.mjs oncall/e2e/results.json oncall/results-summary.json
+
+      - name: Scan experiment flags
+        id: flags
+        continue-on-error: true
+        run: node scripts/oncall/scan-flags.mjs oncall/flags oncall/seen-flags.json
+
+      - name: Save flags already reported
+        if: steps.flags.outcome == 'success'
+        uses: actions/cache/save@v5
+        with:
+          path: oncall/seen-flags.json
+          key: oncall-seen-flags-${{ github.run_id }}
+
+      - name: Decide
+        id: decide
+        env:
+          FORCE_REPORT: ${{ inputs.force_report || false }}
+          FLAGS_OUTCOME: ${{ steps.flags.outcome }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const r = JSON.parse(fs.readFileSync("oncall/results-summary.json", "utf8"));
+            const f = fs.existsSync("oncall/flags/flags.json") ? JSON.parse(fs.readFileSync("oncall/flags/flags.json", "utf8")) : null;
+            const reasons = [];
+            if (!r.found) reasons.push("no e2e results");
+            if (r.failed.length) reasons.push(`${r.failed.length} failed`);
+            if (r.flaky.length) reasons.push(`${r.flaky.length} flaky`);
+            if (process.env.FLAGS_OUTCOME !== "success") reasons.push("flag scan failed");
+            if (f && f.newFlags.length) reasons.push(`${f.newFlags.length} new flags`);
+            if (process.env.FORCE_REPORT === "true") reasons.push("forced");
+            console.log(reasons.length ? `report: ${reasons.join(", ")}` : "all good, no report");
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `report=${reasons.length ? "true" : "false"}\n`);
+          '
+
+      - name: Investigate (Claude Code, read-only)
+        if: steps.decide.outputs.report == 'true'
+        continue-on-error: true
+        run: |
+          # Read-only tools, no network / shell: it reads data downloaded from YouTube. Telegram secrets removed.
+          env -u TELEGRAM_BOT_TOKEN -u TELEGRAM_CHAT_ID \
+            npx -y @anthropic-ai/claude-code@2.1.319 -p "$(cat scripts/oncall/investigate-prompt.md)" \
+              --allowedTools "Read,Grep,Glob" \
+              --disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task" \
+              --model sonnet --max-turns 40 \
+              --output-format stream-json --verbose > oncall/claude-transcript.jsonl
+          # The final message is the report; the transcript stays in the artifact for follow-up sessions
+          node -e '
+            const fs = require("fs");
+            const lines = fs.readFileSync("oncall/claude-transcript.jsonl", "utf8").split("\n").filter(Boolean);
+            const result = lines.map((l) => { try { return JSON.parse(l); } catch { return null; } })
+              .filter((e) => e && e.type === "result").pop();
+            if (result && typeof result.result === "string") fs.writeFileSync("oncall/report.txt", result.result);
+          '
+
+      - name: Compose message
+        if: steps.decide.outputs.report == 'true'
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          E2E_RESULT: ${{ needs.e2e.result }}
+        run: |
+          node -e '
+            const fs = require("fs");
+            const r = JSON.parse(fs.readFileSync("oncall/results-summary.json", "utf8"));
+            const result = { success: "успіх", failure: "провал", cancelled: "скасовано", skipped: "пропущено" }[process.env.E2E_RESULT] || process.env.E2E_RESULT;
+            const header = `YouTube PiP — щоденні e2e (${result})\n` +
+              (r.found ? `${r.total} тестів: ${r.passed} пройшли, ${r.failed.length} впали, ${r.flaky.length} флейкі\n` : "результатів e2e немає\n") +
+              `${process.env.RUN_URL}\n\n`;
+            const report = fs.existsSync("oncall/report.txt") && fs.readFileSync("oncall/report.txt", "utf8").trim();
+            const fallback = "Розслідування Claude не вдалося; сирі дані:\n" +
+              [...r.failed, ...r.flaky].map((t) => `${t.status} [${t.project}] ${t.title}: ${t.error.split("\n")[0]}`).join("\n");
+            const followUp = `\n\nПродовжити в Claude Code (у репо youtube-pip): Розбери онкол-прогін ${process.env.RUN_URL}`;
+            fs.writeFileSync("oncall/message.txt", header + (report || fallback) + followUp);
+          '
+
+      - name: Send to Telegram
+        if: steps.decide.outputs.report == 'true'
+        run: node scripts/oncall/telegram-send.mjs oncall/message.txt
+
+      - name: Upload on-call output
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: oncall
+          path: |
+            oncall/results-summary.json
+            oncall/flags/flags.json
+            oncall/report.txt
+            oncall/message.txt
+            oncall/claude-transcript.jsonl
+          if-no-files-found: ignore
+          retention-days: 14

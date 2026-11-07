@@ -1,6 +1,7 @@
 import js from '@eslint/js';
 import tseslint from 'typescript-eslint';
 import eslintConfigPrettier from 'eslint-config-prettier/flat';
+import globals from 'globals';
 
 export default [
   { ignores: ['dist/**', 'node_modules/**'] },
@@ -39,6 +40,11 @@ export default [
       ],
       'no-empty-pattern': 'off',
     },
+  },
+  {
+    // Node scripts (release tag, on-call)
+    files: ['scripts/**/*.{js,mjs}'],
+    languageOptions: { globals: globals.node },
   },
   eslintConfigPrettier,
 ];
