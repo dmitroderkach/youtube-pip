@@ -17,7 +17,7 @@ Every message ends with `Розбери онкол-прогін <run URL>`. Past
 
 - The job runs on `runs-on: [self-hosted, fargate, oncall]`. The dispatcher Lambda starts a separate, small task definition `runner-oncall` (1 vCPU / 2 GB) for it, with the secrets from AWS Secrets Manager **`youtube-pip-oncall`** (JSON: `claude_code_oauth_token`, `telegram_bot_token`, `telegram_chat_id`) as `CLAUDE_CODE_OAUTH_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. The CI runner never gets them.
 - The repository is public and any workflow file (also one changed in a pull request) could ask for the `oncall` label, so the Lambda checks the run through the GitHub API: only `schedule` / `workflow_dispatch` runs of `var.oncall_branch` (default `main`) of this repository get the on-call runner (`terraform/lambda/worker.py`).
-- Claude Code runs with read-only tools (`Read`, `Grep`, `Glob`), no shell and no network, and without the Telegram secrets in its environment: it reads data downloaded from YouTube, which is untrusted. Usage counts against the Claude subscription of `claude setup-token`, not AWS.
+- Claude Code runs with read-only tools (`Read`, `Grep`, `Glob`), no shell and no network, and without the Telegram secrets in its environment: it reads data downloaded from YouTube, which is untrusted. Model: Claude Sonnet 5.5 (pinned with `--model`); anything suspicious is investigated further by hand. Usage counts against the Claude subscription of `claude setup-token`, not AWS.
 
 ## Operating
 
