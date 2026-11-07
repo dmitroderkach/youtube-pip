@@ -19,8 +19,9 @@ runner_labels = ["self-hosted", "fargate"]
 
 # Optional runner task tuning (defaults shown here).
 # Leave runner_image empty to use this stack's ECR repository.
-runner_image     = ""
-runner_image_tag = "latest"
-runner_cpu       = 2048
-runner_memory    = 4096
+runner_image                = ""
+runner_image_tag            = "latest"
+runner_cpu                  = 8192
+runner_memory               = 16384
+runner_use_fargate_spot     = true
 runner_idle_timeout_seconds = 60

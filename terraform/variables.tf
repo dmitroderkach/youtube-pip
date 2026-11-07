@@ -53,15 +53,21 @@ variable "runner_image_tag" {
 }
 
 variable "runner_cpu" {
-  description = "Fargate task CPU units."
+  description = "Fargate task CPU units. 8192 (8 vCPU) runs 8 Playwright workers; 8 vCPU needs at least 16 GB memory."
   type        = number
-  default     = 2048
+  default     = 8192
 }
 
 variable "runner_memory" {
-  description = "Fargate task memory in MB."
+  description = "Fargate task memory in MB (~1 GB per Playwright worker plus the runner)."
   type        = number
-  default     = 4096
+  default     = 16384
+}
+
+variable "runner_use_fargate_spot" {
+  description = "Start runner tasks on FARGATE_SPOT and fall back to on-demand FARGATE when Spot capacity is unavailable."
+  type        = bool
+  default     = true
 }
 
 variable "runner_idle_timeout_seconds" {

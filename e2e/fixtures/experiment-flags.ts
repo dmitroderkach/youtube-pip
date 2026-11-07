@@ -44,6 +44,19 @@ export const ALL_EXPERIMENT_FLAGS: string[] = [
   'kevlar_watch_while_v2',
 ];
 
+/**
+ * Experiment matrix: every Playwright project runs the suite with one set of forced flags, so rollout-specific
+ * breakages show up deterministically (docs/YOUTUBE_EXPERIMENT_FLAGS.md). Also used by like-dislike.spec.ts,
+ * which runs once per set inside its own single-worker project.
+ */
+export const FLAG_MATRIX: { name: string; flags: string[] }[] = [
+  { name: 'chromium', flags: EXPERIMENT_FLAG_SETS.NONE },
+  { name: 'chromium-yt-pip', flags: [...EXPERIMENT_FLAG_SETS.YT_PIP] },
+  { name: 'chromium-cow-player', flags: [...EXPERIMENT_FLAG_SETS.COW_PLAYER] },
+  { name: 'chromium-legacy-ui', flags: [...EXPERIMENT_FLAG_SETS.LEGACY_UI] },
+  { name: 'chromium-all-flags', flags: ALL_EXPERIMENT_FLAGS },
+];
+
 type YtcfgLike = {
   set?: (...args: unknown[]) => unknown;
   data_?: {

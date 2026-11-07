@@ -83,7 +83,7 @@ flowchart TB
    - Enqueues one message to **SQS** and returns **`202 accepted`** quickly.
 4. **dispatcher_worker Lambda** is invoked from SQS (`batch_size=1`):
    - Loads **GitHub App** key from **Secrets Manager**, builds JWT, exchanges for an **installation token**, requests a **runner registration token** for the repo.
-   - **`RunTask`**: Fargate task in the **private subnet**, env vars **`REPO_URL`**, **`RUNNER_NAME`**, **`RUNNER_TOKEN`**, **`LABELS`**, etc.
+   - **`RunTask`**: Fargate task (8 vCPU / 16 GB) in the **private subnet**, env vars **`REPO_URL`**, **`RUNNER_NAME`**, **`RUNNER_TOKEN`**, **`LABELS`**, etc. Started on **`FARGATE_SPOT`**; if Spot returns no task (no capacity), it is started on on-demand **`FARGATE`** instead (`USE_FARGATE_SPOT`, `terraform/README.md`); `RUNNER_CAPACITY` tells the job which one it got, and the workflow warns on on-demand.
 5. **Fargate** resolves image pull and log bootstrap via standard AWS service paths through NAT.
 6. **Runner** starts, registers with GitHub using the **ephemeral** token, picks up the **queued job**, runs steps (checkout, npm, Playwright, ...).
 7. When the job completes, the **runner process exits**; the task moves to **STOPPED** (and earlier transitions emit **`PENDING` / `PROVISIONING` / …** as Fargate schedules work).

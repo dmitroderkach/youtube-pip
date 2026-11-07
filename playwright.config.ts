@@ -1,10 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 import { E2E_WAIT_TIMEOUT_MS } from './e2e/constants';
-import {
-  ALL_EXPERIMENT_FLAGS,
-  EXPERIMENT_FLAG_SETS,
-  type ExperimentFlagsOption,
-} from './e2e/fixtures/experiment-flags';
+import { FLAG_MATRIX, type ExperimentFlagsOption } from './e2e/fixtures/experiment-flags';
 
 const chromium = {
   ...devices['Desktop Chrome'],
@@ -17,23 +13,20 @@ const chromium = {
 };
 
 /**
- * Experiment matrix: every project runs the whole suite with one set of forced YouTube experiment flags,
- * so rollout-specific breakages show up deterministically (docs/YOUTUBE_EXPERIMENT_FLAGS.md).
- * Run a single cell locally with e.g. `npx playwright test --project=chromium`.
+ * Tests that change state of the shared test account (like / dislike the same video) must never run at the same
+ * time. They run in one single-worker project, once per flag set (see like-dislike.spec.ts); the flag matrix
+ * projects skip them.
  */
-const FLAG_MATRIX: { name: string; flags: string[] }[] = [
-  { name: 'chromium', flags: EXPERIMENT_FLAG_SETS.NONE },
-  { name: 'chromium-yt-pip', flags: [...EXPERIMENT_FLAG_SETS.YT_PIP] },
-  { name: 'chromium-cow-player', flags: [...EXPERIMENT_FLAG_SETS.COW_PLAYER] },
-  { name: 'chromium-legacy-ui', flags: [...EXPERIMENT_FLAG_SETS.LEGACY_UI] },
-  { name: 'chromium-all-flags', flags: ALL_EXPERIMENT_FLAGS },
-];
+const ACCOUNT_MUTATION_TESTS = /like-dislike\.spec\.ts$/;
+
+/** Parallel workers on CI: the runner task has 8 vCPU / 16 GB (terraform/variables.tf runner_cpu/memory). */
+const CI_WORKERS = 8;
 
 export default defineConfig<{ experimentFlags: ExperimentFlagsOption }>({
   testDir: 'e2e',
   timeout: 90_000,
   fullyParallel: false,
-  workers: process.env.CI ? 2 : undefined,
+  workers: process.env.CI ? CI_WORKERS : undefined,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
   reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
@@ -45,8 +38,19 @@ export default defineConfig<{ experimentFlags: ExperimentFlagsOption }>({
     video: 'on-first-retry',
     actionTimeout: E2E_WAIT_TIMEOUT_MS,
   },
-  projects: FLAG_MATRIX.map(({ name, flags }) => ({
-    name,
-    use: { ...chromium, experimentFlags: flags },
-  })),
+  // Experiment matrix (e2e/fixtures/experiment-flags.ts FLAG_MATRIX). Run a single cell locally with e.g.
+  // `npx playwright test --project=chromium`; account-mutating tests with `--project=account-mutations`.
+  projects: [
+    ...FLAG_MATRIX.map(({ name, flags }) => ({
+      name,
+      testIgnore: ACCOUNT_MUTATION_TESTS,
+      use: { ...chromium, experimentFlags: flags },
+    })),
+    {
+      name: 'account-mutations',
+      testMatch: ACCOUNT_MUTATION_TESTS,
+      workers: 1,
+      use: { ...chromium },
+    },
+  ],
 });

@@ -11,6 +11,15 @@ jobs:
     runs-on: [self-hosted, fargate]
 
     steps:
+      - name: Runner capacity
+        # Set by the dispatcher Lambda (terraform/lambda/worker.py): warn when Spot was unavailable and the job runs
+        # on on-demand Fargate (~3x the Spot price), so the fallback never goes unnoticed.
+        run: |
+          echo "Runner capacity: ${RUNNER_CAPACITY:-unknown}"
+          if [ "${RUNNER_CAPACITY:-}" = "FARGATE" ]; then
+            echo "::warning title=On-demand runner::Fargate Spot was unavailable; this job runs on on-demand Fargate (8 vCPU / 16 GB, ~3x the Spot price)."
+          fi
+
       - name: Checkout code
         uses: actions/checkout@v6
 

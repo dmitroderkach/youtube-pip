@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import time
@@ -85,18 +86,17 @@ def _process_message(body):
     runner_name = f"fargate-{run_id}"
     assign_public_ip = os.environ.get("ASSIGN_PUBLIC_IP", "DISABLED")
 
-    ecs.run_task(
-        cluster=os.environ["ECS_CLUSTER_ARN"],
-        taskDefinition=os.environ["TASK_DEFINITION_ARN"],
-        launchType="FARGATE",
-        networkConfiguration={
+    run_task_args = {
+        "cluster": os.environ["ECS_CLUSTER_ARN"],
+        "taskDefinition": os.environ["TASK_DEFINITION_ARN"],
+        "networkConfiguration": {
             "awsvpcConfiguration": {
                 "subnets": os.environ["SUBNET_IDS"].split(","),
                 "securityGroups": os.environ["SECURITY_GROUP_IDS"].split(","),
                 "assignPublicIp": assign_public_ip,
             }
         },
-        overrides={
+        "overrides": {
             "containerOverrides": [
                 {
                     "name": "github-runner",
@@ -109,8 +109,40 @@ def _process_message(body):
                 }
             ]
         },
-    )
+    }
+    _run_runner_task(ecs, run_task_args, run_id)
 
+
+def _with_runner_capacity(run_task_args, capacity):
+    """Copy of the RunTask args with RUNNER_CAPACITY in the runner container's environment: the workflow warns
+    when a job runs on on-demand FARGATE (Spot unavailable) instead of FARGATE_SPOT."""
+    args = copy.deepcopy(run_task_args)
+    args["overrides"]["containerOverrides"][0]["environment"].append(
+        {"name": "RUNNER_CAPACITY", "value": capacity}
+    )
+    return args
+
+
+def _run_runner_task(ecs, run_task_args, run_id):
+    """Start the runner on FARGATE_SPOT when enabled; fall back to on-demand FARGATE when Spot gives no task
+    (no capacity is reported in `failures`, not raised), so the job is never left without a runner."""
+    if os.environ.get("USE_FARGATE_SPOT", "false").lower() == "true":
+        try:
+            response = ecs.run_task(
+                capacityProviderStrategy=[{"capacityProvider": "FARGATE_SPOT", "weight": 1}],
+                **_with_runner_capacity(run_task_args, "FARGATE_SPOT"),
+            )
+            if response.get("tasks"):
+                print(f"run {run_id}: runner started on FARGATE_SPOT")
+                return
+            print(f"run {run_id}: FARGATE_SPOT gave no task, falling back to FARGATE: {response.get('failures')}")
+        except Exception as error:  # noqa: BLE001 - any Spot failure falls back to on-demand
+            print(f"run {run_id}: FARGATE_SPOT run_task failed, falling back to FARGATE: {error}")
+
+    response = ecs.run_task(launchType="FARGATE", **_with_runner_capacity(run_task_args, "FARGATE"))
+    if not response.get("tasks"):
+        raise RuntimeError(f"run {run_id}: FARGATE run_task started no task: {response.get('failures')}")
+    print(f"run {run_id}: runner started on FARGATE")
 
 def handler(event, _context):
     records = event.get("Records") or []
