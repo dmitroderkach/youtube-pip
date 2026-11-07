@@ -7,6 +7,10 @@ on:
         description: 'On-call: investigate and send the Telegram report even if everything passed'
         type: boolean
         default: false
+      probe_flags:
+        description: 'On-call: comma-separated flags to probe (chromium e2e set with the flag flipped) even if not new'
+        type: string
+        default: ''
   schedule:
     # Daily at 16:00 UTC (~18:00 Warsaw during CEST; 17:00 during CET).
     - cron: '0 16 * * *'
@@ -75,11 +79,90 @@ jobs:
           path: e2e-results/
           retention-days: 7
 
-  # On-call (docs/ONCALL.md): after every run, summarize the results, scan YouTube experiment flags, let Claude
-  # investigate regressions / new flags and send the finding to Telegram. Runs on the `oncall` runner (Telegram /
-  # Claude secrets from AWS Secrets Manager), which the dispatcher only starts for scheduled / manual runs of main.
-  oncall:
+  # Flags (docs/ONCALL.md): scan the experiment flags in YouTube's code and on a served page; for each new relevant
+  # flag run the `chromium` e2e set once with the flag in the opposite state. On the CI runner (8 vCPU, test
+  # session); without new flags it is only the scan (no npm ci, no browser).
+  flags:
     needs: e2e
+    if: always()
+    runs-on: [self-hosted, fargate]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Restore flags already reported
+        uses: actions/cache/restore@v5
+        with:
+          path: oncall/seen-flags.json
+          key: oncall-seen-flags-${{ github.run_id }}
+          restore-keys: oncall-seen-flags-
+
+      - name: Scan experiment flags (code + served)
+        run: node scripts/oncall/scan-flags.mjs oncall/flags oncall/seen-flags.json
+
+      - name: Check for new flags
+        id: new
+        env:
+          PROBE_FLAGS: ${{ inputs.probe_flags }}
+        run: |
+          node -e '
+            const f = JSON.parse(require("fs").readFileSync("oncall/flags/flags.json", "utf8"));
+            const requested = (process.env.PROBE_FLAGS || "").split(",").filter((x) => x.trim()).length;
+            const n = f.newCodeFlags.length + f.newFlags.length + requested;
+            console.log(`${n} flags to probe (${requested} requested)`);
+            require("fs").appendFileSync(process.env.GITHUB_OUTPUT, `count=${n}\n`);
+          '
+
+      - name: Cache npm
+        if: steps.new.outputs.count != '0'
+        uses: actions/cache@v5
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install dependencies
+        if: steps.new.outputs.count != '0'
+        run: npm ci
+
+      - name: Build userscript
+        if: steps.new.outputs.count != '0'
+        run: npm run build
+
+      - name: Probe new flags
+        if: steps.new.outputs.count != '0'
+        # A broken probe must not look like broken flag reading; the on-call reports missing probe results
+        continue-on-error: true
+        env:
+          SKIP_AUTH_E2E_ON_CI: 'false'
+          PROBE_FLAGS: ${{ inputs.probe_flags }}
+        run: node scripts/oncall/probe-flags.mjs oncall/flags/flags.json oncall/probe
+
+      - name: Upload flags
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: flags
+          path: |
+            oncall/flags/
+            oncall/seen-flags.json
+            oncall/probe/summary.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # On-call (docs/ONCALL.md): after every run, summarize the results, let Claude investigate regressions / new flags
+  # and send the finding to Telegram. Runs on the `oncall` runner (Telegram / Claude secrets from AWS Secrets
+  # Manager), which the dispatcher only starts for scheduled / manual runs of main.
+  oncall:
+    needs: [e2e, flags]
     if: always()
     runs-on: [self-hosted, fargate, oncall]
     timeout-minutes: 30
@@ -107,47 +190,37 @@ jobs:
           name: playwright-report-manual-e2e
           path: oncall/e2e/playwright-report
 
-      - name: Restore flags already reported
-        uses: actions/cache/restore@v5
+      - name: Download flags and probes
+        uses: actions/download-artifact@v7
+        continue-on-error: true
         with:
-          path: oncall/seen-flags.json
-          key: oncall-seen-flags-${{ github.run_id }}
-          restore-keys: oncall-seen-flags-
+          name: flags
+          path: oncall
 
       - name: Summarize results
         run: node scripts/oncall/summarize-results.mjs oncall/e2e/results.json oncall/results-summary.json
-
-      - name: Scan experiment flags
-        id: flags
-        continue-on-error: true
-        run: node scripts/oncall/scan-flags.mjs oncall/flags oncall/seen-flags.json
-
-      - name: Save flags already reported
-        if: steps.flags.outcome == 'success'
-        uses: actions/cache/save@v5
-        with:
-          path: oncall/seen-flags.json
-          key: oncall-seen-flags-${{ github.run_id }}
 
       - name: Decide
         id: decide
         env:
           FORCE_REPORT: ${{ inputs.force_report || false }}
-          FLAGS_OUTCOME: ${{ steps.flags.outcome }}
+          FLAGS_OUTCOME: ${{ needs.flags.result }}
         run: |
           node -e '
             const fs = require("fs");
             const r = JSON.parse(fs.readFileSync("oncall/results-summary.json", "utf8"));
             const f = fs.existsSync("oncall/flags/flags.json") ? JSON.parse(fs.readFileSync("oncall/flags/flags.json", "utf8")) : null;
             const reasons = [];
-            if (!r.found) reasons.push("no e2e results");
-            if (r.failed.length) reasons.push(`${r.failed.length} failed`);
-            if (r.flaky.length) reasons.push(`${r.flaky.length} flaky`);
-            if (process.env.FLAGS_OUTCOME !== "success") reasons.push("flag scan failed");
-            if (f && f.newFlags.length) reasons.push(`${f.newFlags.length} new flags`);
-            if (process.env.FORCE_REPORT === "true") reasons.push("forced");
+            if (!r.found) reasons.push("немає результатів e2e");
+            if (r.failed.length) reasons.push(`${r.failed.length} впали`);
+            if (r.flaky.length) reasons.push(`${r.flaky.length} флейкі`);
+            if (process.env.FLAGS_OUTCOME !== "success") reasons.push("читання прапорців зламалось");
+            if (f && f.newCodeFlags.length) reasons.push(`${f.newCodeFlags.length} нових прапорців у коді`);
+            if (f && f.newFlags.length) reasons.push(`${f.newFlags.length} нових розкочених прапорців`);
+            if (process.env.FORCE_REPORT === "true") reasons.push("запуск вручну з force_report");
             console.log(reasons.length ? `report: ${reasons.join(", ")}` : "all good, no report");
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `report=${reasons.length ? "true" : "false"}\n`);
+            fs.writeFileSync("oncall/reasons.txt", reasons.join(", "));
           '
 
       - name: Investigate (Claude Code, read-only)
@@ -182,17 +255,58 @@ jobs:
             const result = { success: "успіх", failure: "провал", cancelled: "скасовано", skipped: "пропущено" }[process.env.E2E_RESULT] || process.env.E2E_RESULT;
             const header = `YouTube PiP — щоденні e2e (${result})\n` +
               (r.found ? `${r.total} тестів: ${r.passed} пройшли, ${r.failed.length} впали, ${r.flaky.length} флейкі\n` : "результатів e2e немає\n") +
+              `Причина: ${fs.existsSync("oncall/reasons.txt") ? fs.readFileSync("oncall/reasons.txt", "utf8") : "?"}\n` +
               `${process.env.RUN_URL}\n\n`;
             const report = fs.existsSync("oncall/report.txt") && fs.readFileSync("oncall/report.txt", "utf8").trim();
             const fallback = "Розслідування Claude не вдалося; сирі дані:\n" +
               [...r.failed, ...r.flaky].map((t) => `${t.status} [${t.project}] ${t.title}: ${t.error.split("\n")[0]}`).join("\n");
+            // Flags not probed: always stated, independent of the investigation text
+            const probe = fs.existsSync("oncall/probe/summary.json") ? JSON.parse(fs.readFileSync("oncall/probe/summary.json", "utf8")) : null;
+            const overLimit = (probe?.skipped ?? []).filter((x) => x.kind === "limit").map((x) => x.flag);
+            const nonBoolean = (probe?.skipped ?? []).filter((x) => x.kind === "non_boolean").map((x) => x.flag);
+            const probeNote =
+              (overLimit.length ? `\n\n⏳ Не прогнано тестами (ліміт ${probe.probed.length} за прогін, будуть у наступних): ${overLimit.join(", ")}` : "") +
+              (nonBoolean.length ? `\n\nℹ️ Не прогнано (не булеві значення): ${nonBoolean.join(", ")}` : "");
             const followUp = `\n\nПродовжити в Claude Code (у репо youtube-pip): Розбери онкол-прогін ${process.env.RUN_URL}`;
-            fs.writeFileSync("oncall/message.txt", header + (report || fallback) + followUp);
+            fs.writeFileSync("oncall/message.txt", header + (report || fallback) + probeNote + followUp);
           '
 
       - name: Send to Telegram
+        id: send
         if: steps.decide.outputs.report == 'true'
         run: node scripts/oncall/telegram-send.mjs oncall/message.txt
+
+      - name: Keep unprobed flags new
+        # Flags over the probe limit are not marked as seen: they come back as new and are probed in the next run
+        if: needs.flags.result == 'success'
+        run: |
+          node -e '
+            const fs = require("fs");
+            if (!fs.existsSync("oncall/probe/summary.json") || !fs.existsSync("oncall/seen-flags.json")) process.exit(0);
+            const later = new Set(JSON.parse(fs.readFileSync("oncall/probe/summary.json", "utf8")).skipped.filter((x) => x.kind === "limit").map((x) => x.flag));
+            const seen = JSON.parse(fs.readFileSync("oncall/seen-flags.json", "utf8"));
+            for (const key of ["served", "code"]) seen[key] = (seen[key] || []).filter((name) => !later.has(name));
+            fs.writeFileSync("oncall/seen-flags.json", JSON.stringify(seen));
+            console.log(`${later.size} flags left new for the next probe run`);
+          '
+
+      - name: Save flags already reported
+        # Only after the report went out (or none was needed), so new flags are not lost when the on-call breaks
+        if: needs.flags.result == 'success' && (steps.decide.outputs.report != 'true' || steps.send.outcome == 'success')
+        uses: actions/cache/save@v5
+        with:
+          path: oncall/seen-flags.json
+          key: oncall-seen-flags-${{ github.run_id }}
+
+      - name: Report on-call failure
+        # The on-call itself broke before a message went out (checkout, scripts, Claude, Telegram call): still tell
+        # the owner, so a silent failure never looks like "all good".
+        if: failure()
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          printf '🔴 Онкол зламався\nДжоба oncall впала до відправки звіту; результати e2e і прапорці не перевірені.\n%s\n\nПродовжити в Claude Code (у репо youtube-pip): Розбери онкол-прогін %s\n' "$RUN_URL" "$RUN_URL" > oncall-failure.txt
+          node scripts/oncall/telegram-send.mjs oncall-failure.txt
 
       - name: Upload on-call output
         if: always()
@@ -202,6 +316,7 @@ jobs:
           path: |
             oncall/results-summary.json
             oncall/flags/flags.json
+            oncall/probe/summary.json
             oncall/report.txt
             oncall/message.txt
             oncall/claude-transcript.jsonl
