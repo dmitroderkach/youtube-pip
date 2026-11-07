@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.4.7] - 2026-11-07
+
+### Fixed
+
+- **Native browser menu on the second right-click in PiP** — Opening the YouTube context menu in PiP, closing it with a left click outside, then right-clicking again showed the browser's context menu. `ContextMenuHandler` hides the menu directly, so the player kept its "menu open" state; with YouTube's `web_watch_pip` / `web_shorts_pip` experiments the menu and its close listener live in the PiP document, which our main-window reset never reached. The dismissal handler now also dispatches a synthetic `contextmenu` on the PiP body so YouTube closes the menu itself and resets that state. `simulateMainContextMenu` is generalized to `simulateContextMenu(target)`.
+
 ## [2.4.6] - 2026-11-07
 
 ### Fixed
@@ -1093,6 +1099,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.4.7]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.6...refs/tags/v2.4.7
 [2.4.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.5...refs/tags/v2.4.6
 [2.4.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.4...refs/tags/v2.4.5
 [2.4.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.3...refs/tags/v2.4.4
