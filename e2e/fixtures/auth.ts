@@ -1,7 +1,7 @@
 /**
  * E2E auth: storage state path, secret bootstrap, option types.
  */
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 const projectRoot = join(process.cwd());
@@ -11,14 +11,20 @@ export const E2E_STORAGE_STATE_PATH = join(projectRoot, 'e2e', '.auth', 'storage
 
 const E2E_STORAGE_STATE_BASE64_ENV = 'E2E_STORAGE_STATE_BASE64';
 
-/** If storage state file is missing and E2E_STORAGE_STATE_BASE64 is set, decode and write the file. */
+/**
+ * If storage state file is missing and E2E_STORAGE_STATE_BASE64 is set, decode and write the file.
+ * Atomic (temp file + rename): parallel workers check existsSync, and a worker that sees a file another worker is
+ * still writing read it empty ("Unexpected end of JSON input", found by the on-call with 8 CI workers).
+ */
 export function ensureStorageStateFromSecret(): void {
   if (existsSync(E2E_STORAGE_STATE_PATH)) return;
   const base64 = process.env[E2E_STORAGE_STATE_BASE64_ENV];
   if (!base64 || typeof base64 !== 'string') return;
   mkdirSync(dirname(E2E_STORAGE_STATE_PATH), { recursive: true });
   const decoded = Buffer.from(base64, 'base64').toString('utf8');
-  writeFileSync(E2E_STORAGE_STATE_PATH, decoded, 'utf8');
+  const tempPath = `${E2E_STORAGE_STATE_PATH}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(tempPath, decoded, 'utf8');
+  renameSync(tempPath, E2E_STORAGE_STATE_PATH);
 }
 
 /** true = use E2E_STORAGE_STATE_PATH, false/undefined = isolated context. */

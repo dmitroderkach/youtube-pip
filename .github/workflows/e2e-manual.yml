@@ -140,14 +140,16 @@ jobs:
             const r = JSON.parse(fs.readFileSync("oncall/results-summary.json", "utf8"));
             const f = fs.existsSync("oncall/flags/flags.json") ? JSON.parse(fs.readFileSync("oncall/flags/flags.json", "utf8")) : null;
             const reasons = [];
-            if (!r.found) reasons.push("no e2e results");
-            if (r.failed.length) reasons.push(`${r.failed.length} failed`);
-            if (r.flaky.length) reasons.push(`${r.flaky.length} flaky`);
-            if (process.env.FLAGS_OUTCOME !== "success") reasons.push("flag scan failed");
-            if (f && f.newFlags.length) reasons.push(`${f.newFlags.length} new flags`);
-            if (process.env.FORCE_REPORT === "true") reasons.push("forced");
+            if (!r.found) reasons.push("немає результатів e2e");
+            if (r.failed.length) reasons.push(`${r.failed.length} впали`);
+            if (r.flaky.length) reasons.push(`${r.flaky.length} флейкі`);
+            if (process.env.FLAGS_OUTCOME !== "success") reasons.push("читання прапорців зламалось");
+            if (f && f.newCodeFlags.length) reasons.push(`${f.newCodeFlags.length} нових прапорців у коді`);
+            if (f && f.newFlags.length) reasons.push(`${f.newFlags.length} нових розкочених прапорців`);
+            if (process.env.FORCE_REPORT === "true") reasons.push("запуск вручну з force_report");
             console.log(reasons.length ? `report: ${reasons.join(", ")}` : "all good, no report");
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `report=${reasons.length ? "true" : "false"}\n`);
+            fs.writeFileSync("oncall/reasons.txt", reasons.join(", "));
           '
 
       - name: Investigate (Claude Code, read-only)
@@ -182,6 +184,7 @@ jobs:
             const result = { success: "успіх", failure: "провал", cancelled: "скасовано", skipped: "пропущено" }[process.env.E2E_RESULT] || process.env.E2E_RESULT;
             const header = `YouTube PiP — щоденні e2e (${result})\n` +
               (r.found ? `${r.total} тестів: ${r.passed} пройшли, ${r.failed.length} впали, ${r.flaky.length} флейкі\n` : "результатів e2e немає\n") +
+              `Причина: ${fs.existsSync("oncall/reasons.txt") ? fs.readFileSync("oncall/reasons.txt", "utf8") : "?"}\n` +
               `${process.env.RUN_URL}\n\n`;
             const report = fs.existsSync("oncall/report.txt") && fs.readFileSync("oncall/report.txt", "utf8").trim();
             const fallback = "Розслідування Claude не вдалося; сирі дані:\n" +
@@ -193,6 +196,16 @@ jobs:
       - name: Send to Telegram
         if: steps.decide.outputs.report == 'true'
         run: node scripts/oncall/telegram-send.mjs oncall/message.txt
+
+      - name: Report on-call failure
+        # The on-call itself broke before a message went out (checkout, scripts, Claude, Telegram call): still tell
+        # the owner, so a silent failure never looks like "all good".
+        if: failure()
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          printf '🔴 Онкол зламався\nДжоба oncall впала до відправки звіту; результати e2e і прапорці не перевірені.\n%s\n\nПродовжити в Claude Code (у репо youtube-pip): Розбери онкол-прогін %s\n' "$RUN_URL" "$RUN_URL" > oncall-failure.txt
+          node scripts/oncall/telegram-send.mjs oncall-failure.txt
 
       - name: Upload on-call output
         if: always()
