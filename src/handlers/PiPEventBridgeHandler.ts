@@ -6,8 +6,8 @@ import { YT_EVENTS } from '../constants';
 import { inject, injectable } from '../di';
 
 /**
- * Bridges yt-navigate and yt-action events from PiP document to the app (ytd-app) in PiP.
- * Listens on the PiP window document and forwards events via app.fire().
+ * Bridges events from the PiP document to the main window: yt-navigate and yt-action go to the main
+ * ytd-app via app.fire(); mouseup is re-dispatched on the main document (see onMouseUp).
  */
 @injectable()
 export class PiPEventBridgeHandler {
@@ -48,11 +48,35 @@ export class PiPEventBridgeHandler {
       app.fire!(YT_EVENTS.ACTION, e.detail);
     };
 
+    // YouTube's press/drag helper (used e.g. by "hold for 2x" speed) listens for mouseup on the main document
+    // unless its own PiP experiments are on. A mouseup inside PiP never reaches it, so every click on the video
+    // looks like a press that is still held and switches playback to 2x. Forward mouseups to the main document.
+    const onMouseUp = (e: MouseEvent): void => {
+      document.dispatchEvent(
+        new MouseEvent('mouseup', {
+          bubbles: true,
+          cancelable: true,
+          clientX: e.clientX,
+          clientY: e.clientY,
+          screenX: e.screenX,
+          screenY: e.screenY,
+          button: e.button,
+          buttons: e.buttons,
+          ctrlKey: e.ctrlKey,
+          shiftKey: e.shiftKey,
+          altKey: e.altKey,
+          metaKey: e.metaKey,
+        })
+      );
+    };
+
     doc.addEventListener(YT_EVENTS.NAVIGATE, onNavigate as EventListener);
     doc.addEventListener(YT_EVENTS.ACTION, onAction as EventListener);
+    doc.addEventListener('mouseup', onMouseUp, true);
     this.cleanupFns.push(
       () => doc.removeEventListener(YT_EVENTS.NAVIGATE, onNavigate as EventListener),
-      () => doc.removeEventListener(YT_EVENTS.ACTION, onAction as EventListener)
+      () => doc.removeEventListener(YT_EVENTS.ACTION, onAction as EventListener),
+      () => doc.removeEventListener('mouseup', onMouseUp, true)
     );
 
     this.logger.debug('PiP event bridge initialized');

@@ -228,9 +228,10 @@ export class ContextMenuHandler {
   }
 
   /**
-   * YouTube clamps the menu to the window it believes it is in. Without web_watch_pip / web_shorts_pip that is
-   * the main window, so once moved into PiP the menu sits at the cursor and can overflow the PiP window.
-   * Shift it left/up to fit, the same way YouTube positions the menu when it opens inside PiP.
+   * YouTube sizes and clamps the menu for the window it believes it is in. Without web_watch_pip /
+   * web_shorts_pip that is the main window, so once moved into PiP the menu sits at the cursor with its
+   * main-window size and can overflow the PiP window (scrollbars). Shrink it to the PiP window and shift it
+   * left/up to fit, the same way YouTube sizes and places the menu when it opens inside PiP.
    */
   private fitMenuIntoPip(menu: HTMLElement): void {
     if (!this.pipWindow) {
@@ -241,13 +242,31 @@ export class ContextMenuHandler {
     if (!viewportWidth || !viewportHeight || !rect.width || !rect.height) {
       return;
     }
-    const left = Math.max(0, Math.min(rect.left, viewportWidth - rect.width));
-    const top = Math.max(0, Math.min(rect.top, viewportHeight - rect.height));
+    const width = Math.min(rect.width, viewportWidth);
+    const height = Math.min(rect.height, viewportHeight);
+    if (width < rect.width) {
+      this.setMenuSize(menu, 'width', width);
+    }
+    if (height < rect.height) {
+      this.setMenuSize(menu, 'height', height);
+    }
+    const left = Math.max(0, Math.min(rect.left, viewportWidth - width));
+    const top = Math.max(0, Math.min(rect.top, viewportHeight - height));
     if (left !== rect.left) {
       menu.style.left = `${left}px`;
     }
     if (top !== rect.top) {
       menu.style.top = `${top}px`;
+    }
+  }
+
+  /** YouTube sets the size inline on the popup, its panels and (height only) the panel menu; update them together. */
+  private setMenuSize(menu: HTMLElement, dimension: 'width' | 'height', px: number): void {
+    const selector =
+      dimension === 'width' ? SELECTORS.PANEL : `${SELECTORS.PANEL}, ${SELECTORS.PANEL_MENU}`;
+    const targets = [menu, ...Array.from(menu.querySelectorAll<HTMLElement>(selector))];
+    for (const el of targets) {
+      el.style[dimension] = `${px}px`;
     }
   }
 

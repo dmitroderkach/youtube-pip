@@ -176,12 +176,16 @@ describe('ContextMenuHandler', () => {
     const PIP_VIEWPORT = { WIDTH: 400, HEIGHT: 400 } as const;
     const MENU_SIZE = { WIDTH: 200, HEIGHT: 250 } as const;
 
-    async function moveMenuOpenedAt(left: number, top: number): Promise<HTMLElement> {
+    async function moveMenuOpenedAt(
+      left: number,
+      top: number,
+      viewport: { WIDTH: number; HEIGHT: number } = PIP_VIEWPORT
+    ): Promise<HTMLElement> {
       const pipDoc = document.implementation.createHTMLDocument();
       const pipWindow = createFakeWindow({
         document: pipDoc,
-        innerWidth: PIP_VIEWPORT.WIDTH,
-        innerHeight: PIP_VIEWPORT.HEIGHT,
+        innerWidth: viewport.WIDTH,
+        innerHeight: viewport.HEIGHT,
       });
       mockPipProvider.getWindow.mockReturnValue(pipWindow);
       const menuEl = document.createElement('div');
@@ -189,6 +193,12 @@ describe('ContextMenuHandler', () => {
       menuEl.style.display = 'none';
       menuEl.style.left = `${left}px`;
       menuEl.style.top = `${top}px`;
+      const panel = document.createElement('div');
+      panel.className = SELECTORS.PANEL.slice(1);
+      const panelMenu = document.createElement('div');
+      panelMenu.className = SELECTORS.PANEL_MENU.slice(1);
+      panel.appendChild(panelMenu);
+      menuEl.appendChild(panel);
       menuEl.getBoundingClientRect = () =>
         ({ left, top, width: MENU_SIZE.WIDTH, height: MENU_SIZE.HEIGHT }) as DOMRect;
       document.body.appendChild(menuEl);
@@ -203,6 +213,23 @@ describe('ContextMenuHandler', () => {
 
       expect(menuEl.style.left).toBe(`${PIP_VIEWPORT.WIDTH - MENU_SIZE.WIDTH}px`);
       expect(menuEl.style.top).toBe(`${PIP_VIEWPORT.HEIGHT - MENU_SIZE.HEIGHT}px`);
+      menuEl.remove();
+      handler.stop();
+    });
+
+    it('shrinks a menu wider/taller than a narrow PiP window and pins it to the edges', async () => {
+      const NARROW = { WIDTH: 150, HEIGHT: 200 } as const;
+      const menuEl = await moveMenuOpenedAt(40, 60, NARROW);
+      const panel = menuEl.querySelector<HTMLElement>(SELECTORS.PANEL)!;
+      const panelMenu = menuEl.querySelector<HTMLElement>(SELECTORS.PANEL_MENU)!;
+
+      expect(menuEl.style.width).toBe(`${NARROW.WIDTH}px`);
+      expect(panel.style.width).toBe(`${NARROW.WIDTH}px`);
+      expect(menuEl.style.height).toBe(`${NARROW.HEIGHT}px`);
+      expect(panel.style.height).toBe(`${NARROW.HEIGHT}px`);
+      expect(panelMenu.style.height).toBe(`${NARROW.HEIGHT}px`);
+      expect(menuEl.style.left).toBe('0px');
+      expect(menuEl.style.top).toBe('0px');
       menuEl.remove();
       handler.stop();
     });

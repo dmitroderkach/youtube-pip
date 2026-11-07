@@ -26,6 +26,8 @@ export const SELECTORS = {
   CONTEXT_MENU: 'body > .ytp-popup.ytp-contextmenu',
   CONTEXT_MENU_CONTAINER: '.ytp-contextmenu',
   MENU_ITEM: '.ytp-menuitem',
+  /** Panel inside a player popup (context menu); YouTube sizes it inline together with the popup. */
+  PANEL: '.ytp-panel',
   PANEL_MENU: '.ytp-panel-menu',
   PANEL_MENU_ITEMS: '.ytp-contextmenu .ytp-panel-menu > .ytp-menuitem',
   /** Mini-player expand; YouTube uses either host or inner spec button class depending on rollout. */

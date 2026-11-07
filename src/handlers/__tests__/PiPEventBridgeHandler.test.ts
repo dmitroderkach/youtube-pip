@@ -43,6 +43,30 @@ describe('PiPEventBridgeHandler', () => {
     handler.stop();
   });
 
+  it('forwards mouseup from PiP document to the main document until stopped', () => {
+    const pipDoc = document.implementation.createHTMLDocument();
+    mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));
+    const app = document.createElement('div');
+    (app as unknown as { fire: () => void }).fire = vi.fn();
+    mockYtdAppProvider.getApp.mockReturnValue(app as never);
+    const mainMouseUp = vi.fn<(e: MouseEvent) => void>();
+    document.addEventListener('mouseup', mainMouseUp);
+    const POINT = { X: 120, Y: 80 } as const;
+
+    handler.initialize();
+    pipDoc.body.dispatchEvent(
+      new MouseEvent('mouseup', { bubbles: true, clientX: POINT.X, clientY: POINT.Y })
+    );
+    expect(mainMouseUp).toHaveBeenCalledOnce();
+    expect(mainMouseUp.mock.calls[0][0].clientX).toBe(POINT.X);
+    expect(mainMouseUp.mock.calls[0][0].clientY).toBe(POINT.Y);
+
+    handler.stop();
+    pipDoc.body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+    expect(mainMouseUp).toHaveBeenCalledOnce();
+    document.removeEventListener('mouseup', mainMouseUp);
+  });
+
   it('initialize adds listeners and stop removes them', () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const pipWindow = createFakeWindow({ document: pipDoc });
