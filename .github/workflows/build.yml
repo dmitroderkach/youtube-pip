@@ -51,7 +51,7 @@ jobs:
         env:
           SKIP_AUTH_E2E_ON_CI: ${{ vars.SKIP_AUTH_E2E_ON_CI || 'false' }}
         # TEMP (flake hunt, revert before merge): only the flaky specs, several passes
-        run: npx playwright test e2e/tests/mini-player.spec.ts e2e/tests/like-dislike.spec.ts --project=chromium-all-flags --repeat-each=6
+        run: npx playwright test e2e/tests/mini-player.spec.ts e2e/tests/like-dislike.spec.ts --project=chromium-all-flags --repeat-each=8
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v7
