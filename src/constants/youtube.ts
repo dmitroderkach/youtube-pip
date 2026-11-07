@@ -39,3 +39,11 @@ export const WEB_PAGE_TYPES = {
 
 /** YouTube root visual element ID */
 export const ROOT_VE = 3832;
+
+/** YouTube scheduler (scheduler.js) job priorities. */
+export const YT_SCHEDULER = {
+  /** Kevlar's addLowPriorityJob(fn, delay) = addJob(fn, LOW_PRIORITY, delay). */
+  LOW_PRIORITY: 1,
+  /** Delay of the watch-while IntersectionObserver job; a barrier with the same delay is queued after it. */
+  WATCH_WHILE_JOB_DELAY_MS: 100,
+} as const;

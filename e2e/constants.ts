@@ -11,6 +11,15 @@ export const E2E_WAIT_TIMEOUT_MS = 10000;
 /** Timeout for the watch page to hydrate after load / consent reload (slow on CI runners). */
 export const E2E_PAGE_HYDRATION_TIMEOUT_MS = 30_000;
 
+/**
+ * YouTube scheduler: low priority (Kevlar addLowPriorityJob) and the delay of the watch-while
+ * IntersectionObserver job. Mirrors YT_SCHEDULER in src/constants/youtube.ts.
+ */
+export const E2E_YT_SCHEDULER = { LOW_PRIORITY: 1, WATCH_WHILE_JOB_DELAY_MS: 100 } as const;
+
+/** Max wait for YouTube's pending low-priority jobs after the page is ready (held back ~2-3 s on CI). */
+export const E2E_YT_LOW_PRIORITY_JOBS_TIMEOUT_MS = 10_000;
+
 /** Timeout for context menu item visibility (ads can be longer than 5s). */
 export const E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS = 30_000;
 

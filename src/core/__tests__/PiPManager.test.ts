@@ -497,6 +497,28 @@ describe('PiPManager (integration)', () => {
     expect(mockPlayerManager.restorePlayingState).toHaveBeenCalled();
   });
 
+  it('open with mini player inactive waits for YouTube low-priority jobs before activating it', async () => {
+    mockMiniController.isVisible.mockReturnValue(false);
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    const { YouTubeScheduler } = await import('../../utils/YouTubeScheduler');
+    vi.spyOn(DOMUtils, 'waitForElementSelector').mockResolvedValue(containerEl as never);
+    const order: string[] = [];
+    const barrier = vi
+      .spyOn(YouTubeScheduler, 'waitForLowPriorityJobs')
+      .mockImplementation(async () => {
+        order.push('barrier');
+      });
+    mockMiniController.toggleMiniPlayer.mockImplementation(() => {
+      order.push('toggle');
+    });
+
+    await manager.open();
+
+    expect(order).toEqual(['barrier', 'toggle']);
+    barrier.mockRestore();
+    vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
+  });
+
   it('full flow: open with mini player inactive waits for container then opens', async () => {
     mockMiniController.isVisible.mockReturnValue(false);
     const { DOMUtils } = await import('../../utils/DOMUtils');

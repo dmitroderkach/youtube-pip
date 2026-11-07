@@ -14,6 +14,12 @@ export const TIMEOUTS = {
   PHANTOM_WINDOW_CHECK: 500,
   /** If loadVideo is not called for this long after lockLoadVideo, original is restored. */
   IDLE_TIMEOUT: 200,
+  /**
+   * Max wait for YouTube's pending low-priority jobs before activating the mini player for PiP. Usually ~100 ms;
+   * on a busy page (ads, navigation) YouTube holds them back longer. Kept well below Chrome's ~5 s user
+   * activation window that requestWindow() needs; on timeout we go ahead anyway.
+   */
+  YOUTUBE_LOW_PRIORITY_JOBS: 2000,
 } as const;
 
 /** Retry counts */

@@ -13,10 +13,11 @@ declare global {
 }
 
 /**
- * Init script: records a timeline of mini player / player state so CI flakes where YouTube drops the mini player
- * (visible for ~100 ms, player never moved into it) show what happened around it. Records state changes (sampled),
- * mini player related yt-action events, navigations and the watch-while IntersectionObserver callbacks
- * (kevlar_watch_while_v2 deactivates the mini player from them). Must be self-contained (runs in the page).
+ * Init script: records a timeline of mini player / player state, printed on test failure (see
+ * miniplayerTimelineOnFailure in ./index.ts). Records sampled state changes, mini player related yt-action events,
+ * navigations, the watch-while IntersectionObserver callbacks and the stack of every mini player setActive() (so
+ * the caller of a deactivate() is visible). Found the kevlar_watch_while_v2 stale-job deactivation
+ * (docs/E2E_TESTS.md). Must be self-contained (runs in the page).
  */
 export function installMiniplayerTimeline(limits: { maxEntries: number; sampleMs: number }): void {
   if (window.top !== window) return;
@@ -104,82 +105,6 @@ export function installMiniplayerTimeline(limits: { maxEntries: number; sampleMs
   for (const type of ['yt-navigate-start', 'yt-navigate-finish']) {
     window.addEventListener(type, () => push(type), true);
   }
-
-  // Who deactivates the mini player: wrap the ytd-watch-flexy methods that can do it (updatePlayerLocation →
-  // deactivateMiniplayerAndResetPlayer with web_watch_pip / kevlar_watch_while_v2) and log every player state
-  // change (watch-while mode deactivates on ENDED). Method names survive YouTube's minification.
-  const argText = (x: unknown): string => {
-    try {
-      return JSON.stringify(x) ?? String(x);
-    } catch {
-      return typeof x;
-    }
-  };
-  // Kevlar keeps element methods on a controller (element.polymerController), not on the element class.
-  const wrapMethods = (tag: string, names: string[], withStack: string[]) => {
-    const wait = setInterval(() => {
-      const el = document.querySelector(tag) as (Element & { polymerController?: object }) | null;
-      const target = el?.polymerController ?? null;
-      if (!target) return;
-      clearInterval(wait);
-      for (const name of names) {
-        let proto: object | null = target;
-        while (proto && !Object.prototype.hasOwnProperty.call(proto, name)) {
-          proto = Object.getPrototypeOf(proto);
-        }
-        const orig = proto && (proto as Record<string, unknown>)[name];
-        if (!proto || typeof orig !== 'function') {
-          push(`hook: ${tag}.${name} not found`);
-          continue;
-        }
-        const wrapped = function (this: unknown, ...args: unknown[]) {
-          push(
-            `${tag}.${name}(${args.map(argText).join(', ').slice(0, 80)}) | ${summary()}${
-              withStack.includes(name) ? `\n${stackOf()}` : ''
-            }`
-          );
-          return (orig as (...a: unknown[]) => unknown).apply(this, args);
-        };
-        try {
-          Object.defineProperty(proto, name, {
-            value: wrapped,
-            configurable: true,
-            writable: true,
-          });
-          push(`hook: ${tag}.${name} wrapped`);
-        } catch (e) {
-          push(`hook: ${tag}.${name} not wrapped: ${String(e)}`);
-        }
-      }
-    }, 20);
-  };
-  wrapMethods(
-    'ytd-watch-flexy',
-    [
-      'deactivateMiniplayerAndResetPlayer',
-      'updatePlayerLocation',
-      'isTwoColumnsChanged_',
-      'onTheaterReduxValueUpdate',
-      'onFullscreenReduxValueUpdate',
-    ],
-    ['deactivateMiniplayerAndResetPlayer', 'updatePlayerLocation']
-  );
-
-  const stateHooked = new WeakSet<Element>();
-  setInterval(() => {
-    const player = document.querySelector('#movie_player') as
-      | (HTMLElement & { addEventListener(type: 'onStateChange', cb: (s: number) => void): void })
-      | null;
-    if (!player || stateHooked.has(player)) return;
-    stateHooked.add(player);
-    try {
-      player.addEventListener('onStateChange', (state: number) =>
-        push(`player onStateChange ${state}`)
-      );
-    } catch {
-      stateHooked.delete(player);
-    }
-  }, 50);
 
   const OrigIO = window.IntersectionObserver;
   window.IntersectionObserver = class extends OrigIO {

@@ -10,6 +10,8 @@ import {
   E2E_PIP_AD_STABILITY_MS,
   E2E_PIP_SKIP_AD_POLL_MS,
   E2E_WAIT_TIMEOUT_MS,
+  E2E_YT_LOW_PRIORITY_JOBS_TIMEOUT_MS,
+  E2E_YT_SCHEDULER,
   SKIP_AUTH_E2E_ON_CI,
 } from '../constants';
 import { E2E_SELECTORS } from '../selectors';
@@ -91,6 +93,37 @@ async function waitForWatchPageReady(page: Page): Promise<void> {
     ({ hydratedSel }) => !!window.__E2E_PIP__?.ready() && !!document.querySelector(hydratedSel),
     { hydratedSel: E2E_SELECTORS.WATCH_PAGE_HYDRATED },
     { timeout: E2E_PAGE_HYDRATION_TIMEOUT_MS }
+  );
+  await waitForYouTubeLowPriorityJobs(page);
+}
+
+/**
+ * Wait until YouTube has run the low-priority jobs queued so far (same barrier as the userscript's
+ * YouTubeScheduler.waitForLowPriorityJobs). With kevlar_watch_while_v2 the watch page's first IntersectionObserver
+ * callback queues a job that deactivates an active mini player; on CI YouTube holds it back for ~2-3 s, so a mini
+ * player activated right after page load ('i' or PiP) was dropped ~100 ms after it appeared.
+ */
+async function waitForYouTubeLowPriorityJobs(page: Page): Promise<void> {
+  await page.evaluate(
+    ({ priority, delayMs, timeoutMs }) =>
+      new Promise<void>((resolve) => {
+        const addJob = window.yt?.scheduler?.instance?.addJob;
+        if (typeof addJob !== 'function') return resolve();
+        const timeoutId = setTimeout(resolve, timeoutMs);
+        addJob(
+          () => {
+            clearTimeout(timeoutId);
+            resolve();
+          },
+          priority,
+          delayMs
+        );
+      }),
+    {
+      priority: E2E_YT_SCHEDULER.LOW_PRIORITY,
+      delayMs: E2E_YT_SCHEDULER.WATCH_WHILE_JOB_DELAY_MS,
+      timeoutMs: E2E_YT_LOW_PRIORITY_JOBS_TIMEOUT_MS,
+    }
   );
 }
 
