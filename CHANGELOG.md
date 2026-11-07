@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.4.6] - 2026-11-07
+
+### Fixed
+
+- **Like / dislike missing in mini player PiP** — YouTube's `web_pip_minimize_breakages` experiment adds `[minimize-pip-breakages]` to playlist rows and hides `#action-buttons` (and `#menu`) under `@media (display-mode: picture-in-picture)`, which also matches our Document PiP window. `src/styles.css` now shows `#action-buttons` again only when it holds the like/dislike toggles and keeps any other child hidden; `#menu` and the playlist header stay hidden as YouTube intends.
+
+### Added
+
+- **`CLAUDE.md`** — Imports the shared Cursor rules (`.cursor/rules/bump-version.mdc`, `release-flow.mdc`, `tests.mdc`) so Claude Code follows the same bump/release/test flows; notes on local e2e and the self-hosted runner image.
+
 ## [2.4.5] - 2026-11-07
 
 ### Fixed
@@ -1083,6 +1093,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.4.6]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.5...refs/tags/v2.4.6
 [2.4.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.4...refs/tags/v2.4.5
 [2.4.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.3...refs/tags/v2.4.4
 [2.4.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.2...refs/tags/v2.4.3
