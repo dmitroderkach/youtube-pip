@@ -6,6 +6,9 @@
  * Each listed flag (`name` = on, `name=false` = off) is forced in `ytcfg.data_.EXPERIMENT_FLAGS` (page/Kevlar) and in every
  * `WEB_PLAYER_CONTEXT_CONFIGS[*].serializedExperimentFlags` (player) before YouTube's scripts read them.
  */
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 export const FORCED_EXPERIMENT_FLAGS: string[] = (process.env.E2E_FORCE_EXPERIMENT_FLAGS ?? '')
   .split(',')
   .map((f) => f.trim())
@@ -37,12 +40,68 @@ export const EXPERIMENT_FLAG_SETS = {
   ],
 } as const satisfies Record<string, readonly string[]>;
 
-export const ALL_EXPERIMENT_FLAGS: string[] = [
+/** Flags we chose by hand for the flows they change (docs/YOUTUBE_EXPERIMENT_FLAGS.md). */
+const CURATED_ALL_FLAGS: string[] = [
   ...EXPERIMENT_FLAG_SETS.YT_PIP,
   ...EXPERIMENT_FLAG_SETS.COW_PLAYER,
   ...EXPERIMENT_FLAG_SETS.LEGACY_UI,
   'kevlar_watch_while_v2',
 ];
+
+/**
+ * Relevant flags in YouTube's code that chromium-all-flags does not force on, with the reason. Killswitches are
+ * left out by KILLSWITCH_FLAG_RE (forcing one disables a feature, a state users only see during incidents), YouTube's
+ * test switches by TESTING_FLAG_RE.
+ */
+export const NOT_FORCED_IN_ALL_FLAGS: Record<string, string> = {
+  kevlar_watch_fixie:
+    'in development (not served): ytd-watch-fixie has no working mini player activation — YouTube`s own `i` does ' +
+    'nothing, so PiP from the watch page cannot work; the on-call probes it once it is served',
+  html5_block_pip_safari_delay: 'number',
+  html5_hard_cap_max_vertical_resolution_for_shorts: 'number',
+  html5_picture_in_picture_logging_onresize_ratio: 'number',
+  html5_shorts_gapless_next_buffer_in_seconds: 'number',
+  web_shorts_error_logging_threshold: 'number',
+};
+const KILLSWITCH_FLAG_RE = /killswitch|kill_switch|(^|_)disable_/;
+/** YouTube's own test / debug switches (e.g. *_for_testing replaces the watch page): never on for users. */
+const TESTING_FLAG_RE = /_for_testing|(^|_)debug_/;
+
+/**
+ * Relevant boolean flags the Kevlar / player code checks (docs/experiment-flags-baseline.json `codeFlags`, kept
+ * up to date by the on-call), all forced on together: a flag rolled out to a few users must not break us unseen.
+ */
+function readCodeFlags(): string[] {
+  const path = join(process.cwd(), 'docs', 'experiment-flags-baseline.json');
+  return (JSON.parse(readFileSync(path, 'utf8')) as { codeFlags: string[] }).codeFlags;
+}
+
+function codeFlagsForcedOn(): string[] {
+  const codeFlags = readCodeFlags();
+  const curatedNames = new Set(CURATED_ALL_FLAGS.map((f) => f.split('=')[0]));
+  return codeFlags.filter(
+    (name) =>
+      !curatedNames.has(name) &&
+      !KILLSWITCH_FLAG_RE.test(name) &&
+      !TESTING_FLAG_RE.test(name) &&
+      !(name in NOT_FORCED_IN_ALL_FLAGS)
+  );
+}
+
+export const ALL_EXPERIMENT_FLAGS: string[] = [...CURATED_ALL_FLAGS, ...codeFlagsForcedOn()];
+
+/**
+ * Relevant killswitches in YouTube's code, all on (own project): YouTube flips one for everybody at once during an
+ * incident to turn a feature off — e.g. kevlar_player_append_to_api_killswitch (ytd-player.appendTo, our player
+ * moves), popup / copy-link checks — so a flipped killswitch must not break us. Not mixed with all-flags: a
+ * killswitch turns off what those flags turn on.
+ */
+export const KILLSWITCH_EXPERIMENT_FLAGS: string[] = readCodeFlags().filter(
+  (name) =>
+    KILLSWITCH_FLAG_RE.test(name) &&
+    !TESTING_FLAG_RE.test(name) &&
+    !(name in NOT_FORCED_IN_ALL_FLAGS)
+);
 
 /**
  * Experiment matrix: every Playwright project runs the suite with one set of forced flags, so rollout-specific
@@ -55,6 +114,7 @@ export const FLAG_MATRIX: { name: string; flags: string[] }[] = [
   { name: 'chromium-cow-player', flags: [...EXPERIMENT_FLAG_SETS.COW_PLAYER] },
   { name: 'chromium-legacy-ui', flags: [...EXPERIMENT_FLAG_SETS.LEGACY_UI] },
   { name: 'chromium-all-flags', flags: ALL_EXPERIMENT_FLAGS },
+  { name: 'chromium-killswitches', flags: KILLSWITCH_EXPERIMENT_FLAGS },
 ];
 
 type YtcfgLike = {

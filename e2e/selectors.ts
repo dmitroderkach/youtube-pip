@@ -11,7 +11,8 @@ export const E2E_SELECTORS = {
    * response is there the page is a skeleton and YouTube ignores mini player activation ('i',
    * yt-activate-miniplayer-*). `[has-metadata]` is not used: YouTube can defer the metadata render during an ad.
    */
-  WATCH_PAGE: 'ytd-watch-flexy[video-id], ytd-watch-grid[video-id]',
+  // ytd-watch-fixie: watch page with kevlar_watch_fixie (no video-id attribute)
+  WATCH_PAGE: 'ytd-watch-flexy[video-id], ytd-watch-grid[video-id], ytd-watch-fixie',
   /** Shorts root element on Shorts page/feed. */
   YTD_SHORTS: 'ytd-shorts',
   /** Shorts player container inside Shorts. */

@@ -89,6 +89,7 @@ export {
   openContextMenuInPip,
   waitForContextMenuItemVisible,
 } from './pip-context-menu';
+export { waitForPlaybackTimeInPip, type PlaybackWaitResult } from './pip-playback';
 export {
   waitForShortsPlayerVisibleInMain,
   waitForShortsPlayerVisibleInPip,

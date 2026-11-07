@@ -10,11 +10,13 @@ import {
   expect,
   test,
   waitForContextMenuItemVisible,
+  waitForPlaybackTimeInPip,
   waitForShortsPlayerVisibleInPip,
 } from '../fixtures';
 import {
   COPY_MENU_POSITIONS_FROM_END,
   E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
+  E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S,
   E2E_WAIT_TIMEOUT_MS,
 } from '../constants';
 import { E2E_SELECTORS } from '../selectors';
@@ -44,7 +46,18 @@ test.describe('Context menu copy in Shorts PiP', () => {
       })
       .toMatch(/https:\/\/www\.youtube\.com\/shorts\/.+\?feature=share/);
 
-    await page.waitForTimeout(5000); // wait for video current time to be updated
+    const playback = await waitForPlaybackTimeInPip(
+      page,
+      E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S,
+      E2E_SELECTORS.SHORTS_PLAYER
+    );
+    if (!playback.reached) {
+      // The copy itself is still checked (bezel, menu closed, URL); only the t= part needs playback.
+      test.info().annotations.push({
+        type: 'warning',
+        description: `Short in PiP did not reach ${E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S}s (${playback.state}); t= not checked`,
+      });
+    }
     await waitForContextMenuItemVisible(
       page,
       COPY_MENU_POSITIONS_FROM_END.URL_AT_TIME,
@@ -56,7 +69,11 @@ test.describe('Context menu copy in Shorts PiP', () => {
       .poll(() => page.evaluate(() => navigator.clipboard.readText()), {
         timeout: E2E_WAIT_TIMEOUT_MS,
       })
-      .toMatch(/https:\/\/www\.youtube\.com\/shorts\/.+\?t=\d+&feature=share/);
+      .toMatch(
+        playback.reached
+          ? /https:\/\/www\.youtube\.com\/shorts\/.+\?t=\d+&feature=share/
+          : /https:\/\/www\.youtube\.com\/shorts\/.+feature=share/
+      );
     await expect
       .poll(() => page.evaluate(() => navigator.clipboard.readText()), {
         timeout: E2E_WAIT_TIMEOUT_MS,

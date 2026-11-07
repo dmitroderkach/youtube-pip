@@ -165,7 +165,7 @@ All selectors live in `E2E_SELECTORS` and do not import from `src/`, so e2e does
 - `E2E_PAGE_HYDRATION_TIMEOUT_MS` — max wait for the watch page to hydrate after load / consent reload.
 - `E2E_YT_SCHEDULER`, `E2E_YT_LOW_PRIORITY_JOBS_TIMEOUT_MS` — YouTube scheduler barrier in the page-ready fixtures (mirrors `YT_SCHEDULER` in `src/constants/youtube.ts`).
 - `E2E_PIP_AD_MAX_WAIT_MS` — total wait for all ads in PiP to end (`waitForPiPAdToEnd`).
-- `E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S` — playback time required before "Copy video URL at current time".
+- `E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S` — playback time required before "Copy video URL at current time" (`waitForPlaybackTimeInPip`, watch and Shorts copy specs).
 - `E2E_PIP_AD_STABILITY_MS` — how long the ad overlay must stay gone to consider all ads finished.
 - `E2E_PIP_SKIP_AD_POLL_MS` — poll interval for clicking "Skip ad".
 - `E2E_CONTEXT_MENU_REOPEN_INTERVAL_MS` — retry interval when opening the context menu in PiP. Right after a menu closes, YouTube's player still treats it as open during its fade-out and ignores the next right-click, so `waitForContextMenuItemVisible` right-clicks again.
@@ -249,7 +249,7 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 
 ## Experiment flag matrix (`fixtures/experiment-flags.ts`)
 
-The test account only sees the YouTube experiments it is bucketed into, so rollout-specific bugs are invisible or show up as rare flakes. `playwright.config.ts` therefore runs the whole suite once per flag set (projects `chromium`, `chromium-yt-pip`, `chromium-cow-player`, `chromium-legacy-ui`, `chromium-all-flags`). Flags are forced through the `experimentFlags` fixture option (page `EXPERIMENT_FLAGS` and player `serializedExperimentFlags`).
+The test account only sees the YouTube experiments it is bucketed into, so rollout-specific bugs are invisible or show up as rare flakes. `playwright.config.ts` therefore runs the whole suite once per flag set (projects `chromium`, `chromium-yt-pip`, `chromium-cow-player`, `chromium-legacy-ui`, `chromium-all-flags` — curated flags plus every relevant boolean flag in YouTube's code —, `chromium-killswitches`; see `docs/YOUTUBE_EXPERIMENT_FLAGS.md`). Flags are forced through the `experimentFlags` fixture option (page `EXPERIMENT_FLAGS` and player `serializedExperimentFlags`).
 
 - One cell locally: `npx playwright test --project=chromium-yt-pip`.
 - **Account-mutating tests** (`like-dislike.spec.ts`: like / dislike the same video on the test account) must never run at the same time. The matrix projects skip them; they run in the single-worker `account-mutations` project, which goes through the flag sets itself (one describe per `FLAG_MATRIX` entry, in sequence). Locally: `npx playwright test --project=account-mutations`.

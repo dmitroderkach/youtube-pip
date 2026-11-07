@@ -22,6 +22,15 @@ import { inject, injectable } from '../di';
 /**
  * Manages Picture-in-Picture window lifecycle
  */
+/** ytd-player parked in a holder while its surroundings move between documents (see parkYtdPlayer). */
+interface ParkedPlayer {
+  ytdPlayer: YtdPlayerElement;
+  slot: Element;
+  holder: HTMLElement;
+  /** Set when the slot is inside a CoW component that re-renders after the move. */
+  liveSlot?: { anchor: Element; selector: string };
+}
+
 @injectable()
 export class PiPManager {
   private readonly logger: Logger;
@@ -458,7 +467,7 @@ export class PiPManager {
     root: Element,
     targetDoc: Document,
     playerSelector: string = SELECTORS.MOVIE_PLAYER
-  ): Promise<Nullable<{ ytdPlayer: YtdPlayerElement; slot: Element; holder: HTMLElement }>> {
+  ): Promise<Nullable<ParkedPlayer>> {
     const ytdPlayer =
       root.querySelector(playerSelector)?.closest<YtdPlayerElement>(SELECTORS.YTD_PLAYER) ?? null;
     const slot = ytdPlayer?.parentElement;
@@ -469,17 +478,47 @@ export class PiPManager {
     const holder = targetDoc.createElement('div');
     targetDoc.body.appendChild(holder);
     await this.moveYtdPlayer(ytdPlayer, holder);
-    return { ytdPlayer, slot, holder };
+    return { ytdPlayer, slot, holder, liveSlot: this.liveSlotOf(slot, root) };
+  }
+
+  /**
+   * Where to find the slot again when it sits inside a CoW component (tag `*-cow`, e.g. ytd-reel-video-renderer-cow
+   * with web_migrate_reel_video_renderer_to_cow): moving the outer element to another document makes the component
+   * dispose and re-render, so the old slot is detached and a fresh one appears in the same place.
+   */
+  private liveSlotOf(slot: Element, root: Element): ParkedPlayer['liveSlot'] {
+    if (!slot.id) {
+      return undefined;
+    }
+    for (let el = slot.parentElement; el && el !== root; el = el.parentElement) {
+      if (el.tagName.endsWith('-COW') && el.parentElement) {
+        return {
+          anchor: el.parentElement,
+          selector: `${el.tagName.toLowerCase()} [id="${slot.id.replace(/"/g, '\\"')}"]`,
+        };
+      }
+    }
+    return undefined;
   }
 
   /** Move the parked ytd-player back into its slot (now in its new document) and drop the holder. */
-  private async unparkYtdPlayer(
-    parked: Nullable<{ ytdPlayer: YtdPlayerElement; slot: Element; holder: HTMLElement }>
-  ): Promise<void> {
+  private async unparkYtdPlayer(parked: Nullable<ParkedPlayer>): Promise<void> {
     if (!parked) {
       return;
     }
-    await this.moveYtdPlayer(parked.ytdPlayer, parked.slot);
+    let target = parked.slot;
+    if (!target.isConnected && parked.liveSlot) {
+      // The CoW component around the slot re-rendered after the move: use its fresh slot
+      const { anchor, selector } = parked.liveSlot;
+      this.logger.debug(`Player slot was re-rendered; waiting for ${selector}`);
+      target = await DOMUtils.waitForElementSelector(
+        selector,
+        anchor,
+        TIMEOUTS.ELEMENT_WAIT,
+        anchor.ownerDocument.defaultView
+      );
+    }
+    await this.moveYtdPlayer(parked.ytdPlayer, target);
     parked.holder.remove();
   }
 
