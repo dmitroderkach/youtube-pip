@@ -45,8 +45,9 @@ Unlike other scripts that try to rebuild the YouTube context menu, we intercept 
 
 Document PiP windows have their own `document` but need to affect the state of the main tab.
 
-- **Decision**: Implement a bridge that forwards `yt-navigate` and `yt-action` events from the PiP document to the main window's `ytd-app`.
+- **Decision**: Implement a bridge (`PiPEventBridgeHandler`) that forwards `yt-navigate` and `yt-action` events from the PiP document to the main window's `ytd-app`. It runs for **both** Shorts and the mini player.
 - **Why?**: This allows the main YouTube app to handle things like Like/Dislike actions and SPA navigation as if they were happening on the main page, maintaining total state synchronization.
+- **Native events over private commands (Nov 2026)**: The mini player used to handle like/dislike itself (`LikeButtonHandler` + `YtActionSender` calling `ytdApp.resolveCommand({ likeEndpoint })`). YouTube removed `resolveCommand` from `ytd-app`, which silently broke likes in PiP. Instead of switching to another private method (`handleCommandWithCommandHandler`), we deleted that code and let the native like button's own `yt-action` (`yt-service-request`) travel through the bridge. Rule of thumb: if a component inside PiP already does the action on click, bridge its event; do not rebuild Kevlar commands. Details and the list of removed code: `docs/YOUTUBE_INTERNAL_API.md` → _Kevlar Command System (deprecated)_.
 
 ---
 
@@ -140,3 +141,13 @@ When moving complex elements like `ytd-shorts` between the main window and the P
 - **Why?**: YouTube uses internal observers (e.g. `IntersectionObserver`) and lifecycle callbacks that trigger a playback reset when a component is moved in the DOM. To Kevlar, a cross-document move looks like a fresh initialization, causing it to call `loadVideo(index: 0)` repeatedly (up to 100 times/sec). This "log storm" leads to metadata desync (flickering likes/comments) and resets the user's position in the reel.
 
 **The "Idle Detection" logic**: Instead of a fixed timer, we use a **200ms sliding window**. We ignore all reset attempts and only restore the original `loadVideo` method once the framework has "calmed down" (i.e. no new calls detected within the window). This is more resilient than relying solely on `requestIdleCallback`, as it accounts for Kevlar's scheduled microtasks that often trigger after the browser enters an idle state.
+
+---
+
+## 16. Media Session: Guarding the `enterpictureinpicture` Handler
+
+PiP opens only from Chrome's media controls (or auto-PiP), which call the page's Media Session `enterpictureinpicture` action handler. A page can have just one handler per action.
+
+- **Decision**: After registering our handler, `MediaSessionHandler` replaces `navigator.mediaSession.setActionHandler` with a wrapper that ignores further calls for `enterpictureinpicture` and passes every other action through unchanged.
+- **Why?**: YouTube's own PiP experiments (`web_shorts_pip`, `web_watch_pip`, seen in Nov 2026) call `setActionHandler('enterpictureinpicture', …)` on every SPA navigation, either installing YouTube's handler (on Shorts) or clearing it with `null`. Either way our handler was gone after the first navigation, and the PiP button did nothing. Re-registering after navigation would race with YouTube's own call; owning the setter is deterministic.
+- **Consequence**: YouTube's native Shorts PiP is disabled while the userscript runs; that is intended, since the userscript provides its own. Blocked attempts are logged at debug level as `Blocked override of enterpictureinpicture handler`. The e2e handler stub still sees our handler, because our wrapper sits in front of the stub's.

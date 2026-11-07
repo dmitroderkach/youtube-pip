@@ -72,15 +72,6 @@ export function createFakeYtdAppWithFire(
 }
 
 /**
- * Creates a fake YouTubeAppElement with resolveCommand mock. Accepts vi.fn() without type cast.
- */
-export function createFakeYtdAppWithResolveCommand(resolveCommand: unknown): YouTubeAppElement {
-  return createFakeYtdApp({
-    resolveCommand: resolveCommand as YouTubeAppElement['resolveCommand'],
-  });
-}
-
-/**
  * Creates a fake NotificationTopbarButtonRenderer for getNotifyRenderer mock.
  */
 export function createFakeNotifyRenderer(

@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.4.5] - 2026-11-07
+
+### Fixed
+
+- **PiP button stopped opening PiP** — YouTube's `web_shorts_pip` / `web_watch_pip` experiments re-register or clear the Media Session `enterpictureinpicture` handler on every SPA navigation, replacing ours. `MediaSessionHandler` now guards `setActionHandler` so page attempts to change this action are ignored (other actions pass through).
+- **Like / dislike in mini player PiP did nothing** — YouTube removed `ytd-app.resolveCommand`. The mini player PiP now uses `PiPEventBridgeHandler` (as Shorts already did), so the native buttons' `yt-action` / `yt-service-request` events reach the main app and YouTube sends the request itself.
+
+### Changed
+
+- **Runner image** — Bump the self-hosted GitHub Actions runner in `terraform/runner/Dockerfile` from `2.336.0` to `2.338.2`; GitHub now rejects `2.336.0` at connect time with "Runner version v2.336.0 is deprecated and cannot receive messages", so self-hosted jobs stayed queued.
+- **Docs** — `docs/YOUTUBE_INTERNAL_API.md`: PiP Event Bridge now covers the mini player (with the `yt-action` events it emits in PiP); Kevlar Command System marked deprecated with the reason and the list of removed code. `docs/ARCHITECTURE_DECISIONS.md`: §5 adds the "native events over private commands" rule, new §16 documents the `enterpictureinpicture` handler guard. README feature list and project tree updated.
+
+### Removed
+
+- **`LikeButtonHandler`, `YtActionSender`** — replaced by the PiP event bridge.
+- **Command types and constants** — `YouTubeCommand`, `YouTubeCommands`, `LikeCommand`, `LikeEndpoint`, `LikeEndpointTarget`, `LikeActionType`, `YouTubeActionType`, `YT_LIKE_ACTIONS`, `YT_ACTIONS`, `YouTubeAppElement.resolveCommand`, test helper `createFakeYtdAppWithResolveCommand`. See `docs/YOUTUBE_INTERNAL_API.md` → _Kevlar Command System (deprecated)_.
+
 ## [2.4.4] - 2026-08-21
 
 ### Changed
@@ -1066,6 +1083,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.4.5]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.4...refs/tags/v2.4.5
 [2.4.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.3...refs/tags/v2.4.4
 [2.4.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.2...refs/tags/v2.4.3
 [2.4.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.1...refs/tags/v2.4.2

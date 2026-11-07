@@ -2,7 +2,7 @@ import { ResizeTracker } from '../ui/ResizeTracker';
 import { MenuObserver } from '../ui/MenuObserver';
 import { ContextMenuHandler } from '../ui/ContextMenuHandler';
 import { SeekHandler } from '../handlers/SeekHandler';
-import { LikeButtonHandler } from '../handlers/LikeButtonHandler';
+import { PiPEventBridgeHandler } from '../handlers/PiPEventBridgeHandler';
 import { NavigationHandler } from '../core/NavigationHandler';
 import { DocumentFocusHandler } from '../handlers/DocumentFocusHandler';
 import { TitleSyncHandler } from '../handlers/TitleSyncHandler';
@@ -19,7 +19,7 @@ export class PiPWindowHandlers {
     @inject(MenuObserver) private readonly menuObserver: MenuObserver,
     @inject(ContextMenuHandler) private readonly contextMenuHandler: ContextMenuHandler,
     @inject(SeekHandler) private readonly seekHandler: SeekHandler,
-    @inject(LikeButtonHandler) private readonly likeButtonHandler: LikeButtonHandler,
+    @inject(PiPEventBridgeHandler) private readonly pipEventBridgeHandler: PiPEventBridgeHandler,
     @inject(NavigationHandler) private readonly navigationHandler: NavigationHandler,
     @inject(DocumentFocusHandler) private readonly documentFocusHandler: DocumentFocusHandler,
     @inject(TitleSyncHandler) private readonly titleSyncHandler: TitleSyncHandler
@@ -31,7 +31,7 @@ export class PiPWindowHandlers {
     void this.menuObserver.start();
     this.contextMenuHandler.initialize();
     this.seekHandler.initialize();
-    this.likeButtonHandler.initialize();
+    this.pipEventBridgeHandler.initialize();
     this.documentFocusHandler.initialize();
     this.titleSyncHandler.initialize();
 
@@ -39,7 +39,7 @@ export class PiPWindowHandlers {
       this.titleSyncHandler.cleanup();
       this.documentFocusHandler.cleanup();
       this.seekHandler.cleanup();
-      this.likeButtonHandler.cleanup();
+      this.pipEventBridgeHandler.stop();
       this.contextMenuHandler.stop();
       this.menuObserver.stop();
       this.resizeTracker.stop();

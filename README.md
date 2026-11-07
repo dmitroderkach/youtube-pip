@@ -19,7 +19,7 @@ This project is **not affiliated with, endorsed by, or officially connected to**
 - **Media Session** — PiP can be triggered from the native media controls (e.g. “Enter Picture-in-Picture” when available).
 - **SPA navigation** — Clicks on video links inside PiP navigate within the tab via `history.pushState` / `popstate` instead of full reloads.
 - **Seek** — Click or drag on the progress bar in PiP to seek; player size updates on PiP resize.
-- **Like / Dislike** — Like and dislike buttons in PiP send actions to the main YouTube app via `ytd-app.resolveCommand`.
+- **Like / Dislike** — Native like/dislike buttons in PiP work as on the main page: their `yt-action` events are forwarded to the main YouTube app by the PiP event bridge.
 - **Context menu** — Right-click menu is moved between main window and PiP; when closed in PiP, it returns to main and a synthetic `contextmenu` is dispatched.
 - **Playlist panel** — Menu button expand/collapse is observed; PiP height adjusts when the playlist panel opens.
 - **Title sync** — Window titles (main + PiP) stay in sync with `navigator.mediaSession.metadata.title`.
@@ -115,7 +115,6 @@ youtube-pip/
 │   │   ├── PiPWindowHandlers.ts  # PiP window init, handlers setup + cleanup
 │   │   ├── PlayerManager.ts # Player state, video data, playback time
 │   │   ├── NavigationHandler.ts  # SPA navigation in PiP (yt-navigate)
-│   │   ├── YtActionSender.ts     # Like/dislike/remove → main app
 │   │   ├── YtdAppProvider.ts
 │   │   ├── PipWindowProvider.ts
 │   │   └── __tests__/
@@ -133,7 +132,7 @@ youtube-pip/
 │   │   ├── DocumentFocusHandler.ts  # Focus restoration (click/keyup)
 │   │   ├── TitleSyncHandler.ts      # PiP/main title sync
 │   │   ├── SeekHandler.ts          # Progress bar click/drag
-│   │   ├── LikeButtonHandler.ts    # Like/dislike in PiP
+│   │   ├── PiPEventBridgeHandler.ts # Forward yt-action / yt-navigate from PiP to main app
 │   │   └── __tests__/
 │   │
 │   ├── ui/

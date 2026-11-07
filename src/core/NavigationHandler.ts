@@ -49,7 +49,7 @@ export class NavigationHandler {
         );
         const button = (event.target as Element)?.closest<HTMLButtonElement>(SELECTORS.BUTTON);
 
-        // Skip button clicks (handled by LikeButtonHandler)
+        // Skip button clicks (native components; their yt-action events go through PiPEventBridgeHandler)
         if (button || !endpoint) {
           return;
         }

@@ -25,8 +25,6 @@ export {
   isPlayingState,
   YT_EVENTS,
   YT_ACTION_NAMES,
-  YT_LIKE_ACTIONS,
-  YT_ACTIONS,
   WEB_PAGE_TYPES,
   ROOT_VE,
 } from './youtube';
