@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.5.2] - 2026-11-07
+
+### Fixed
+
+- **Context menu broken on the page after using it in PiP** — With `web_watch_pip` / `web_shorts_pip` YouTube opens the player context menu directly in the PiP document. When PiP closed, that menu element stayed in the closed PiP document and YouTube kept reusing it, so on the page the menu stopped closing on item clicks. `ContextMenuHandler.stop()` now returns menus opened in PiP to the main document (closing a still-open one first).
+
+### Added
+
+- **E2E `context-menu-after-pip.spec.ts`** — Menu opened in PiP, PiP closed with the menu open, then the menu on the page must close on an item click. Fails without the fix in `chromium-yt-pip`.
+
+### Changed
+
+- **Logger prints the error `cause` chain** — `AppError` keeps the original error in `cause`, which the console does not show; a wrapped failure appeared only as `PiPError: Error opening PiP`. `logger.error` / `warn` now add each cause (up to 5 levels) as `Caused by:` arguments. Needed to diagnose the intermittent `chromium-all-flags` "Error opening PiP" in CI.
+
 ## [2.5.1] - 2026-11-07
 
 ### Fixed
@@ -1148,6 +1162,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.5.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.5.1...refs/tags/v2.5.2
 [2.5.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.5.0...refs/tags/v2.5.1
 [2.5.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.8...refs/tags/v2.5.0
 [2.4.8]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.7...refs/tags/v2.4.8

@@ -1236,6 +1236,49 @@ describe('ContextMenuHandler', () => {
     handler.stop();
   });
 
+  describe('menus opened by YouTube directly in PiP (web_watch_pip / web_shorts_pip)', () => {
+    async function setUp(display: string): Promise<{ pipDoc: Document; menuEl: HTMLElement }> {
+      const pipDoc = document.implementation.createHTMLDocument();
+      mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));
+      mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
+      const menuEl = pipDoc.createElement('div');
+      menuEl.className = CONTEXT_MENU_CLASS;
+      menuEl.style.display = display;
+      pipDoc.body.appendChild(menuEl);
+      const { DOMUtils } = await import('../../utils/DOMUtils');
+      vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
+      await handler.initialize();
+      return { pipDoc, menuEl };
+    }
+
+    it('stop returns a closed menu from the PiP document to the main document', async () => {
+      const { pipDoc, menuEl } = await setUp('none');
+
+      handler.stop();
+
+      expect(menuEl.ownerDocument).toBe(document);
+      expect(menuEl.parentNode).toBe(document.body);
+      expect(pipDoc.body.contains(menuEl)).toBe(false);
+      menuEl.remove();
+    });
+
+    it('stop closes a still-open menu (resetting YouTube state) before returning it', async () => {
+      const { pipDoc, menuEl } = await setUp('block');
+      const bodyContextMenu = vi.fn();
+      pipDoc.body.addEventListener('contextmenu', bodyContextMenu);
+      const cb: ContextMenuVisibilityCallback = vi.fn();
+      handler.subscribeContextMenu(cb);
+
+      handler.stop();
+
+      expect(menuEl.style.display).toBe('none');
+      expect(bodyContextMenu).toHaveBeenCalledOnce();
+      expect(cb).toHaveBeenLastCalledWith(false);
+      expect(menuEl.parentNode).toBe(document.body);
+      menuEl.remove();
+    });
+  });
+
   it('Escape in PiP dismisses visible menu and resets YouTube state', async () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const pipWindow = createFakeWindow({ document: pipDoc });

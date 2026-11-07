@@ -477,8 +477,34 @@ export class ContextMenuHandler {
       this.simulateContextMenu(this.ytdAppProvider.getApp());
     }
 
+    this.returnMenusOpenedInPip();
+
     this.contextMenu = null;
     this.pipWindow = null;
     this.logger.debug('Context menu handler stopped');
+  }
+
+  /**
+   * With web_watch_pip / web_shorts_pip YouTube opens the player context menu directly in the PiP document
+   * (we never moved it). Bring such menus back to the main document before the PiP window goes away; otherwise
+   * YouTube keeps reusing a menu element stranded in the closed PiP document and the menu on the page breaks
+   * (items no longer close it).
+   */
+  private returnMenusOpenedInPip(): void {
+    const pipDoc = this.pipWindow?.document;
+    if (!pipDoc) {
+      return;
+    }
+    const menus = Array.from(pipDoc.querySelectorAll<HTMLElement>(SELECTORS.CONTEXT_MENU));
+    for (const menu of menus) {
+      if (menu === this.contextMenu) {
+        continue;
+      }
+      if (menu.style.display !== 'none') {
+        this.dismissMenu(menu);
+      }
+      document.body.appendChild(menu);
+      this.logger.log('Returned context menu opened in PiP to main window');
+    }
   }
 }

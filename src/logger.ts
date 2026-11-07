@@ -1,4 +1,7 @@
 import { DEBUG_FLAG } from './constants';
+
+/** How many nested `cause` levels of a logged error to print. */
+const MAX_CAUSE_DEPTH = 5;
 import { injectable } from './di/decorators';
 
 /**
@@ -93,6 +96,10 @@ export class Logger {
     Logger.globalMetadata = { ...metadata };
   }
 
+  private static causeOf(value: unknown): unknown {
+    return value instanceof Error ? (value as Error & { cause?: unknown }).cause : undefined;
+  }
+
   private styled(
     fn: (template: string, ...rest: unknown[]) => void,
     msgStyle: string,
@@ -115,6 +122,13 @@ export class Logger {
     // Add user-provided metadata first
     if (meta !== undefined) {
       args.push(meta);
+      // AppError keeps the original error in `cause`, which the console does not print on its own; without
+      // this a wrapped failure shows up only as e.g. "PiPError: Error opening PiP".
+      let cause = Logger.causeOf(meta);
+      for (let depth = 0; cause !== undefined && depth < MAX_CAUSE_DEPTH; depth++) {
+        args.push('\nCaused by:', cause);
+        cause = Logger.causeOf(cause);
+      }
     }
 
     // Add global metadata after user metadata (if exists)
