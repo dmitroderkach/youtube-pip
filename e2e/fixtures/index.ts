@@ -332,7 +332,7 @@ export const test = base.extend<{
     await use(assertFn);
   },
 
-  waitForPiPAdToEnd: async ({}, use) => {
+  waitForPiPAdToEnd: async ({}, use, testInfo) => {
     const isAdOverlayGone = (page: Page) =>
       page.evaluate((adOverlaySel: string) => {
         const pip = window.documentPictureInPicture?.window;
@@ -364,7 +364,13 @@ export const test = base.extend<{
      * One deadline for all ads in a row (YouTube can show 2+ unskippable ones, together longer than 30s). A
      * timeout of a single wait used to throw on the first attempt, so the old attempt loop never retried.
      */
+    let timeoutExtended = false;
     const waitFn: WaitForPiPAdToEndFn = async (page) => {
+      // Ads can take up to the whole budget on CI: give the test that time on top of its own timeout
+      if (!timeoutExtended) {
+        timeoutExtended = true;
+        testInfo.setTimeout(testInfo.timeout + E2E_PIP_AD_MAX_WAIT_MS);
+      }
       const deadline = Date.now() + E2E_PIP_AD_MAX_WAIT_MS;
       const skipPoll = setInterval(() => void tryClickSkipAdInPip(page), E2E_PIP_SKIP_AD_POLL_MS);
       try {

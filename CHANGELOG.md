@@ -23,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 ### Fixed (tests)
 
-- E2E page-ready fixtures recognize the `ytd-watch-fixie` watch page; the e2e session file is written atomically (8 workers read it half-written); "Copy URL at current time" in the Shorts spec waits for playback like the watch spec (`waitForPlaybackTimeInPip`); the keyboard spec waits until YouTube stops moving focus to the first menu item before pressing ArrowDown.
+- E2E page-ready fixtures recognize the `ytd-watch-fixie` watch page; the e2e session file is written atomically (8 workers read it half-written); "Copy URL at current time" in the Shorts spec waits for playback like the watch spec (`waitForPlaybackTimeInPip`); the keyboard spec waits until YouTube stops moving focus to the first menu item before pressing ArrowDown; `waitForPiPAdToEnd` adds its ad budget (75 s) to the timeout of every test using it (the keyboard spec hit the 90 s limit during long ads).
 
 ## [2.6.0] - 2026-11-07
 
