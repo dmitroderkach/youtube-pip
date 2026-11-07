@@ -1,6 +1,6 @@
 import type { Logger } from '../logger';
 import { LoggerFactory } from '../logger';
-import { MOUSE_BUTTONS, COPY_MENU_INDICES } from '../constants';
+import { MOUSE_BUTTONS, COPY_MENU_INDICES, KEYS } from '../constants';
 import { DOMUtils } from '../utils/DOMUtils';
 import { SELECTORS } from '../selectors';
 import { PlayerManager } from '../core/PlayerManager';
@@ -129,8 +129,18 @@ export class ContextMenuHandler {
     }
 
     const ok = DOMUtils.copyViaTextarea(doc, text);
-    if (ok) {
-      this.logger.debug(`Copied ${copyType} to clipboard`);
+    if (!ok) {
+      // Let YouTube's own handler run: it falls back to showing the text in a sub-panel.
+      return;
+    }
+    this.logger.debug(`Copied ${copyType} to clipboard`);
+    // Stop YouTube's copy handler. It copies via execCommand in the main document, which fails
+    // while the user interacts with the PiP window; on failure YouTube keeps the menu open, shows
+    // the text in a sub-panel and permanently switches the items to "Get …". Close the menu ourselves.
+    e.stopPropagation();
+    const menu = item.closest<HTMLElement>(SELECTORS.CONTEXT_MENU_CONTAINER);
+    if (menu) {
+      this.dismissMenu(menu);
     }
   };
 
@@ -209,10 +219,54 @@ export class ContextMenuHandler {
         DOMUtils.insertPlaceholderBefore(menu, this.contextMenuPlaceholder);
       }
       pipBody.appendChild(menu);
+      this.fitMenuIntoPip(menu);
       this.contextMenu = menu;
       this.observeMenu(menu);
       this.notifyVisibility(true);
       return;
+    }
+  }
+
+  /**
+   * YouTube sizes and clamps the menu for the window it believes it is in. Without web_watch_pip /
+   * web_shorts_pip that is the main window, so once moved into PiP the menu sits at the cursor with its
+   * main-window size and can overflow the PiP window (scrollbars). Shrink it to the PiP window and shift it
+   * left/up to fit, the same way YouTube sizes and places the menu when it opens inside PiP.
+   */
+  private fitMenuIntoPip(menu: HTMLElement): void {
+    if (!this.pipWindow) {
+      return;
+    }
+    const { innerWidth: viewportWidth, innerHeight: viewportHeight } = this.pipWindow;
+    const rect = menu.getBoundingClientRect();
+    if (!viewportWidth || !viewportHeight || !rect.width || !rect.height) {
+      return;
+    }
+    const width = Math.min(rect.width, viewportWidth);
+    const height = Math.min(rect.height, viewportHeight);
+    if (width < rect.width) {
+      this.setMenuSize(menu, 'width', width);
+    }
+    if (height < rect.height) {
+      this.setMenuSize(menu, 'height', height);
+    }
+    const left = Math.max(0, Math.min(rect.left, viewportWidth - width));
+    const top = Math.max(0, Math.min(rect.top, viewportHeight - height));
+    if (left !== rect.left) {
+      menu.style.left = `${left}px`;
+    }
+    if (top !== rect.top) {
+      menu.style.top = `${top}px`;
+    }
+  }
+
+  /** YouTube sets the size inline on the popup, its panels and (height only) the panel menu; update them together. */
+  private setMenuSize(menu: HTMLElement, dimension: 'width' | 'height', px: number): void {
+    const selector =
+      dimension === 'width' ? SELECTORS.PANEL : `${SELECTORS.PANEL}, ${SELECTORS.PANEL_MENU}`;
+    const targets = [menu, ...Array.from(menu.querySelectorAll<HTMLElement>(selector))];
+    for (const el of targets) {
+      el.style[dimension] = `${px}px`;
     }
   }
 
@@ -237,34 +291,63 @@ export class ContextMenuHandler {
   }
 
   /**
-   * Setup handler to dismiss context menu on click outside
+   * Setup handlers to dismiss the context menu in PiP: click / right-click outside it, and Escape.
    */
   private setupDismissalHandler(): void {
     if (!this.pipWindow) {
       return;
     }
 
-    const handleEvent = (e: MouseEvent) => {
-      const menuInPip = this.pipWindow!.document.querySelector<HTMLElement>(SELECTORS.CONTEXT_MENU);
-
-      if (
-        menuInPip &&
-        menuInPip.style.display !== 'none' &&
-        !(e.target as Element)?.closest(SELECTORS.CONTEXT_MENU_CONTAINER)
-      ) {
+    const handlePointer = (e: MouseEvent) => {
+      const menuInPip = this.getVisibleMenuInPip();
+      if (menuInPip && !(e.target as Element)?.closest(SELECTORS.CONTEXT_MENU_CONTAINER)) {
         e.stopPropagation();
-        menuInPip.style.display = 'none';
-        this.notifyVisibility(false);
-        // We hid the menu directly, so the player still thinks it is open. With web_watch_pip /
-        // web_shorts_pip the menu and its "outside contextmenu" close listener live in the PiP
-        // document; without this reset the next right-click shows the browser's native menu.
-        this.simulateContextMenu(this.pipWindow!.document.body);
-        this.logger.debug('Context menu dismissed');
+        this.dismissMenu(menuInPip);
       }
     };
 
-    this.pipWindow.document.addEventListener('click', handleEvent, true);
-    this.pipWindow.document.addEventListener('contextmenu', handleEvent, true);
+    // YouTube closes its popups on Escape only via a keydown listener on the menu element itself,
+    // so it does nothing when focus stayed on the player/body (common in PiP, and focus is lost when
+    // the menu is moved between documents). Bubble phase: if YouTube handled it, it prevented default.
+    const handleKeydown = (e: KeyboardEvent) => {
+      if (e.key !== KEYS.ESCAPE || e.defaultPrevented) {
+        return;
+      }
+      const menuInPip = this.getVisibleMenuInPip();
+      if (menuInPip) {
+        e.preventDefault();
+        this.dismissMenu(menuInPip);
+      }
+    };
+
+    this.pipWindow.document.addEventListener('click', handlePointer, true);
+    this.pipWindow.document.addEventListener('contextmenu', handlePointer, true);
+    this.pipWindow.document.addEventListener('keydown', handleKeydown);
+  }
+
+  /** First context menu in the PiP document that is currently shown (Shorts + watch can each have one). */
+  private getVisibleMenuInPip(): Nullable<HTMLElement> {
+    if (!this.pipWindow) {
+      return null;
+    }
+    const menus = this.pipWindow.document.querySelectorAll<HTMLElement>(SELECTORS.CONTEXT_MENU);
+    return Array.from(menus).find((menu) => menu.style.display !== 'none') ?? null;
+  }
+
+  /**
+   * Hide the context menu in PiP and reset YouTube's "menu open" state.
+   * We hide the menu directly, so the player still thinks it is open. With web_watch_pip /
+   * web_shorts_pip the menu and its "outside contextmenu" close listener live in the PiP
+   * document; without the reset the next right-click shows the browser's native menu.
+   */
+  private dismissMenu(menu: HTMLElement): void {
+    if (!this.pipWindow) {
+      return;
+    }
+    menu.style.display = 'none';
+    this.notifyVisibility(false);
+    this.simulateContextMenu(this.pipWindow.document.body);
+    this.logger.debug('Context menu dismissed');
   }
 
   /**

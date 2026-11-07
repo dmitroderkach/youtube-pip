@@ -20,6 +20,7 @@ import {
   type StoreAuthStateOption,
 } from './auth';
 import { getUserscriptBody, initHandlerStub } from './handler-stub';
+import { FORCED_EXPERIMENT_FLAGS, installForcedExperimentFlags } from './experiment-flags';
 
 const defaultContextOptions = {
   viewport: null,
@@ -94,6 +95,9 @@ export const test = base.extend<{
     }
 
     const addInitAndUse = async (ctx: Awaited<ReturnType<typeof browser.newContext>>) => {
+      if (FORCED_EXPERIMENT_FLAGS.length > 0) {
+        await ctx.addInitScript(installForcedExperimentFlags, FORCED_EXPERIMENT_FLAGS);
+      }
       await ctx.addInitScript(initHandlerStub, userscriptBody);
       await use(ctx);
       if (storeAuthState === true) {
