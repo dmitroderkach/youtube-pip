@@ -6,6 +6,7 @@ import { test as base, expect, type Page, type TestInfo } from '@playwright/test
 import {
   E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
   E2E_PAGE_HYDRATION_TIMEOUT_MS,
+  E2E_PAGE_READY_ATTEMPTS,
   E2E_PIP_AD_MAX_WAIT_MS,
   E2E_PIP_AD_STABILITY_MS,
   E2E_PIP_SKIP_AD_POLL_MS,
@@ -100,17 +101,29 @@ export {
  * YouTube drops mini player activation without a watch response.
  */
 async function waitForWatchPageReady(page: Page): Promise<void> {
-  await page.waitForFunction(
-    ({ watchSel }) => {
-      const watch = document.querySelector(watchSel) as
-        | (Element & { data?: { currentVideoEndpoint?: unknown } })
-        | null;
-      return !!window.__E2E_PIP__?.ready() && !!watch?.data?.currentVideoEndpoint;
-    },
-    { watchSel: E2E_SELECTORS.WATCH_PAGE },
-    { timeout: E2E_PAGE_HYDRATION_TIMEOUT_MS }
-  );
-  await waitForYouTubeLowPriorityJobs(page);
+  // YouTube sometimes reloads the document right after load (seen with playlist URLs); evaluate() then fails with
+  // "Execution context was destroyed". The new document needs the whole wait again (userscript re-inits).
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await page.waitForFunction(
+        ({ watchSel }) => {
+          const watch = document.querySelector(watchSel) as
+            | (Element & { data?: { currentVideoEndpoint?: unknown } })
+            | null;
+          return !!window.__E2E_PIP__?.ready() && !!watch?.data?.currentVideoEndpoint;
+        },
+        { watchSel: E2E_SELECTORS.WATCH_PAGE },
+        { timeout: E2E_PAGE_HYDRATION_TIMEOUT_MS }
+      );
+      await waitForYouTubeLowPriorityJobs(page);
+      return;
+    } catch (error) {
+      const destroyedByNavigation =
+        error instanceof Error && /Execution context was destroyed/.test(error.message);
+      if (!destroyedByNavigation || attempt >= E2E_PAGE_READY_ATTEMPTS) throw error;
+      await page.waitForLoadState('domcontentloaded');
+    }
+  }
 }
 
 /**

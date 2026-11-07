@@ -55,6 +55,7 @@ The userscript body is read from `dist/userscript.js` (without the UserScript he
 
 1. **Watch response** — `ytd-watch-flexy` / `ytd-watch-grid` has the watch response in `.data` (`currentVideoEndpoint`). After the consent reload the userscript can be ready while the page is still a skeleton; YouTube then ignores mini player activation (`i`, `yt-activate-miniplayer-from-watch-action` returns without a watch response), so PiP or the mini player never opened. `[has-metadata]` is not used: during a pre-roll ad YouTube can defer rendering the metadata for more than 30 s although the response is there.
 2. **YouTube's low-priority jobs** — the same barrier as the userscript's `YouTubeScheduler.waitForLowPriorityJobs()` (queue a priority-1 job with 100 ms delay, wait until it runs; up to `E2E_YT_LOW_PRIORITY_JOBS_TIMEOUT_MS`). With `kevlar_watch_while_v2` (`chromium-all-flags`) a delayed watch-while job deactivated a mini player activated right after load (`i` in `mini-player.spec.ts`). See ARCHITECTURE_DECISIONS §18.
+3. **Document reloads** — YouTube sometimes reloads the document right after load (seen with playlist URLs); the wait then fails with "Execution context was destroyed" and is repeated for the new document (`E2E_PAGE_READY_ATTEMPTS`). Found by the on-call (`docs/ONCALL.md`).
 
 ### Diagnosing flakes: mini player timeline
 
