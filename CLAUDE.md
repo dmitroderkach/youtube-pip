@@ -25,6 +25,10 @@ The Cursor slash commands `.cursor/commands/bump-version.md` and `.cursor/comman
 - Manual check in a visible browser with a chosen flag set (e.g. the old flow without PiP flags): `docs/MANUAL_SESSION.md` (`npx playwright test -c docs/manual-session/playwright.manual.config.ts --project=<project> --headed`).
 - Keep local e2e volume small (a handful of runs per check). Hundreds of YouTube loads from one IP trigger Google's "unusual traffic" CAPTCHA; if it appears, stop all YouTube traffic.
 
+## On-call
+
+- "Розбери онкол-прогін <run URL>": download the run's artifacts (`gh run download <id> -n oncall`, `-n e2e-results`, `-n playwright-report-manual-e2e`), read `report.txt` and `claude-transcript.jsonl` first, then continue the investigation. How it works: `docs/ONCALL.md`.
+
 ## Self-hosted runner
 
 - Runner task: 8 vCPU / 16 GB on Fargate Spot with on-demand fallback (`terraform/README.md`); Playwright uses 8 workers on CI (`CI_WORKERS`). Lower it if Google's CAPTCHA appears on CI.

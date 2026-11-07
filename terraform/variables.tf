@@ -64,6 +64,24 @@ variable "runner_memory" {
   default     = 16384
 }
 
+variable "oncall_branch" {
+  description = "Only scheduled / manual runs of this branch get the on-call runner (Telegram / Claude secrets). Point it at a feature branch only while testing the on-call job."
+  type        = string
+  default     = "main"
+}
+
+variable "oncall_runner_cpu" {
+  description = "Fargate CPU units of the on-call task (reads CI results, scans flags, runs Claude Code headless)."
+  type        = number
+  default     = 1024
+}
+
+variable "oncall_runner_memory" {
+  description = "Fargate memory in MB of the on-call task."
+  type        = number
+  default     = 2048
+}
+
 variable "runner_use_fargate_spot" {
   description = "Start runner tasks on FARGATE_SPOT and fall back to on-demand FARGATE when Spot capacity is unavailable."
   type        = bool
