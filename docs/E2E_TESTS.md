@@ -165,7 +165,7 @@ All selectors live in `E2E_SELECTORS` and do not import from `src/`, so e2e does
 - `E2E_PAGE_HYDRATION_TIMEOUT_MS` — max wait for the watch page to hydrate after load / consent reload.
 - `E2E_YT_SCHEDULER`, `E2E_YT_LOW_PRIORITY_JOBS_TIMEOUT_MS` — YouTube scheduler barrier in the page-ready fixtures (mirrors `YT_SCHEDULER` in `src/constants/youtube.ts`).
 - `E2E_PIP_AD_MAX_WAIT_MS` — total wait for all ads in PiP to end (`waitForPiPAdToEnd`).
-- `E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S` — playback time required before "Copy video URL at current time".
+- `E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S` — playback time required before "Copy video URL at current time" (`waitForPlaybackTimeInPip`, watch and Shorts copy specs).
 - `E2E_PIP_AD_STABILITY_MS` — how long the ad overlay must stay gone to consider all ads finished.
 - `E2E_PIP_SKIP_AD_POLL_MS` — poll interval for clicking "Skip ad".
 - `E2E_CONTEXT_MENU_REOPEN_INTERVAL_MS` — retry interval when opening the context menu in PiP. Right after a menu closes, YouTube's player still treats it as open during its fade-out and ignores the next right-click, so `waitForContextMenuItemVisible` right-clicks again.
@@ -198,7 +198,7 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 ### 3. `context-menu-copy.spec.ts` — copy from context menu
 
 - **Scenario:** Open PiP, wait for ads to end, then for each item (Copy video URL, Copy URL at time, Copy embed iframe, Copy debug info): wait for the item to be visible, click it, assert clipboard content via `expect.poll(() => navigator.clipboard.readText())`.
-- **Details:** Longer timeout for menu items (ads); `waitForPiPAdToEnd` waits up to `E2E_PIP_AD_MAX_WAIT_MS` for all ads in a row; before "URL at time" the test waits until the PiP video has played `E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S` seconds (starting it if paused), since YouTube omits `t=` near 0 — if the video never plays (CI runners sometimes get the ads but not the video stream: stuck at 0:00 with a spinner), `t=` is not checked and a `warning` annotation is added; every copy click goes through `clickCopyMenuItemInPip`, which expects YouTube's "copied" bezel in the PiP player and the menu to close (same feedback as on the page); for debug info, assert clipboard contains valid JSON. Test timeout 180 s.
+- **Details:** Longer timeout for menu items (ads); runs **without ads** (`test.use({ blockAds: true })`, `fixtures/block-ads.ts`: the ad fields are pruned from YouTube's player responses, like ad blockers do) — an unskippable ad pod cannot be ended from the page (seeking the ad video does not end it) and waiting it out was slow and flaky; `waitForPiPAdToEnd` stays as a guard: it clicks any skip button (all ad UIs: `.ytp-skip-ad-button`, `.ytp-ad-skip-button`, `.ytp-ad-skip-button-modern`) and waits up to `E2E_PIP_AD_MAX_WAIT_MS` (40 s) until no player in PiP has `ad-showing`, listing the skip elements found on timeout; before "URL at time" the test waits until the PiP video has played `E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S` seconds (starting it if paused), since YouTube omits `t=` near 0 — if the video never plays (CI runners sometimes get the ads but not the video stream: stuck at 0:00 with a spinner), `t=` is not checked and a `warning` annotation is added; every copy click goes through `clickCopyMenuItemInPip`, which expects YouTube's "copied" bezel in the PiP player and the menu to close (same feedback as on the page); for debug info, assert clipboard contains valid JSON.
 - **Menu access:** Context menu is opened in PiP via `dispatchEvent(contextmenu)` on the player; items are selected by index using `.ytp-panel-menu > .ytp-menuitem`.
 
 ### 4. `playlist-navigation.spec.ts` — playlist navigation in PiP
@@ -244,12 +244,14 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 
 ### 10. `context-menu-keyboard.spec.ts` — keyboard in the PiP context menu
 
+- **No ads** (`blockAds`), like `context-menu-copy`.
+
 - **Scenario:** Open PiP, wait for ads, open the context menu in PiP, focus "Copy video URL", press **ArrowDown** in the PiP window (focus moves to "Copy video URL at current time"), press **Enter** → "copied" bezel, menu closed, URL in the clipboard.
 - **Goal:** Keys reach the menu in every flag configuration, including menus YouTube opens in PiP itself (`web_watch_pip` / `web_shorts_pip`), where `DocumentFocusHandler` used to forward them to the player.
 
 ## Experiment flag matrix (`fixtures/experiment-flags.ts`)
 
-The test account only sees the YouTube experiments it is bucketed into, so rollout-specific bugs are invisible or show up as rare flakes. `playwright.config.ts` therefore runs the whole suite once per flag set (projects `chromium`, `chromium-yt-pip`, `chromium-cow-player`, `chromium-legacy-ui`, `chromium-all-flags`). Flags are forced through the `experimentFlags` fixture option (page `EXPERIMENT_FLAGS` and player `serializedExperimentFlags`).
+The test account only sees the YouTube experiments it is bucketed into, so rollout-specific bugs are invisible or show up as rare flakes. `playwright.config.ts` therefore runs the whole suite once per flag set (projects `chromium`, `chromium-yt-pip`, `chromium-cow-player`, `chromium-legacy-ui`, `chromium-all-flags` — curated flags plus every relevant boolean flag in YouTube's code —, `chromium-killswitches`; see `docs/YOUTUBE_EXPERIMENT_FLAGS.md`). Flags are forced through the `experimentFlags` fixture option (page `EXPERIMENT_FLAGS` and player `serializedExperimentFlags`).
 
 - One cell locally: `npx playwright test --project=chromium-yt-pip`.
 - **Account-mutating tests** (`like-dislike.spec.ts`: like / dislike the same video on the test account) must never run at the same time. The matrix projects skip them; they run in the single-worker `account-mutations` project, which goes through the flag sets itself (one describe per `FLAG_MATRIX` entry, in sequence). Locally: `npx playwright test --project=account-mutations`.

@@ -21,6 +21,9 @@ import {
 } from '../constants';
 
 test.describe('Context menu keyboard in PiP', () => {
+  // No ads: an unskippable ad pod could not be ended from the page (fixtures/block-ads.ts)
+  test.use({ blockAds: true });
+
   test('ArrowDown moves to the next item, Enter activates it (copy with feedback)', async ({
     videoPageReady: page,
     triggerEnterPictureInPicture,

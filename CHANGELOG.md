@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.6.1] - 2026-11-07
+
+### Fixed
+
+- **Shorts PiP lost the player with `web_migrate_reel_video_renderer_to_cow`** — With this flag the Shorts video renderer is the CoW `ytd-reel-video-renderer-cow` holding the player's `#player-container`. Moving `ytd-shorts` into PiP makes it dispose and re-render, so the slot the player was parked from is detached and the player was put back into a detached node: no player in PiP or on the page. `PiPManager` now remembers the CoW host around the slot and puts the player into the fresh slot (ARCHITECTURE_DECISIONS §17). Found by forcing all relevant code flags in e2e.
+
+- **Tab title switched to "YouTube" during PiP** — While PiP is open the page is not the watch page (the player went through the mini player), and YouTube sets its own page title after navigations / data updates, replacing the video title we set. `TitleSyncHandler` now watches the page `<title>` and puts our title back, with a guard (at most 5 restores per second) so it never ping-pongs with code that keeps setting its own title.
+
+### Added
+
+- **E2E: all relevant code flags at once** — `chromium-all-flags` forces, besides the curated flags, every relevant boolean flag the Kevlar / player code checks (`codeFlags` from the on-call baseline, ~115), except killswitches, YouTube's test switches (`*_for_testing`, `debug_*`), number flags and `NOT_FORCED_IN_ALL_FLAGS` (`kevlar_watch_fixie`: watch page `ytd-watch-fixie` in development, mini player activation broken in YouTube itself). New project `chromium-killswitches` with the 19 relevant killswitches on. 6 flag sets.
+- **On-call** (`docs/ONCALL.md`, #140, #141) — after every daily / manual e2e run: results summary, YouTube experiment flags read from the code (complete) and from a served page (sample), probe runs of new flags, Claude investigation (read-only) and a Telegram report when something is off; broken flag reading and a broken on-call always reported.
+- **Manual session in a visible browser** with a chosen flag set (`docs/MANUAL_SESSION.md`, #138).
+
+### Changed
+
+- **CI runner** (#139) — 8 vCPU / 16 GB on Fargate Spot with on-demand fallback (warning on the run), 8 Playwright workers, like-dislike in a single-worker `account-mutations` project; one runner per job.
+
+### Fixed (tests)
+
+- E2E page-ready fixtures recognize the `ytd-watch-fixie` watch page; the e2e session file is written atomically (8 workers read it half-written); "Copy URL at current time" in the Shorts spec waits for playback like the watch spec (`waitForPlaybackTimeInPip`); the keyboard spec waits until YouTube stops moving focus to the first menu item before pressing ArrowDown; skipping ads in PiP works again: the test only looked for `.ytp-skip-ad-button`, while YouTube's other ad UIs use `.ytp-ad-skip-button` / `-modern` (ads then ran to the end and tests hit their timeouts) — all variants are clicked and ads are detected by `ad-showing` on the player. Unskippable ad pods cannot be ended from the page (seeking the ad video does not end them), so the copy and keyboard specs run without ads (`blockAds`: ad fields pruned from YouTube's player responses); the other specs keep ads. Ad budget back to 40 s, long test timeouts gone.
+
 ## [2.6.0] - 2026-11-07
 
 ### Fixed
@@ -1176,6 +1198,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.6.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.0...refs/tags/v2.6.1
 [2.6.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.5.1...refs/tags/v2.6.0
 [2.5.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.5.0...refs/tags/v2.5.1
 [2.5.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.8...refs/tags/v2.5.0

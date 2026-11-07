@@ -650,6 +650,60 @@ describe('PiPManager (integration)', () => {
 
       expect(ytdPlayer.parentElement).toBe(slot);
     });
+
+    it('puts the player into the fresh slot when a CoW component around it re-rendered during the move', async () => {
+      // root > anchor > ytd-reel-video-renderer-cow > #player-container > ytd-player (Shorts with
+      // web_migrate_reel_video_renderer_to_cow): moving root makes the CoW host drop its content and render anew
+      const root = document.createElement('div');
+      const anchor = document.createElement('div');
+      const cowHost = document.createElement('ytd-reel-video-renderer-cow');
+      const oldSlot = document.createElement('div');
+      oldSlot.id = 'player-container';
+      const ytdPlayer = document.createElement(SELECTORS.YTD_PLAYER) as YtdPlayerElement;
+      const shortsPlayer = document.createElement('div');
+      shortsPlayer.id = 'shorts-player';
+      ytdPlayer.appendChild(shortsPlayer);
+      oldSlot.appendChild(ytdPlayer);
+      cowHost.appendChild(oldSlot);
+      anchor.appendChild(cowHost);
+      root.appendChild(anchor);
+      document.body.appendChild(root);
+      const pipDoc = document.implementation.createHTMLDocument();
+
+      const parked = await manager['parkYtdPlayer'](root, pipDoc, '#shorts-player');
+      expect(parked?.liveSlot?.selector).toBe(
+        'ytd-reel-video-renderer-cow [id="player-container"]'
+      );
+      pipDoc.body.appendChild(pipDoc.adoptNode(root));
+      cowHost.replaceChildren(); // CoW dispose
+      const freshSlot = pipDoc.createElement('div');
+      freshSlot.id = 'player-container';
+      cowHost.appendChild(freshSlot); // re-rendered (waiting for it is DOMUtils.waitForElementSelector's job)
+      await manager['unparkYtdPlayer'](parked);
+
+      expect(ytdPlayer.parentElement).toBe(freshSlot);
+      expect(oldSlot.isConnected).toBe(false);
+    });
+
+    it('keeps the original slot when it is still connected after the move (no re-render)', async () => {
+      const root = document.createElement('div');
+      const cowHost = document.createElement('ytd-reel-video-renderer-cow');
+      const slot = document.createElement('div');
+      slot.id = 'player-container';
+      const ytdPlayer = document.createElement(SELECTORS.YTD_PLAYER) as YtdPlayerElement;
+      const shortsPlayer = document.createElement('div');
+      shortsPlayer.id = 'shorts-player';
+      ytdPlayer.appendChild(shortsPlayer);
+      slot.appendChild(ytdPlayer);
+      cowHost.appendChild(slot);
+      root.appendChild(cowHost);
+      document.body.appendChild(root);
+
+      const parked = await manager['parkYtdPlayer'](root, document, '#shorts-player');
+      await manager['unparkYtdPlayer'](parked);
+
+      expect(ytdPlayer.parentElement).toBe(slot);
+    });
   });
 
   it('full flow: close keeps mini player container while the player is still inside it', async () => {

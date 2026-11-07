@@ -167,21 +167,38 @@ export async function clickCopyMenuItemInPip(page: Page, positionFromEnd: number
   await waitForCopyFeedbackInPip(page);
 }
 
-/** Focus the item at `positionFromEnd` in the visible context menu in PiP (keyboard navigation starts there). */
-export function focusContextMenuItemInPip(page: Page, positionFromEnd: number): Promise<boolean> {
-  return page.evaluate(
-    ({ menuSel, itemsSel, pos }: { menuSel: string; itemsSel: string; pos: number }) => {
-      const doc = window.documentPictureInPicture?.window?.document;
-      const menu = Array.from(doc?.querySelectorAll<HTMLElement>(menuSel) ?? []).find(
-        (m) => m.style.display !== 'none'
-      );
-      const items = menu ? Array.from(menu.querySelectorAll<HTMLElement>(itemsSel)) : [];
-      const item = items[items.length - 1 - pos];
-      item?.focus();
-      return !!item && doc?.activeElement === item;
-    },
-    { menuSel: E2E_SELECTORS.CONTEXT_MENU, itemsSel: MENU_ITEMS_IN_MENU, pos: positionFromEnd }
-  );
+/** Focus must stay on the item this long: YouTube moves focus to the first item shortly after opening the menu. */
+const FOCUS_STABLE_MS = 300;
+const FOCUS_ATTEMPTS = 5;
+
+/**
+ * Focus the item at `positionFromEnd` in the visible context menu in PiP (keyboard navigation starts there).
+ * Re-focuses until focus stays put: right after opening, YouTube focuses the first item itself, and an ArrowDown
+ * pressed then started from the top ("Expected: 4, Received: 7").
+ */
+export async function focusContextMenuItemInPip(
+  page: Page,
+  positionFromEnd: number
+): Promise<boolean> {
+  for (let attempt = 0; attempt < FOCUS_ATTEMPTS; attempt++) {
+    const focused = await page.evaluate(
+      ({ menuSel, itemsSel, pos }: { menuSel: string; itemsSel: string; pos: number }) => {
+        const doc = window.documentPictureInPicture?.window?.document;
+        const menu = Array.from(doc?.querySelectorAll<HTMLElement>(menuSel) ?? []).find(
+          (m) => m.style.display !== 'none'
+        );
+        const items = menu ? Array.from(menu.querySelectorAll<HTMLElement>(itemsSel)) : [];
+        const item = items[items.length - 1 - pos];
+        item?.focus();
+        return !!item && doc?.activeElement === item;
+      },
+      { menuSel: E2E_SELECTORS.CONTEXT_MENU, itemsSel: MENU_ITEMS_IN_MENU, pos: positionFromEnd }
+    );
+    if (!focused) continue;
+    await page.waitForTimeout(FOCUS_STABLE_MS);
+    if ((await focusedContextMenuItemPositionInPip(page)) === positionFromEnd) return true;
+  }
+  return false;
 }
 
 /** Position from the end of the focused item in the visible context menu in PiP, or -1. */

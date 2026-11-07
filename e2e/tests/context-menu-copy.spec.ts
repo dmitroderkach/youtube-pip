@@ -4,75 +4,30 @@
  * Ads may show first, so not all menu items are visible immediately — we wait for each
  * item to become visible with an extended timeout before clicking and asserting clipboard.
  */
-import type { Page } from '@playwright/test';
-import { clickCopyMenuItemInPip, expect, test, waitForContextMenuItemVisible } from '../fixtures';
+import {
+  clickCopyMenuItemInPip,
+  expect,
+  test,
+  waitForContextMenuItemVisible,
+  waitForPlaybackTimeInPip,
+} from '../fixtures';
 import {
   COPY_MENU_POSITIONS_FROM_END,
   E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
   E2E_MIN_PLAYBACK_TIME_FOR_URL_AT_TIME_S,
   E2E_WAIT_TIMEOUT_MS,
 } from '../constants';
-import { E2E_SELECTORS } from '../selectors';
-
-/** Player API methods used here (YouTube's #movie_player). */
-interface E2EMoviePlayer extends HTMLElement {
-  getCurrentTime?(): number;
-  getPlayerState?(): number;
-  playVideo?(): void;
-}
-
-/**
- * Wait until the video in PiP has played past `minTime` seconds; start it if it is not playing (after ads it can
- * stay paused or unstarted on CI). "Copy video URL at current time" omits t= near 0.
- * @returns true when reached; false (with the player state) when the video did not play, e.g. on CI runners where
- *   YouTube serves the ads but never loads the video stream (stuck at 0:00 with a spinner)
- */
-async function waitForPlaybackTimeInPip(
-  page: Page,
-  minTime: number
-): Promise<{ reached: true } | { reached: false; state: string }> {
-  const args = { moviePlayer: E2E_SELECTORS.MOVIE_PLAYER, minTime };
-  try {
-    await page.waitForFunction(
-      ({ moviePlayer, minTime }: typeof args) => {
-        const doc = window.documentPictureInPicture?.window?.document;
-        const player = doc?.querySelector<E2EMoviePlayer>(moviePlayer);
-        if (!player?.getCurrentTime || !player.getPlayerState) return false;
-        const PLAYING = 1;
-        const BUFFERING = 3;
-        const state = player.getPlayerState();
-        if (state !== PLAYING && state !== BUFFERING) player.playVideo?.();
-        return player.getCurrentTime() >= minTime;
-      },
-      args,
-      { timeout: E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS, polling: 500 }
-    );
-    return { reached: true };
-  } catch (error) {
-    const state = await page
-      .evaluate(({ moviePlayer }: typeof args) => {
-        const player =
-          window.documentPictureInPicture?.window?.document.querySelector<E2EMoviePlayer>(
-            moviePlayer
-          );
-        if (!player) return 'no player in PiP';
-        return `state=${player.getPlayerState?.()} t=${player.getCurrentTime?.()}`;
-      }, args)
-      .catch((e: unknown) => `state unavailable: ${String(e)}`);
-    const original = error instanceof Error ? error.message.split('\n')[0] : String(error);
-    return { reached: false, state: `${state} [${original}]` };
-  }
-}
 
 test.describe('Context menu copy in PiP', () => {
+  // No ads: an unskippable ad pod could not be ended from the page (fixtures/block-ads.ts)
+  test.use({ blockAds: true });
+
   test('copy video URL, URL at time, embed iframe, debug info work', async ({
     videoPageReady: page,
     triggerEnterPictureInPicture,
     assertPiPWindowHasPlayer,
     waitForPiPAdToEnd,
   }) => {
-    // Page hydration + up to 75s of ads + four copy steps do not fit the default 90s.
-    test.setTimeout(180_000);
     await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
 
     await triggerEnterPictureInPicture(page);

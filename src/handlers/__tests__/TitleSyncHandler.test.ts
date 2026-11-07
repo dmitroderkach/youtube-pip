@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mock, type MockProxy } from 'vitest-mock-extended';
 import { createTestContainer } from '../../test-utils/test-container';
 import { createFakeNotifyRenderer, createFakeWindow } from '../../test-utils/test-helpers';
@@ -46,6 +46,11 @@ describe('TitleSyncHandler', () => {
     handler = c.get(TitleSyncHandler);
   });
 
+  afterEach(() => {
+    // Observers on document.head outlive a test otherwise and fight over the title in the next ones
+    handler.cleanup();
+  });
+
   it('initialize when PiP not open does nothing', () => {
     mockPipProvider.getWindow.mockReturnValue(null);
     handler.initialize();
@@ -73,6 +78,54 @@ describe('TitleSyncHandler', () => {
     videoEl.setAttribute('src', 'https://example.com/new.mp4');
     await Promise.resolve();
     expect(pipDoc.title).toContain('New Title');
+  });
+
+  it('restores our page title when YouTube changes it while PiP is open', async () => {
+    handler.initialize();
+    expect(document.title).toBe('Test Video - YouTube');
+
+    document.title = '(1) YouTube';
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.title).toBe('Test Video - YouTube');
+    handler.cleanup();
+  });
+
+  it('restores our page title when YouTube replaces the <title> element', async () => {
+    handler.initialize();
+
+    document.head.querySelector('title')?.remove();
+    const yt = document.createElement('title');
+    yt.textContent = 'YouTube';
+    document.head.appendChild(yt);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.title).toBe('Test Video - YouTube');
+    handler.cleanup();
+  });
+
+  it('stops restoring when something keeps setting its own title (no ping-pong loop)', async () => {
+    handler.initialize();
+    const fighter = new MutationObserver(() => {
+      if (document.title !== 'YouTube') document.title = 'YouTube';
+    });
+    fighter.observe(document.head, { childList: true, subtree: true, characterData: true });
+
+    document.title = 'YouTube';
+    await new Promise((r) => setTimeout(r, 50));
+
+    fighter.disconnect();
+    expect(document.title).toBe('YouTube');
+  });
+
+  it('does not touch the page title after cleanup', async () => {
+    handler.initialize();
+    handler.cleanup();
+
+    document.title = '(1) YouTube';
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(document.title).toBe('(1) YouTube');
   });
 
   it('cleanup when never initialized does not throw', () => {
