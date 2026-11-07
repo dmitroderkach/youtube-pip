@@ -4,6 +4,8 @@
  * report says whether the flag actually changes our flows. Compare with the run's `chromium` results (no flags
  * forced). Non-boolean flags are not probed.
  *
+ * Extra flags to probe even if not new (manual check): env PROBE_FLAGS=name,name2 (Manual E2E input probe_flags).
+ *
  * Usage: node scripts/oncall/probe-flags.mjs <flags.json> <out-dir>
  * Writes <out-dir>/summary.json: { probed: [{ flag, forced, total, passed, failed, flaky }], skipped: [...] }.
  */
@@ -22,7 +24,12 @@ const flags = JSON.parse(readFileSync(flagsPath, 'utf8'));
 mkdirSync(outDir, { recursive: true });
 
 const candidates = new Map();
-for (const f of [...(flags.newCodeFlags ?? []), ...(flags.newFlags ?? [])]) {
+const requested = (process.env.PROBE_FLAGS ?? '')
+  .split(',')
+  .map((name) => name.trim())
+  .filter(Boolean)
+  .map((name) => ({ name, value: flags.relevant?.[name]?.value, requested: true }));
+for (const f of [...requested, ...(flags.newCodeFlags ?? []), ...(flags.newFlags ?? [])]) {
   if (!candidates.has(f.name)) candidates.set(f.name, f);
 }
 
@@ -57,6 +64,7 @@ for (const [name, f] of candidates) {
   probed.push({
     flag: name,
     forced: value === 'true' ? 'off' : 'on',
+    requested: !!f.requested,
     exitCode: run.status,
     ...summary,
   });

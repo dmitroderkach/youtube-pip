@@ -7,6 +7,10 @@ on:
         description: 'On-call: investigate and send the Telegram report even if everything passed'
         type: boolean
         default: false
+      probe_flags:
+        description: 'On-call: comma-separated flags to probe (chromium e2e set with the flag flipped) even if not new'
+        type: string
+        default: ''
   schedule:
     # Daily at 16:00 UTC (~18:00 Warsaw during CEST; 17:00 during CET).
     - cron: '0 16 * * *'
@@ -105,11 +109,14 @@ jobs:
 
       - name: Check for new flags
         id: new
+        env:
+          PROBE_FLAGS: ${{ inputs.probe_flags }}
         run: |
           node -e '
             const f = JSON.parse(require("fs").readFileSync("oncall/flags/flags.json", "utf8"));
-            const n = f.newCodeFlags.length + f.newFlags.length;
-            console.log(`${n} new relevant flags`);
+            const requested = (process.env.PROBE_FLAGS || "").split(",").filter((x) => x.trim()).length;
+            const n = f.newCodeFlags.length + f.newFlags.length + requested;
+            console.log(`${n} flags to probe (${requested} requested)`);
             require("fs").appendFileSync(process.env.GITHUB_OUTPUT, `count=${n}\n`);
           '
 
@@ -136,6 +143,7 @@ jobs:
         continue-on-error: true
         env:
           SKIP_AUTH_E2E_ON_CI: 'false'
+          PROBE_FLAGS: ${{ inputs.probe_flags }}
         run: node scripts/oncall/probe-flags.mjs oncall/flags/flags.json oncall/probe
 
       - name: Upload flags

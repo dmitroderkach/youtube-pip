@@ -28,6 +28,7 @@ Every message ends with `Розбери онкол-прогін <run URL>`. Past
 ## Operating
 
 - **Test the pipeline**: run **Manual E2E** with `force_report: true` — investigates and sends a message even if everything passed.
+- **Probe a flag by hand**: run **Manual E2E** with `probe_flags: flag_a,flag_b` (and `force_report: true` to get the message) — the `chromium` set runs with each flag flipped, new or not.
 - **Test from a branch**: the Lambda only allows `var.oncall_branch`; for a test apply with `-var oncall_branch=<branch>`, dispatch the workflow on that branch, then apply again without it.
 - **Rotate a token**: edit the secret `youtube-pip-oncall` in Secrets Manager; new tasks pick it up.
 - **Too many flag messages**: flags are reported once (cache `oncall-seen-flags-*`). To accept the current set, regenerate the baseline: run `node scripts/oncall/scan-flags.mjs <dir>` a couple of times and put the union of the `relevant` names into `experiment-flags-baseline.json` (only observed flags: the ones we merely force in e2e are not served to logged-out pages and would show up as "gone").
