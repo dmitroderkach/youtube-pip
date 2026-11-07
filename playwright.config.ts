@@ -39,7 +39,9 @@ export default defineConfig<{ experimentFlags: ExperimentFlagsOption }>({
   reporter: [['list'], ['html', { outputFolder: 'playwright-report', open: 'never' }]],
   use: {
     baseURL: 'https://www.youtube.com',
-    trace: 'on-first-retry',
+    // CI: keep a trace of the first (failed) attempt so flakes that pass on retry are still diagnosable;
+    // the trace covers every page in the context, including the PiP window.
+    trace: process.env.CI ? 'retain-on-first-failure' : 'on-first-retry',
     video: 'on-first-retry',
     actionTimeout: E2E_WAIT_TIMEOUT_MS,
   },
