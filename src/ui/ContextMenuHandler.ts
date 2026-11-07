@@ -336,6 +336,14 @@ export class ContextMenuHandler {
     this.pipWindow.document.addEventListener('keydown', handleKeydown);
   }
 
+  /**
+   * Whether a context menu is shown in the PiP document, whoever opened it: menus we moved from the page and
+   * menus YouTube opens there itself (web_watch_pip / web_shorts_pip), which subscribeContextMenu does not see.
+   */
+  public isMenuOpenInPip(): boolean {
+    return this.getVisibleMenuInPip() !== null;
+  }
+
   /** First context menu in the PiP document that is currently shown (Shorts + watch can each have one). */
   private getVisibleMenuInPip(): Nullable<HTMLElement> {
     if (!this.pipWindow) {

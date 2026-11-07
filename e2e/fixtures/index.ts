@@ -42,6 +42,12 @@ const defaultContextOptions = {
   baseURL: 'https://www.youtube.com',
 };
 
+/** localStorage flag that turns on userscript debug logs (src/constants/app.ts DEBUG_FLAG). */
+const USERSCRIPT_DEBUG_FLAG = 'YOUTUBE_PIP_DEBUG';
+/** Tag in every userscript log line (src/logger.ts). */
+const USERSCRIPT_LOG_TAG = '[YouTube PiP]';
+/** Userscript log lines kept for the failure output. */
+const USERSCRIPT_LOG_MAX_LINES = 300;
 const VIDEO_URL = 'https://www.youtube.com/watch?v=dQw4w9WgXcQ';
 
 /** Shorts feed page with vertical reels. */
@@ -75,6 +81,10 @@ export {
 export {
   clickContextMenuItem,
   clickCopyMenuItemInPip,
+  focusContextMenuItemInPip,
+  focusedContextMenuItemPositionInPip,
+  watchCopiedBezelInPip,
+  waitForCopyFeedbackInPip,
   openContextMenuInPip,
   waitForContextMenuItemVisible,
 } from './pip-context-menu';
@@ -166,6 +176,14 @@ export const test = base.extend<{
       if (flags.length > 0) {
         await ctx.addInitScript(installForcedExperimentFlags, flags);
       }
+      // Userscript debug logs on (before it runs): they land in traces and in the failure output below
+      await ctx.addInitScript((flag: string) => {
+        try {
+          localStorage.setItem(flag, 'true');
+        } catch {
+          /* opaque origins (about:blank frames) */
+        }
+      }, USERSCRIPT_DEBUG_FLAG);
       await ctx.addInitScript(initHandlerStub, userscriptBody);
       await ctx.addInitScript(installMiniplayerTimeline, MINIPLAYER_TIMELINE_LIMITS);
       await use(ctx);
@@ -195,11 +213,30 @@ export const test = base.extend<{
   /** On failure, print and attach the mini player timeline (see miniplayer-timeline.ts) for CI flakes. */
   miniplayerTimelineOnFailure: [
     async ({ page }, use, testInfo) => {
+      // Userscript log lines of the main page (PiP logs go through the main window's console too)
+      const userscriptLog: string[] = [];
+      page.on('console', (msg) => {
+        const text = msg.text();
+        if (!text.includes(USERSCRIPT_LOG_TAG)) return;
+        userscriptLog.push(
+          text
+            .replace(/%c/g, '')
+            .replace(/\s*(?:color|font-weight):[^;]*;/g, '')
+            // global metadata repeated on every line
+            .replace(/\s*\{youtubeVersion:[^}]*\}\s*$/, '')
+        );
+        if (userscriptLog.length > USERSCRIPT_LOG_MAX_LINES) userscriptLog.shift();
+      });
       await use();
-      if (testInfo.status === testInfo.expectedStatus || page.isClosed()) return;
-      const timeline = await readMiniplayerTimeline(page);
-      console.log(`\n[mini player timeline] ${testInfo.titlePath.join(' › ')}\n${timeline}\n`);
+      if (testInfo.status === testInfo.expectedStatus) return;
+      const timeline = page.isClosed() ? 'page closed' : await readMiniplayerTimeline(page);
+      const log = userscriptLog.join('\n');
+      console.log(
+        `\n[mini player timeline] ${testInfo.titlePath.join(' › ')}\n${timeline}\n` +
+          `\n[userscript log] ${testInfo.titlePath.join(' › ')}\n${log}\n`
+      );
       await testInfo.attach('miniplayer-timeline', { body: timeline, contentType: 'text/plain' });
+      await testInfo.attach('userscript-log', { body: log, contentType: 'text/plain' });
     },
     { auto: true },
   ],

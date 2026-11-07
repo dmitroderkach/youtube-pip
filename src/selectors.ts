@@ -25,6 +25,8 @@ export const SELECTORS = {
   YT_DRAGGABLE: 'yt-draggable',
   CONTEXT_MENU: 'body > .ytp-popup.ytp-contextmenu',
   CONTEXT_MENU_CONTAINER: '.ytp-contextmenu',
+  /** Any player popup (context menu, settings menu); its items handle keys themselves. */
+  PLAYER_POPUP: '.ytp-popup',
   MENU_ITEM: '.ytp-menuitem',
   /** Panel inside a player popup (context menu); YouTube sizes it inline together with the popup. */
   PANEL: '.ytp-panel',

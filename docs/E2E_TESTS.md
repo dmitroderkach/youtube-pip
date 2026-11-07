@@ -58,7 +58,7 @@ The userscript body is read from `dist/userscript.js` (without the UserScript he
 
 ### Diagnosing flakes: mini player timeline
 
-Every test records a timeline in the page (`fixtures/miniplayer-timeline.ts`, installed as an init script): sampled state (URL, mini player visible/active, where `#movie_player` is, ad showing, player state, PiP content), mini player related `yt-action`s, navigations, watch-while `IntersectionObserver` callbacks, and the **stack of every mini player `setActive()`** (captured from the `yt-close-popup-action` it dispatches synchronously), which shows who called `activate()` / `deactivate()`. On failure the `miniplayerTimelineOnFailure` auto fixture prints it to the log and attaches it to the report. To hunt a flake on CI, run only the affected specs with `--repeat-each` (temporarily in `build.yml`) instead of the full suite.
+Every test records a timeline in the page (`fixtures/miniplayer-timeline.ts`, installed as an init script): sampled state (URL, mini player visible/active, where `#movie_player` is, ad showing, player state, PiP content), mini player related `yt-action`s, navigations, watch-while `IntersectionObserver` callbacks, and the **stack of every mini player `setActive()`** (captured from the `yt-close-popup-action` it dispatches synchronously), which shows who called `activate()` / `deactivate()`. On failure the `miniplayerTimelineOnFailure` auto fixture prints it to the log and attaches it to the report, together with the userscript's own log lines (`[YouTube PiP] …`; debug logs are switched on in e2e via the `YOUTUBE_PIP_DEBUG` localStorage flag). The CI report is uploaded also when the run is cancelled, so a run can be stopped once a flake has shown up. To hunt a flake on CI, run only the affected specs with `--repeat-each` (temporarily in `build.yml`) instead of the full suite.
 
 ### PiP helpers
 
@@ -233,6 +233,16 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 - **Goal:** Verify that keyboard navigation (ArrowDown) inside the PiP window correctly advances to the next Shorts reel and the underlying video source changes.
 
 ---
+
+### 9. `context-menu-after-pip.spec.ts` — page context menu after using it in PiP
+
+- **Scenario:** Open PiP, open the context menu in PiP, close PiP with the menu open, right-click the player on the page, click the last item → the menu closes.
+- **Goal:** With `web_watch_pip` / `web_shorts_pip` YouTube opens the menu in the PiP document; it must be returned to the page on close, otherwise YouTube keeps reusing the stranded element and items stop closing the menu.
+
+### 10. `context-menu-keyboard.spec.ts` — keyboard in the PiP context menu
+
+- **Scenario:** Open PiP, wait for ads, open the context menu in PiP, focus "Copy video URL", press **ArrowDown** in the PiP window (focus moves to "Copy video URL at current time"), press **Enter** → "copied" bezel, menu closed, URL in the clipboard.
+- **Goal:** Keys reach the menu in every flag configuration, including menus YouTube opens in PiP itself (`web_watch_pip` / `web_shorts_pip`), where `DocumentFocusHandler` used to forward them to the player.
 
 ## Experiment flag matrix (`fixtures/experiment-flags.ts`)
 

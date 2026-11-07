@@ -390,6 +390,28 @@ describe('ContextMenuHandler', () => {
     handler.stop();
   });
 
+  it('isMenuOpenInPip reflects a shown context menu in the PiP document, also one YouTube opened there', async () => {
+    const pipDoc = document.implementation.createHTMLDocument();
+    mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(
+      document.createElement('div') as never
+    );
+    await handler.initialize();
+    expect(handler.isMenuOpenInPip()).toBe(false);
+
+    const menuEl = pipDoc.createElement('div');
+    menuEl.className = CONTEXT_MENU_CLASS;
+    menuEl.style.display = '';
+    pipDoc.body.appendChild(menuEl);
+    expect(handler.isMenuOpenInPip()).toBe(true);
+
+    menuEl.style.display = 'none';
+    expect(handler.isMenuOpenInPip()).toBe(false);
+    handler.stop();
+    expect(handler.isMenuOpenInPip()).toBe(false);
+  });
+
   it('successful copy lets the YouTube item handler run (closes menu, shows copied bezel) with its copy reported as succeeded', async () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const pipWindow = createFakeWindow({ document: pipDoc });

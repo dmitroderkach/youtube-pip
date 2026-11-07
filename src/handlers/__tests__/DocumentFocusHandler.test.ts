@@ -206,6 +206,64 @@ describe('DocumentFocusHandler', () => {
     handler.cleanup();
   });
 
+  function trustedKey(key: string, target: EventTarget | null = null): KeyboardEvent {
+    return {
+      isTrusted: true,
+      key,
+      code: key,
+      type: 'keydown',
+      keyCode: 0,
+      which: 0,
+      view: null,
+      target,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    } as unknown as KeyboardEvent;
+  }
+
+  it('onKey leaves keys to a menu YouTube opened in PiP itself (not reported by subscribeContextMenu)', () => {
+    const pipDoc = document.implementation.createHTMLDocument();
+    mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));
+    const player = document.createElement('div');
+    mockPlayerManager.getPlayer.mockReturnValue(player);
+    const dispatched: Event[] = [];
+    player.addEventListener('keydown', (e) => dispatched.push(e));
+    mockContextMenuHandler.isMenuOpenInPip.mockReturnValue(true);
+
+    handler.initialize();
+    for (const key of ['Enter', 'ArrowDown', ' ', 'Home']) {
+      const keyEvent = trustedKey(key);
+      handler['onKey'](keyEvent);
+      expect(keyEvent.preventDefault).not.toHaveBeenCalled();
+    }
+
+    expect(dispatched).toHaveLength(0);
+    handler.cleanup();
+  });
+
+  it('onKey leaves keys to a focused player popup (e.g. settings menu)', () => {
+    const pipDoc = document.implementation.createHTMLDocument();
+    mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));
+    const player = document.createElement('div');
+    mockPlayerManager.getPlayer.mockReturnValue(player);
+    const dispatched: Event[] = [];
+    player.addEventListener('keydown', (e) => dispatched.push(e));
+    mockContextMenuHandler.isMenuOpenInPip.mockReturnValue(false);
+    const popup = pipDoc.createElement('div');
+    popup.className = 'ytp-popup ytp-settings-menu';
+    const item = pipDoc.createElement('div');
+    popup.appendChild(item);
+    pipDoc.body.appendChild(popup);
+
+    handler.initialize();
+    const keyEvent = trustedKey('Enter', item);
+    handler['onKey'](keyEvent);
+
+    expect(dispatched).toHaveLength(0);
+    expect(keyEvent.preventDefault).not.toHaveBeenCalled();
+    handler.cleanup();
+  });
+
   it('onKey does nothing when context menu is open', () => {
     const pipDoc = document.implementation.createHTMLDocument();
     mockPipProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc }));

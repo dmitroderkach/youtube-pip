@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
-## [2.5.2] - 2026-11-07
+## [2.6.0] - 2026-11-07
 
 ### Fixed
 
@@ -16,13 +16,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 - **No "copied" feedback for copy items in PiP** — On the page YouTube shows a bezel in the player after "Copy video URL" etc.; in PiP we stopped YouTube's handler (its main-document copy fails there), so nothing was shown. Now YouTube's handler runs after our copy with that one `execCommand('copy')` reported as successful (no copying, our clipboard text stays): it closes the menu and shows its bezel, as on the page. Checked in all five flag projects, watch and Shorts.
 
+- **Keyboard in the PiP context menu with `web_watch_pip` / `web_shorts_pip`** — Keys pressed in PiP are forwarded to the player unless a player menu is open, but only menus we move into PiP were reported as open. Menus YouTube opens in PiP itself were not, so arrows, Enter, Space etc. went to the player instead of the menu. `DocumentFocusHandler` now leaves every key to the menu when one is shown in the PiP document (`ContextMenuHandler.isMenuOpenInPip`) or when focus is inside a player popup (`.ytp-popup`, e.g. settings).
+
 ### Added
 
+- **E2E `context-menu-keyboard.spec.ts`** — In PiP: focus "Copy video URL", ArrowDown moves to the next item, Enter copies with the "copied" bezel and closes the menu. Runs in the whole matrix; fails without the fix in `chromium-yt-pip`.
 - **E2E `context-menu-after-pip.spec.ts`** — Menu opened in PiP, PiP closed with the menu open, then the menu on the page must close on an item click. Fails without the fix in `chromium-yt-pip`.
 - **E2E: watch page ready = hydrated** — `videoPageReady` / `playlistVideoPageReady` now also wait for `ytd-watch-flexy[has-metadata]` (or `ytd-watch-grid`). On slow CI runners the page was still a skeleton after the consent reload when the userscript was ready, and YouTube silently drops miniplayer activation (`i`, `yt-activate-miniplayer-from-watch-action`) without a watch response. This caused the CI flakes in `chromium-yt-pip`, `chromium-all-flags` and `chromium-legacy-ui` (PiP/mini player not opening).
 - **E2E context-menu-copy waits for state, not fixed time** — `waitForPiPAdToEnd` uses one 75 s deadline for all ads in a row (a single 30 s wait threw on the first timeout, so its retry loop never ran); before "Copy URL at current time" the test waits until the PiP video has played 2 s (starting it if paused) instead of a fixed 5 s. Test timeout 180 s.
 - **E2E: wait for YouTube's low-priority jobs and a mini player timeline** — Page-ready fixtures use the same scheduler barrier before the test acts (the `chromium-all-flags` flakes in `mini-player` / `like-dislike`). Every test records a mini player timeline (state, `yt-action`s, navigations, watch-while observer callbacks, stack of each mini player `setActive()`), printed and attached on failure; this is what located the cause. `docs/E2E_TESTS.md`, `docs/YOUTUBE_INTERNAL_API.md` (scheduler), `docs/YOUTUBE_EXPERIMENT_FLAGS.md`.
 - **E2E readiness uses the watch response, copy feedback is asserted** — Page-ready fixtures wait for `ytd-watch-flexy` / `ytd-watch-grid` `.data.currentVideoEndpoint` instead of `[has-metadata]` (YouTube deferred the metadata render during an ad for > 30 s on CI). `clickCopyMenuItemInPip` expects the "copied" bezel and a closed menu. In `context-menu-copy` the `t=` check is skipped with a warning annotation when the video never plays (CI runners sometimes get ads but no video stream).
+- **E2E diagnostics** — Userscript debug logs are on in e2e; on failure the `[YouTube PiP]` log lines are printed and attached next to the mini player timeline. The CI report is uploaded also when the run is cancelled (Playwright writes it on SIGINT), so a run can be stopped as soon as a flake shows up.
 - **TypeScript 6 in the editor** — `tsconfig.json` sets `types: ["node"]` explicitly (TS 6 no longer includes `@types/*` by default; Cursor bundles TS 6.0.3, so `process`, `node:fs`, `Error.captureStackTrace` were errors in the editor) and includes the root config files (`playwright.config.ts`, `vite.config.ts`, `vitest.config.ts`).
 
 ### Changed
@@ -1172,7 +1176,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
-[2.5.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.5.1...refs/tags/v2.5.2
+[2.6.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.5.1...refs/tags/v2.6.0
 [2.5.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.5.0...refs/tags/v2.5.1
 [2.5.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.8...refs/tags/v2.5.0
 [2.4.8]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.4.7...refs/tags/v2.4.8
