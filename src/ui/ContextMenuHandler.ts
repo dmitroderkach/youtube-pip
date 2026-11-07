@@ -194,7 +194,7 @@ export class ContextMenuHandler {
       if (this.contextMenuPlaceholder?.parentNode) {
         this.logger.log('Context menu closed in PiP window. Returning to main...');
         DOMUtils.restoreElementFromPlaceholder(this.contextMenu, this.contextMenuPlaceholder);
-        this.simulateMainContextMenu();
+        this.simulateContextMenu(this.ytdAppProvider.getApp());
       }
       this.stopObservingMenu();
       this.contextMenu = null;
@@ -255,6 +255,10 @@ export class ContextMenuHandler {
         e.stopPropagation();
         menuInPip.style.display = 'none';
         this.notifyVisibility(false);
+        // We hid the menu directly, so the player still thinks it is open. With web_watch_pip /
+        // web_shorts_pip the menu and its "outside contextmenu" close listener live in the PiP
+        // document; without this reset the next right-click shows the browser's native menu.
+        this.simulateContextMenu(this.pipWindow!.document.body);
         this.logger.debug('Context menu dismissed');
       }
     };
@@ -342,11 +346,12 @@ export class ContextMenuHandler {
   }
 
   /**
-   * Simulate context menu event in main window
+   * Dispatch a synthetic contextmenu outside the YouTube menu. The player's context menu listens
+   * for contextmenu on its document while open and closes itself (resetting its "open" state)
+   * when one lands outside the menu. Used on the main ytd-app (menu returned to main) and on the
+   * PiP body (menu dismissed in PiP).
    */
-  private simulateMainContextMenu(): void {
-    const mainApp = this.ytdAppProvider.getApp();
-
+  private simulateContextMenu(target: EventTarget): void {
     const event = new MouseEvent('contextmenu', {
       bubbles: true,
       cancelable: true,
@@ -355,8 +360,8 @@ export class ContextMenuHandler {
       button: MOUSE_BUTTONS.SECONDARY,
     });
 
-    mainApp.dispatchEvent(event);
-    this.logger.debug('Synthetic contextmenu event sent to main window');
+    target.dispatchEvent(event);
+    this.logger.debug('Synthetic contextmenu event sent to reset YouTube context menu state');
   }
 
   /**
@@ -382,7 +387,7 @@ export class ContextMenuHandler {
     ) {
       this.logger.log('Returning context menu to main window');
       DOMUtils.restoreElementFromPlaceholder(this.contextMenu, this.contextMenuPlaceholder);
-      this.simulateMainContextMenu();
+      this.simulateContextMenu(this.ytdAppProvider.getApp());
     }
 
     this.contextMenu = null;

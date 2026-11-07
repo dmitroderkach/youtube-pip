@@ -977,6 +977,33 @@ describe('ContextMenuHandler', () => {
     handler.stop();
   });
 
+  it('dismissing in PiP dispatches a contextmenu on PiP body so YouTube resets its open state', async () => {
+    const pipDoc = document.implementation.createHTMLDocument();
+    const pipWindow = createFakeWindow({ document: pipDoc });
+    mockPipProvider.getWindow.mockReturnValue(pipWindow);
+    mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdApp({}));
+    const menuEl = pipDoc.createElement('div');
+    menuEl.className = `${SELECTORS.CONTEXT_MENU.slice(1).replace(/\./g, ' ')} ${SELECTORS.CONTEXT_MENU_CONTAINER.slice(1)}`;
+    menuEl.style.display = 'block';
+    pipDoc.body.appendChild(menuEl);
+    const outside = pipDoc.createElement('div');
+    pipDoc.body.appendChild(outside);
+    const bodyContextMenu = vi.fn<(e: MouseEvent) => void>();
+    pipDoc.body.addEventListener('contextmenu', bodyContextMenu);
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValue(menuEl as never);
+    await handler.initialize();
+
+    outside.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+    expect(menuEl.style.display).toBe('none');
+    expect(bodyContextMenu).toHaveBeenCalledOnce();
+    const synthetic = bodyContextMenu.mock.calls[0][0];
+    expect(synthetic.target).toBe(pipDoc.body);
+    expect(synthetic.defaultPrevented).toBe(false);
+    handler.stop();
+  });
+
   it('contextmenu (right-click) outside dismisses menu', async () => {
     const pipDoc = document.implementation.createHTMLDocument();
     const pipWindow = createFakeWindow({ document: pipDoc });
