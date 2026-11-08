@@ -30,4 +30,14 @@ export {
   YT_SCHEDULER,
 } from './youtube';
 
-export { COPY_MENU_POSITIONS_FROM_END, KEYS, MOUSE_BUTTONS } from './ui';
+export {
+  COPY_MENU_POSITIONS_FROM_END,
+  KEYS,
+  KEY_CODES,
+  MOUSE_BUTTONS,
+  ENTRY_POINT_CLASSES,
+  PLAYER_TOOLTIP,
+  PIP_HOTKEY,
+  SHORTS_MENU,
+  PIP_ICON_PATH,
+} from './ui';

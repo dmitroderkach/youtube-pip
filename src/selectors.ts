@@ -12,6 +12,21 @@ export const SELECTORS = {
   /** Player that is back on the page, i.e. not inside the mini player container. */
   MOVIE_PLAYER_OUTSIDE_MINIPLAYER: '#movie_player:not(ytd-miniplayer-player-container *)',
   SHORTS_PLAYER: '#shorts-player',
+  /** Full screen button of a Shorts player's top controls (our PiP button goes before it). */
+  /** "⋮" buttons of a Shorts reel (top controls; action bar). */
+  SHORTS_MENU_BUTTON: 'ytd-shorts #menu-button',
+  /** Dropdowns YouTube opens for menus (e.g. the Shorts "⋮" menu). */
+  POPUP_DROPDOWN: 'ytd-popup-container tp-yt-iron-dropdown',
+  /** Row of a view-model list menu (Shorts "⋮" menu). */
+  LIST_ITEM: 'yt-list-item-view-model',
+  /** Tappable container inside a list menu row (carries the hover highlight). */
+  LIST_ITEM_TAPPABLE: '.ytListItemViewModelTappable',
+  /** Slot of the "⋮" button in the Shorts top controls (our PiP button goes right after it). */
+  /** Icon container of a YouTube spec button (`yt-button-shape`). */
+  SPEC_BUTTON_ICON: '.ytSpecButtonShapeNextIcon',
+  SHORTS_MENU_BUTTON_SLOT: 'ytd-shorts-player-controls #right-controls > #menu-button',
+  /** Slot of the full screen button next to it (not rendered with web_shorts_hide_fullscreen_and_captions_for_ask). */
+  SHORTS_FULLSCREEN_SLOT: ':scope > #fullscreen-button-shape',
   /** <video> element inside the player (query relative to player root) */
   PLAYER_VIDEO: 'video',
   YTD_APP: 'ytd-app',
@@ -28,6 +43,9 @@ export const SELECTORS = {
   /** Any player popup (context menu, settings menu); its items handle keys themselves. */
   PLAYER_POPUP: '.ytp-popup',
   MENU_ITEM: '.ytp-menuitem',
+  MENU_ITEM_LABEL: '.ytp-menuitem-label',
+  /** YouTube's own PiP button of the player controls (web_watch_pip). */
+  YT_PIP_BUTTON: '.ytp-pip-button',
   /** Panel inside a player popup (context menu); YouTube sizes it inline together with the popup. */
   PANEL: '.ytp-panel',
   PANEL_MENU: '.ytp-panel-menu',
@@ -37,6 +55,8 @@ export const SELECTORS = {
     '.yt-spec-button-shape-next[aria-expanded], .ytSpecButtonShapeNextHost[aria-expanded]',
   PLAYLIST_PANEL: '.ytdMiniplayerComponentPlaylistPanel',
   PROGRESS_BAR: '.ytp-progress-bar',
+  /** Player settings (gear) button; our PiP button goes before it. */
+  SETTINGS_BUTTON: '.ytp-settings-button',
   LIKE_BUTTON: 'ytd-slim-metadata-toggle-button-renderer',
   /** Click target inside like/dislike toggles; match both class variants. */
   BUTTON_SHAPE: '.yt-spec-button-shape-next, .ytSpecButtonShapeNextHost',

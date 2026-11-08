@@ -25,7 +25,8 @@ e2e/
     ├── like-dislike.spec.ts          # Like / remove like / dislike / remove dislike in PiP (auth, network)
     ├── shorts-pip.spec.ts            # Shorts: open PiP and return Shorts player back to main page
     ├── shorts-context-menu-copy.spec.ts # Shorts: context menu copy items in PiP (Shorts URLs)
-    └── shorts-navigation.spec.ts     # Shorts: navigate to next reel in PiP (ArrowDown)
+    ├── shorts-navigation.spec.ts     # Shorts: navigate to next reel in PiP (ArrowDown)
+    └── pip-entry-points.spec.ts      # Our ways to open PiP: context menu item, controls buttons, Shorts "⋮" item, key p
 ```
 
 ---
@@ -250,6 +251,10 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 
 - **Scenario:** Open PiP, wait for ads, open the context menu in PiP, focus "Copy video URL", press **ArrowDown** in the PiP window (focus moves to "Copy video URL at current time"), press **Enter** → "copied" bezel, menu closed, URL in the clipboard.
 - **Goal:** Keys reach the menu in every flag configuration, including menus YouTube opens in PiP itself (`web_watch_pip` / `web_shorts_pip`), where `DocumentFocusHandler` used to forward them to the player.
+
+### 11. `pip-entry-points.spec.ts` — opening PiP from the page
+
+Real mouse clicks and keys (a real user activation): the "Picture-in-picture" item first in the page's context menu (all items fit in the resized menu, opens PiP, not in the menu inside PiP, back after closing; also in the mini player), the controls button before the settings button (YouTube-style tooltip with "(p)", opaque, centered above the button; opens PiP; hidden in PiP), the key `p` (opens PiP, closes it in the PiP window, ignored while typing in the search box), and, signed in, Shorts: the context menu item, the button right after "⋮" in the top controls and the "⋮" menu item. Every flag set checks that only our PiP entries are offered (YouTube's own item and `.ytp-pip-button`, `chromium-yt-pip`, are hidden). Labels are compared for `en` / `uk` pages (YouTube's own texts, `src/i18n`).
 
 ## Experiment flag matrix (`fixtures/experiment-flags.ts`)
 

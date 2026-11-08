@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.7.0] - 2026-11-08
+
+### Added
+
+- **Open PiP from the page without the media controls** (`PiPEntryPoints`):
+  - **Player context menu** (watch page, mini player, Shorts): a "Picture-in-picture" item at the top; not in the menu inside the PiP window (removed while PiP is open). YouTube sizes the menu when it opens; when the item is added or removed while the menu is shown, the menu's inline heights are corrected by its height. Its click closes the menu through YouTube (a non-bubbling Escape on the menu: hiding it ourselves left YouTube's "open" state behind; a document-level Escape closes the mini player).
+  - **Player controls**: a PiP button before the settings (gear) button, with a tooltip built like the player's own (`.ytp-tooltip`, "Picture-in-picture (p)"); re-added when YouTube rebuilds the controls; hidden in the PiP window.
+  - **Shorts top controls** (signed-in layout): a PiP button right after the "⋮" button, i.e. left of full screen, styled like its neighbours with a `title` tooltip as YouTube's own buttons there; laid out in the "⋮" slot, which YouTube always shows (it hides the full screen slot in small windows and does not render it with `web_shorts_hide_fullscreen_and_captions_for_ask`).
+  - **Shorts "⋮" menu**: a "Picture-in-picture" row at the top.
+  - **Key `p`** (watch page, mini player, Shorts): opens PiP on the page; in the PiP window it brings the video's tab to the front (Chrome lets a PiP window focus its opener with the key's user activation, as its own "back to tab" button does) and closes PiP. Any keyboard layout, matched like YouTube's own shortcuts by the key code (a Cyrillic layout types another letter on P; Dvorak's P key works too). Plain key only (YouTube uses only Shift+P), not while typing (inputs, text areas, editable content). In PiP it is handled in the capture phase before the key forwarding to the player / `ytd-app` (`PiPHotkeyHandler`).
+- **Texts in the YouTube interface language** (`src/i18n`, docs/I18N.md): dictionaries for all 83 languages of YouTube's language picker. The texts are YouTube's own: its name of picture-in-picture from the localized player (the tooltip of its PiP button), e.g. "Картинка в картинці", "Bild im Bild", "画中画". The language is YouTube's `hl` (`ytcfg`), else `<html lang>`; English when there is no dictionary.
+- **E2E** `pip-entry-points.spec.ts` with real mouse clicks and keys: menu item (first, all items fit, opens PiP, absent in the PiP menu, back after close; mini player), controls button (next to the settings, YouTube-style tooltip, opens PiP, hidden in PiP), key `p` (opens, closes in PiP, ignored while typing), and for Shorts (signed in) the context menu item, the controls button and the "⋮" menu item. Every flag set checks that only our PiP entries are offered.
+
+### Changed
+
+- **YouTube's own PiP entry points are hidden** so ours are the only ones and always open our PiP: its "Picture-in-picture" context menu item (`web_watch_pip_context_menu_button`, recognized by its label, which is our text) and its controls button (`.ytp-pip-button`, `web_watch_pip`); both opened YouTube's own PiP instead of ours.
+- **CI**: the full Build Check runs only when product code or tests change; other PRs get lint and Prettier (#159). Pre-releases `vX.Y.Z-rc.N` for testing a release branch (`docs/PRERELEASE.md`, #159).
+- **CLAUDE.md**: changed e2e specs are made green locally before the full CI matrix runs; CI-only specs are iterated on with the e2e step narrowed to them.
+
 ## [2.6.4] - 2026-11-08
 
 ### Fixed
@@ -1233,6 +1252,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.7.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.4...refs/tags/v2.7.0
 [2.6.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.3...refs/tags/v2.6.4
 [2.6.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.2...refs/tags/v2.6.3
 [2.6.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.1...refs/tags/v2.6.2
