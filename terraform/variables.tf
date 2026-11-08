@@ -144,16 +144,16 @@ variable "dev_worker_memory" {
   default     = 4096
 }
 
+variable "dev_worker_idle_alert_minutes" {
+  description = "The dev-bot warns in the chat when the worker is still up this long after its last answer with no turn running."
+  type        = number
+  default     = 30
+}
+
 variable "dev_worker_idle_timeout_seconds" {
   description = "The dev worker stops after this long without a message or work in progress."
   type        = number
   default     = 600
-}
-
-variable "dev_worker_max_lifetime_seconds" {
-  description = "Hard limit of one dev worker run."
-  type        = number
-  default     = 14400
 }
 
 variable "dev_worker_state_retention_days" {

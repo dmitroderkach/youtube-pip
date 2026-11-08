@@ -13,7 +13,7 @@ A Claude Code session (Opus) on an on-demand ECS task that the owner starts, tal
 | `/voice` [`auto` \| `on` \| `off` \| `samples` \| `<name>`] | voice reply settings, answered by the worker: mode (`auto`: answer the owner's voice messages also by voice, default; `on`: every answer; `off`), `samples` sends a sample of 6 female Chirp 3 HD voices, `<name>` (e.g. `Kore`) picks the voice; kept in `state/meta.json`                                                                                                                                                              |
 | text, photo, voice, audio, file                             | to the worker; its answer comes back in the chat (`працюю…` while it works). Not running: the worker is started for it (`⏳ Воркер не був запущений: піднімаю, передам повідомлення…`); starting: `📥 Отримав, передам, щойно підніметься`                                                                                                                                                                                               |
 | (10 min idle)                                               | `💤 10 хв без активності. Контекст збережено, вимикаюсь…` → `⚪ Воркер зупинено`                                                                                                                                                                                                                                                                                                                                                         |
-| (4 h lifetime)                                              | `⏱ Досягнуто ліміту 4 год. Контекст збережено, вимикаюсь…` → `⚪ Воркер зупинено`                                                                                                                                                                                                                                                                                                                                                        |
+| (30 min after the last answer, still up, no turn running)   | `🟡 Воркер працює вже N хв після останньої відповіді…` from the dev-bot (idle watchdog, every 5 min, once per answer): likely a stray background task keeping the idle timer from firing; /background to look, /down to stop                                                                                                                                                                                                             |
 | (unexpected)                                                | `🔴 Воркер несподівано зупинився (<причина>). Контекст останнього збереження: <час>`                                                                                                                                                                                                                                                                                                                                                     |
 
 Idle = no message from the owner and no work in progress for 10 minutes.
@@ -35,7 +35,11 @@ Telegram ──webhook──▶ Lambda dev-bot (Function URL)
                         │  each message goes into it; a message during a turn: running commands → background, priority 'next'
                         ├─ answers / statuses ─▶ Telegram Bot API
                         ├─ after each answer: session + uncommitted diff ─▶ S3 dev-worker-state
-                        └─ idle 10 min / 4 h / SIGTERM: save, notify, exit 0
+                        ├─ after each answer: {lastAnswerAt, turnActive} ─▶ S3 state/activity.json
+                        └─ idle 10 min / SIGTERM: save, notify, exit 0
+
+EventBridge rate(5 minutes) ─▶ Lambda dev-bot (idle watchdog)
+                        └─ worker up, no turn running, last answer ≥ 30 min ago ─▶ `🟡` warning, once per answer
 
 EventBridge "ECS Task State Change" (dev-worker STOPPED) ─▶ Lambda dev-bot
                         └─ stop the worker did not report itself (exit ≠ 0, OOM, task killed) ─▶ `🔴` in the chat
@@ -46,6 +50,10 @@ EventBridge "ECS Task State Change" (dev-worker STOPPED) ─▶ Lambda dev-bot
 - **ECS task `dev-worker`**: on-demand Fargate (an interactive session interrupted by Spot costs more than the ~$0.07/h saved), its own image (Node, git, `gh`, Claude Code, Playwright Chromium for narrowed tests), in its own ECS cluster `dev-worker`, in the public subnet of the runner VPC with a public IP. It does not use the NAT instance: the NAT exists for the e2e runs, and the NAT lifecycle Lambda starts it whenever the runner cluster has a task, so the worker stays out of that cluster.
 - **S3 `dev-worker-state`**: the Claude Code session (transcript), its id and the uncommitted diff of the working tree. Restored on every `/up`, so the conversation continues across `/down`, idle stops and restarts.
 - **EventBridge rule**: ECS stop events of the `dev-worker` family → dev-bot, so a crash is reported even when the worker could not say anything.
+
+## Idle watchdog
+
+The worker stops after 10 minutes without a turn or a background task. A background task that never ends (a stuck watch, a forgotten server) keeps it up indefinitely, and there is no hard lifetime limit. So the worker writes `state/activity.json` (`lastAnswerAt`, `turnActive`) when a turn starts and after each answer (also the ready message), and the dev-bot Lambda runs every 5 minutes (EventBridge schedule): if the worker task is running, no turn is active and the last answer is at least `dev_worker_idle_alert_minutes` (30) old, it sends `🟡 Воркер працює вже N хв після останньої відповіді…` with /background and /down, once per answer (`state/idle-alert.json`). It never stops the worker itself; a long turn is not warned about.
 
 ## Talking while it works
 
@@ -89,7 +97,7 @@ The worker keeps one Claude Code session open for the whole run (Claude Agent SD
 
 ## Cost
 
-On-demand 2 vCPU / 4 GB ≈ $0.10 per hour of work (plus a public IPv4 address, ≈ $0.005/h); nothing while stopped (idle stop after 10 min, hard limit 4 h). Lambda, SQS and S3 are within cents. Claude usage counts against the subscription of `claude setup-token`, shared with the on-call (Opus uses the limits faster than the on-call's Sonnet).
+On-demand 2 vCPU / 4 GB ≈ $0.10 per hour of work (plus a public IPv4 address, ≈ $0.005/h); nothing while stopped (idle stop after 10 min; no hard lifetime limit: the idle watchdog warns when a run stays up 30 min after the last answer with no turn running, e.g. held by a stray background task). Lambda, SQS and S3 are within cents. Claude usage counts against the subscription of `claude setup-token`, shared with the on-call (Opus uses the limits faster than the on-call's Sonnet).
 
 ## Files
 
