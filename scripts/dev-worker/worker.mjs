@@ -17,7 +17,15 @@
  */
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -53,6 +61,13 @@ const PROJECTS_PREFIX = 'claude/projects/';
 const INBOX_PREFIX = 'inbox/';
 /** Photos and files from the chat, for Claude's Read tool (outside the repository). */
 const INBOX_DIR = join(homedir(), 'inbox');
+/** Files Claude puts here are sent to the chat after its answer, then moved to OUTBOX_SENT_DIR. */
+const OUTBOX_DIR = join(homedir(), 'outbox');
+const OUTBOX_SENT_DIR = join(OUTBOX_DIR, 'sent');
+const PHOTO_EXTENSIONS = /\.(png|jpe?g|webp|gif)$/i;
+/** Bot API upload limits: photos up to 10 MB, other files up to 50 MB. */
+const TELEGRAM_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
+const TELEGRAM_FILE_MAX_BYTES = 50 * 1024 * 1024;
 const TRANSCRIBE_LANGUAGE = env.TRANSCRIBE_LANGUAGE ?? 'uk-UA';
 const TRANSCRIBE_POLL_MS = 2000;
 const TRANSCRIBE_TIMEOUT_MS = 180000;
@@ -113,6 +128,52 @@ async function say(text) {
     last = await telegram('sendMessage', { text: chunk });
   }
   return last;
+}
+
+/** Upload a local file to the chat: images as photos (viewable inline), the rest and big images as documents. */
+async function sendFile(path) {
+  const name = path.slice(path.lastIndexOf('/') + 1);
+  const size = statSync(path).size;
+  if (size > TELEGRAM_FILE_MAX_BYTES) {
+    await say(`⚠️ ${name}: ${Math.round(size / 1048576)} МБ, більше ліміту Telegram (50 МБ)`);
+    return;
+  }
+  const asPhoto = PHOTO_EXTENSIONS.test(name) && size <= TELEGRAM_PHOTO_MAX_BYTES;
+  const form = new FormData();
+  form.append('chat_id', String(env.TELEGRAM_CHAT_ID));
+  form.append('caption', name);
+  form.append(asPhoto ? 'photo' : 'document', new Blob([readFileSync(path)]), name);
+  const method = asPhoto ? 'sendPhoto' : 'sendDocument';
+  const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+    method: 'POST',
+    body: form,
+  });
+  const json = await res.json().catch(() => ({ ok: false, description: `HTTP ${res.status}` }));
+  if (!json.ok) {
+    log(`telegram ${method} failed: ${json.error_code ?? ''} ${json.description}`);
+    await say(`⚠️ Не вдалося надіслати ${name}: ${json.description ?? 'помилка Telegram'}`);
+  }
+}
+
+/** Send the files Claude left in OUTBOX_DIR, oldest first; each is moved to OUTBOX_SENT_DIR afterwards. */
+async function flushOutbox() {
+  if (!existsSync(OUTBOX_DIR)) return;
+  const files = readdirSync(OUTBOX_DIR)
+    .map((name) => join(OUTBOX_DIR, name))
+    .filter((path) => statSync(path).isFile())
+    .sort((a, b) => statSync(a).mtimeMs - statSync(b).mtimeMs);
+  for (const path of files) {
+    try {
+      await sendFile(path);
+    } catch (error) {
+      log('outbox send failed', error);
+    }
+    mkdirSync(OUTBOX_SENT_DIR, { recursive: true });
+    renameSync(
+      path,
+      join(OUTBOX_SENT_DIR, `${Date.now()}-${path.slice(path.lastIndexOf('/') + 1)}`)
+    );
+  }
 }
 
 const edit = (messageId, text) =>
@@ -375,6 +436,7 @@ async function finishTurn(result) {
     return;
   }
   await say(answer || (result.errors ?? []).join('\n') || `(${result.subtype})`);
+  await flushOutbox();
   try {
     await save();
   } catch (error) {
