@@ -202,7 +202,9 @@ resource "aws_ecs_task_definition" "dev_worker" {
         { name = "CLAUDE_CODE_OAUTH_TOKEN", valueFrom = "${data.aws_secretsmanager_secret.oncall.arn}:claude_code_oauth_token::" },
         { name = "TELEGRAM_BOT_TOKEN", valueFrom = "${data.aws_secretsmanager_secret.oncall.arn}:telegram_bot_token::" },
         { name = "TELEGRAM_CHAT_ID", valueFrom = "${data.aws_secretsmanager_secret.oncall.arn}:telegram_chat_id::" },
-        { name = "GITHUB_TOKEN", valueFrom = "${data.aws_secretsmanager_secret.dev_worker.arn}:github_token::" }
+        { name = "GITHUB_TOKEN", valueFrom = "${data.aws_secretsmanager_secret.dev_worker.arn}:github_token::" },
+        # Voice replies (Google Cloud Text-to-Speech API key, docs/DEV_WORKER.md); the key must exist in the secret
+        { name = "GOOGLE_TTS_API_KEY", valueFrom = "${data.aws_secretsmanager_secret.dev_worker.arn}:google_tts_api_key::" }
       ]
       logConfiguration = {
         logDriver = "awslogs"
