@@ -4,7 +4,9 @@
  * - generates the webhook secret token if `youtube-pip-dev-worker` has none (kept in that secret, never printed);
  * - points the on-call bot's webhook at the dev-bot Lambda URL with that secret (only `message` updates, one
  *   connection at a time so commands and messages arrive in order);
- * - sets the bot's command menu (/up, /down).
+ * - sets the bot's command menu (/up, /down, /context, /background).
+ *
+ * Safe to re-run (e.g. after a menu change): the secret is kept and the webhook set again.
  *
  * Usage (AWS credentials of the account, from the repository root):
  *   node scripts/dev-worker/setup-telegram.mjs "$(terraform -chdir=terraform output -raw dev_bot_webhook_url)"
@@ -82,9 +84,11 @@ await bot('setMyCommands', {
   commands: [
     { command: 'up', description: 'Підняти воркера (Claude Code)' },
     { command: 'down', description: 'Зупинити воркера, зберегти контекст' },
+    { command: 'context', description: 'Контекст сесії і ліміти Claude (5 год, тиждень)' },
+    { command: 'background', description: 'Фонові задачі Claude' },
   ],
 });
-console.log('commands: /up, /down');
+console.log('commands: /up, /down, /context, /background');
 const info = await bot('getWebhookInfo', {});
 console.log(
   `webhook info: url matches=${info.url === webhookUrl}, pending=${info.pending_update_count}, last error=${info.last_error_message ?? 'none'}`

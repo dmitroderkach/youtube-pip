@@ -72,6 +72,8 @@ const PHOTO_EXTENSIONS = /\.(png|jpe?g|webp|gif)$/i;
 const TELEGRAM_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
 const TELEGRAM_FILE_MAX_BYTES = 50 * 1024 * 1024;
 const TRANSCRIBE_LANGUAGE = env.TRANSCRIBE_LANGUAGE ?? 'uk-UA';
+/** Times shown to the owner (session save time, limit resets). */
+const OWNER_TIME_ZONE = 'Europe/Warsaw';
 const TRANSCRIBE_POLL_MS = 2000;
 const TRANSCRIBE_TIMEOUT_MS = 180000;
 /** Telegram MIME type → AWS Transcribe media format. */
@@ -391,10 +393,24 @@ let session = null;
 let turn = null;
 /** Live background tasks (Bash / subagents) of the session. */
 let backgroundTaskCount = 0;
+/** The same tasks for `/background`: task_id → { type, description, since (ms, first seen by the worker) }. */
+let backgroundTasks = new Map();
 /** Tool calls of the current turn still waiting for their result (blocking commands in the foreground). */
 const foregroundToolIds = new Set();
 /** A message from the owner was delivered during the current turn (its end may be the cut-off of that turn). */
 let deliveredMidTurn = false;
+/** Plan rate-limit windows from the last `rate_limit_event` of the session: { five_hour, seven_day } → { utilization 0-1, resetsAt unix s }. */
+const rateLimits = {};
+
+/** Remember the plan windows of a `rate_limit_event` (`unifiedWindows` has all of them; older CLIs send one window). */
+function onRateLimit(info = {}) {
+  const windows = info.unifiedWindows ?? (info.rateLimitType ? { [info.rateLimitType]: info } : {});
+  for (const [name, window] of Object.entries(windows)) {
+    if (typeof window?.utilization === 'number') {
+      rateLimits[name] = { utilization: window.utilization, resetsAt: window.resetsAt ?? null };
+    }
+  }
+}
 
 function describeTool(name, input = {}) {
   const detail =
@@ -508,8 +524,21 @@ async function runSession(resumeId) {
       for (const item of message.message.content) {
         if (item.type === 'tool_result') foregroundToolIds.delete(item.tool_use_id);
       }
+    } else if (message.type === 'rate_limit_event') {
+      onRateLimit(message.rate_limit_info);
     } else if (message.type === 'system' && message.subtype === 'background_tasks_changed') {
       backgroundTaskCount = (message.tasks ?? []).length;
+      backgroundTasks = new Map(
+        (message.tasks ?? []).map((task) => [
+          task.task_id,
+          {
+            // local_bash → bash, local_agent → agent
+            type: `${task.task_type.replace(/^local_/, '')}${task.subagent_type ? ` (${task.subagent_type})` : ''}`,
+            description: task.description,
+            since: backgroundTasks.get(task.task_id)?.since ?? Date.now(),
+          },
+        ])
+      );
     } else if (message.type === 'result') {
       await finishTurn(message);
     }
@@ -530,6 +559,7 @@ async function keepSession() {
       log('session ended', error);
       turn = null;
       backgroundTaskCount = 0;
+      backgroundTasks = new Map();
       if (resumeId && /no conversation found/i.test(String(error?.message ?? error))) {
         // The saved session is gone (e.g. expired from S3): continue in a new one
         await say('ℹ️ Збережену сесію не знайдено (старша за тиждень?): починаю нову.');
@@ -549,6 +579,111 @@ async function keepSession() {
       resumeId = meta?.sessionId ?? resumeId;
     }
   }
+}
+
+// ---------------------------------------------------------------------------------------------- /context
+
+const CONTEXT_COMMAND = /^\/context(@\w+)?$/i;
+const pct = (value) => `${Math.round(value)}%`;
+
+/** "2h15m" / "40m" until a unix-seconds time. */
+function untilText(resetsAt) {
+  const minutes = Math.max(0, Math.round((resetsAt * 1000 - Date.now()) / 60000));
+  const hours = Math.floor(minutes / 60);
+  return hours ? `${hours}h${String(minutes % 60).padStart(2, '0')}m` : `${minutes}m`;
+}
+
+/** "Fri 21:00" in the owner's time zone. */
+function weekdayTimeText(resetsAt) {
+  return new Date(resetsAt * 1000)
+    .toLocaleString('en-GB', {
+      timeZone: OWNER_TIME_ZONE,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    .replace(',', '');
+}
+
+/**
+ * Plan windows: from the session's last `rate_limit_event` (sent with every answer of the API); before the first
+ * answer of this run, from the SDK's /usage data (null when the token has no profile scope).
+ */
+async function planWindows() {
+  if (rateLimits.five_hour || rateLimits.seven_day) return rateLimits;
+  const usage = await session
+    ?.usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET({ skipBehaviors: true })
+    .catch((error) => log('usage failed', error));
+  const windows = {};
+  for (const name of ['five_hour', 'seven_day']) {
+    const window = usage?.rate_limits?.[name];
+    if (typeof window?.utilization === 'number') {
+      windows[name] = {
+        utilization: window.utilization / 100,
+        resetsAt: window.resets_at ? Date.parse(window.resets_at) / 1000 : null,
+      };
+    }
+  }
+  return windows;
+}
+
+/** `/context`: "ctx 61% · 5h 12% ↻2h15m · week 14% ↻Fri 21:00", answered by the worker without a Claude turn. */
+async function reportContext() {
+  const context = await session
+    ?.getContextUsage({ detail: 'summary' })
+    .catch((error) => log('getContextUsage failed', error));
+  const windows = await planWindows();
+  const parts = [context ? `ctx ${pct(context.percentage)}` : 'ctx ?'];
+  const five = windows.five_hour;
+  parts.push(
+    five
+      ? `5h ${pct(five.utilization * 100)}${five.resetsAt ? ` ↻${untilText(five.resetsAt)}` : ''}`
+      : '5h ?'
+  );
+  const week = windows.seven_day;
+  parts.push(
+    week
+      ? `week ${pct(week.utilization * 100)}${week.resetsAt ? ` ↻${weekdayTimeText(week.resetsAt)}` : ''}`
+      : 'week ?'
+  );
+  const lines = [parts.join(' · ')];
+  if (context) {
+    lines.push(
+      `контекст: ${Math.round(context.totalTokens / 1000)}k з ${Math.round(context.rawMaxTokens / 1000)}k токенів (${context.model})`
+    );
+  }
+  if (!five && !week) lines.push('ліміти зʼявляться після першої відповіді Claude у цьому запуску');
+  await say(lines.join('\n'));
+}
+
+// ---------------------------------------------------------------------------------------------- /background
+
+const BACKGROUND_COMMAND = /^\/background(@\w+)?$/i;
+
+/** "1h05m" / "3m12s" / "40s" since a time in ms. */
+function elapsedText(since) {
+  const seconds = Math.max(0, Math.round((Date.now() - since) / 1000));
+  const minutes = Math.floor(seconds / 60);
+  if (minutes >= 60) return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}m`;
+  return minutes ? `${minutes}m${String(seconds % 60).padStart(2, '0')}s` : `${seconds}s`;
+}
+
+/** `/background`: the session's background tasks (shell commands, subagents), answered without a Claude turn. */
+async function reportBackground() {
+  const lines = [turn ? '⏳ Claude зараз працює над задачею' : '💤 Claude зараз вільний'];
+  if (!backgroundTasks.size) {
+    lines.push('Фонових задач немає');
+  } else {
+    lines.push(`Фонові задачі: ${backgroundTasks.size}`);
+    let n = 0;
+    for (const task of backgroundTasks.values()) {
+      lines.push(
+        `${++n}. ${task.type} · ${task.description || '(без опису)'} · ${elapsedText(task.since)}`
+      );
+    }
+  }
+  await say(lines.join('\n'));
 }
 
 /** Deliver one message from the owner; while Claude works, its running commands go to the background first. */
@@ -689,7 +824,7 @@ async function main() {
   const branch = (await sh('git', ['-C', REPO_DIR, 'branch', '--show-current'])).trim();
   await say(
     meta?.sessionId
-      ? `🟢 Воркер готовий (Opus). Контекст відновлено з сесії від ${new Date(meta.savedAt).toLocaleString('uk-UA', { timeZone: 'Europe/Warsaw' })}; гілка ${branch || '(detached)'}${restored.workspace ? '' : ', робоча копія свіжа'}.`
+      ? `🟢 Воркер готовий (Opus). Контекст відновлено з сесії від ${new Date(meta.savedAt).toLocaleString('uk-UA', { timeZone: OWNER_TIME_ZONE })}; гілка ${branch || '(detached)'}${restored.workspace ? '' : ', робоча копія свіжа'}.`
       : `🟢 Воркер готовий (Opus). Нова сесія; гілка ${branch || '(detached)'}.`
   );
 
@@ -719,6 +854,15 @@ async function main() {
       }
       lastActivity = Date.now();
       try {
+        const command = message.attachments?.length ? '' : (message.text?.trim() ?? '');
+        if (CONTEXT_COMMAND.test(command)) {
+          await reportContext();
+          continue;
+        }
+        if (BACKGROUND_COMMAND.test(command)) {
+          await reportBackground();
+          continue;
+        }
         await deliver(message);
       } catch (error) {
         log('deliver failed', error);
