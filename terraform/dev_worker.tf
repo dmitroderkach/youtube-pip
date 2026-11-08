@@ -192,7 +192,6 @@ resource "aws_ecs_task_definition" "dev_worker" {
         { name = "CLAUDE_MODEL", value = "opus" },
         { name = "TRANSCRIBE_LANGUAGE", value = "uk-UA" },
         { name = "IDLE_TIMEOUT_SECONDS", value = tostring(var.dev_worker_idle_timeout_seconds) },
-        { name = "MAX_LIFETIME_SECONDS", value = tostring(var.dev_worker_max_lifetime_seconds) },
         { name = "GIT_USER_NAME", value = var.dev_worker_git_user_name },
         { name = "GIT_USER_EMAIL", value = var.dev_worker_git_user_email },
         # The test account session is not in the worker: auth-backed e2e specs are skipped there
@@ -275,6 +274,17 @@ resource "aws_iam_role_policy" "dev_bot" {
         Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/meta.json"
       },
       {
+        # Idle watchdog: the worker's activity, and the last answer already warned about
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/activity.json"
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject"]
+        Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/idle-alert.json"
+      },
+      {
         # Start requested while a stopped worker was still saving its session (consumed on its STOPPED event)
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
@@ -311,6 +321,7 @@ resource "aws_lambda_function" "dev_bot" {
       STATE_BUCKET        = aws_s3_bucket.dev_worker_state.bucket
       ONCALL_SECRET_ARN   = data.aws_secretsmanager_secret.oncall.arn
       DEV_SECRET_ARN      = data.aws_secretsmanager_secret.dev_worker.arn
+      IDLE_ALERT_MINUTES  = tostring(var.dev_worker_idle_alert_minutes)
     }
   }
 }
@@ -362,4 +373,26 @@ resource "aws_lambda_permission" "dev_bot_events" {
   function_name = aws_lambda_function.dev_bot.function_name
   principal     = "events.amazonaws.com"
   source_arn    = aws_cloudwatch_event_rule.dev_worker_stopped.arn
+}
+
+# Idle watchdog (docs/DEV_WORKER.md): every few minutes the dev-bot checks whether the worker is still up long after
+# its last answer with no turn running, and warns in the chat once per answer.
+resource "aws_cloudwatch_event_rule" "dev_worker_idle_watch" {
+  name                = "${local.name_prefix}-dev-worker-idle-watch"
+  description         = "Dev worker idle watchdog (docs/DEV_WORKER.md)"
+  schedule_expression = "rate(5 minutes)"
+}
+
+resource "aws_cloudwatch_event_target" "dev_worker_idle_watch" {
+  rule      = aws_cloudwatch_event_rule.dev_worker_idle_watch.name
+  target_id = "dev-bot-lambda"
+  arn       = aws_lambda_function.dev_bot.arn
+}
+
+resource "aws_lambda_permission" "dev_bot_idle_watch" {
+  statement_id  = "AllowExecutionFromIdleWatch"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.dev_bot.function_name
+  principal     = "events.amazonaws.com"
+  source_arn    = aws_cloudwatch_event_rule.dev_worker_idle_watch.arn
 }

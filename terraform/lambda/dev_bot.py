@@ -39,6 +39,11 @@ REPORTED_EXIT_CODES = {0, 10}
 REPLY_MAX_CHARS = 8000
 STARTED_BY = "telegram"
 META_KEY = "state/meta.json"
+# Written by the worker: {lastAnswerAt, turnActive} (scripts/dev-worker/worker.mjs)
+ACTIVITY_KEY = "state/activity.json"
+# Last answer the watchdog warned about, so it warns once per answer
+IDLE_ALERT_KEY = "state/idle-alert.json"
+IDLE_ALERT_MINUTES = int(os.environ.get("IDLE_ALERT_MINUTES", "30"))
 # Start requested while a stopped worker was still saving: consumed by the STOPPED event of that task
 PENDING_START_KEY = "state/pending-start.json"
 
@@ -80,7 +85,9 @@ def worker_tasks():
     if not arns:
         return []
     tasks = ecs.describe_tasks(cluster=CLUSTER_ARN, tasks=arns).get("tasks", [])
-    return [{"arn": t["taskArn"], "lastStatus": t.get("lastStatus", "")} for t in tasks]
+    return [
+        {"arn": t["taskArn"], "lastStatus": t.get("lastStatus", ""), "startedAt": t.get("startedAt")} for t in tasks
+    ]
 
 
 def worker_stopping():
@@ -322,9 +329,45 @@ def report_unexpected_stop(detail, containers, exit_code):
     say(f"🔴 Воркер несподівано зупинився ({'; '.join(parts)}). Контекст останнього збереження: {last_save_time()}")
 
 
+def read_json(key):
+    try:
+        return json.loads(s3.get_object(Bucket=STATE_BUCKET, Key=key)["Body"].read())
+    except Exception:
+        return None
+
+
+def idle_watch():
+    """Scheduled: warn once when the worker is still up IDLE_ALERT_MINUTES after its last answer with no turn running."""
+    running = [t for t in worker_tasks() if t["lastStatus"] == "RUNNING" and t["startedAt"]]
+    if not running:
+        return {"status": "no worker"}
+    activity = read_json(ACTIVITY_KEY) or {}
+    last = activity.get("lastAnswerAt")
+    if not last or activity.get("turnActive"):
+        return {"status": "busy or unknown"}
+    answered = datetime.fromisoformat(last.replace("Z", "+00:00"))
+    # A new run writes its activity only once its session is restored: until then the file is the previous run's
+    if answered < max(t["startedAt"] for t in running):
+        return {"status": "starting"}
+    minutes = (datetime.now(timezone.utc) - answered).total_seconds() / 60
+    if minutes < IDLE_ALERT_MINUTES:
+        return {"status": "recent answer"}
+    if (read_json(IDLE_ALERT_KEY) or {}).get("lastAnswerAt") == last:
+        return {"status": "already warned"}
+    # Marked before the message: a failed mark (and EventBridge's retry of the invocation) never warns twice
+    s3.put_object(Bucket=STATE_BUCKET, Key=IDLE_ALERT_KEY, Body=json.dumps({"lastAnswerAt": last}))
+    say(
+        f"🟡 Воркер працює вже {int(minutes)} хв після останньої відповіді, а задачі в роботі немає: "
+        "можливо, висить фонова задача, що не дає йому заснути. /background — подивитись, /down — зупинити"
+    )
+    return {"status": "warned"}
+
+
 def handler(event, _context):
     if event.get("source") == "aws.ecs":
         return task_stopped(event)
+    if event.get("source") == "aws.events" and event.get("detail-type") == "Scheduled Event":
+        return idle_watch()
     try:
         return telegram_update(event)
     except Exception as error:

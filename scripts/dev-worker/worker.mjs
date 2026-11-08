@@ -8,11 +8,11 @@
  * like Ctrl+B) and is delivered at the turn's next step (priority 'next', right away once nothing blocks). Background tasks survive between turns; their
  * completion starts a turn of its own. Every turn's progress and final answer go to Telegram; the state is saved to
  * S3 after every answer. Stops by itself after IDLE_TIMEOUT_SECONDS without activity (no turn and no background task)
- * or MAX_LIFETIME_SECONDS in total, and on SIGTERM (`/down`, ECS StopTask); every stop it initiates is reported in
+ * (the dev-bot Lambda warns in the chat when a run stays up long after the last answer, docs/DEV_WORKER.md), and on SIGTERM (`/down`, ECS StopTask); every stop it initiates is reported in
  * the chat and ends with exit code 0 or REPORTED_EXIT_CODE, which the dev-bot Lambda does not report again.
  *
  * Env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, QUEUE_URL, STATE_BUCKET, CLAUDE_CODE_OAUTH_TOKEN, GH_TOKEN,
- *      GITHUB_REPO, UP_AT (unix seconds of /up), IDLE_TIMEOUT_SECONDS, MAX_LIFETIME_SECONDS, CLAUDE_MODEL,
+ *      GITHUB_REPO, UP_AT (unix seconds of /up), IDLE_TIMEOUT_SECONDS, CLAUDE_MODEL,
  *      TRANSCRIBE_LANGUAGE.
  */
 import { query } from '@anthropic-ai/claude-agent-sdk';
@@ -41,7 +41,6 @@ const BUCKET = env.STATE_BUCKET;
 const QUEUE_URL = env.QUEUE_URL;
 const MODEL = env.CLAUDE_MODEL ?? 'opus';
 const IDLE_MS = Number(env.IDLE_TIMEOUT_SECONDS ?? 600) * 1000;
-const LIFETIME_MS = Number(env.MAX_LIFETIME_SECONDS ?? 14400) * 1000;
 const UP_AT = Number(env.UP_AT ?? 0);
 /** Exit code of a failure the worker has already reported in the chat (dev-bot does not report it again). */
 const REPORTED_EXIT_CODE = 10;
@@ -54,12 +53,17 @@ const TELEGRAM_ATTEMPTS = 3;
 const TELEGRAM_RETRY_DELAY_MS = 2000;
 /** SIGTERM from ECS leaves stopTimeout (120 s) to save; Claude gets this long to stop its turn first. */
 const CLAUDE_STOP_GRACE_MS = 10000;
-/** How often the idle / lifetime limits are checked. */
+/** How often the idle limit is checked. */
 const LIMITS_CHECK_MS = 10000;
 /** A Claude session that ends unexpectedly is restarted (resumed) at most this many times per run. */
 const MAX_SESSION_RESTARTS = 3;
 const META_KEY = 'state/meta.json';
 const WORKSPACE_KEY = 'state/workspace.tar.gz';
+/**
+ * { lastAnswerAt, turnActive } for the dev-bot Lambda's watchdog: it warns in the chat when the worker is still up
+ * long after its last answer with no turn running (e.g. a stray background task keeps the idle timer from firing).
+ */
+const ACTIVITY_KEY = 'state/activity.json';
 const PROJECTS_PREFIX = 'claude/projects/';
 /** Voice / audio uploaded for AWS Transcribe (deleted after; the bucket lifecycle covers leftovers). */
 const INBOX_PREFIX = 'inbox/';
@@ -479,11 +483,30 @@ function describeTool(name, input = {}) {
   return `${name}${detail ? `: ${String(detail).split('\n')[0].slice(0, 120)}` : ''}`;
 }
 
+let lastAnswerAt = new Date().toISOString();
+/** Uploads of the activity run one after another, so an older state never lands after a newer one. */
+let activityUploads = Promise.resolve();
+
+/** Tell the watchdog when the last answer went out and whether a turn is running (best effort). */
+function publishActivity(turnActive) {
+  const body = JSON.stringify({ lastAnswerAt, turnActive });
+  activityUploads = activityUploads.then(async () => {
+    try {
+      const path = '/tmp/activity.json';
+      writeFileSync(path, body);
+      await aws('s3', 'cp', path, `s3://${BUCKET}/${ACTIVITY_KEY}`, '--quiet');
+    } catch (error) {
+      log('publish activity failed', error);
+    }
+  });
+}
+
 /** Start tracking a turn (a message from the owner, or a turn Claude starts for a finished background task). */
 function ensureTurn() {
   if (turn) return turn;
   const current = { progress: null, started: Date.now(), steps: 0, lastEdit: 0 };
   turn = current;
+  publishActivity(true);
   // Kept as a promise: a fast turn can end before Telegram has returned the message to edit
   current.progressSent = telegram('sendMessage', { text: '⏳ Працюю…' }).then((progress) => {
     current.progress = progress;
@@ -534,6 +557,8 @@ async function finishTurn(result) {
   }
   const { text, spoken } = splitVoiceBlock(answer);
   await say(text || (result.errors ?? []).join('\n') || `(${result.subtype})`);
+  lastAnswerAt = new Date().toISOString();
+  publishActivity(false);
   if (text && !failed) await replyByVoice(text, spoken);
   else voiceReplyPending = false;
   await flushOutbox();
@@ -619,6 +644,8 @@ async function keepSession() {
       turn = null;
       backgroundTaskCount = 0;
       backgroundTasks = new Map();
+      // The turn is gone with the session: the watchdog must not take it for one still running
+      publishActivity(false);
       if (resumeId && /no conversation found/i.test(String(error?.message ?? error))) {
         // The saved session is gone (e.g. expired from S3): continue in a new one
         await say('ℹ️ Збережену сесію не знайдено (старша за тиждень?): починаю нову.');
@@ -998,9 +1025,8 @@ async function deliver(message) {
 
 // ---------------------------------------------------------------------------------------------- main loop
 
-const startedAt = Date.now();
 let lastActivity = Date.now();
-/** Why the worker is stopping: 'sigterm' | 'idle' | 'lifetime' | 'crash' | null. */
+/** Why the worker is stopping: 'sigterm' | 'idle' | 'crash' | null. */
 let stopReason = null;
 let stopping = false;
 
@@ -1054,13 +1080,11 @@ async function stop() {
   }
   const context = saved ? 'Контекст збережено' : 'Контекст НЕ вдалося зберегти (див. логи)';
   const minutes = Math.round(IDLE_MS / 60000);
-  const hours = Math.round(LIFETIME_MS / 3600000);
   // Sent as the process ends; ECS still needs a while to stop the task. "⚪ Воркер зупинено" comes from the bot on
   // the task's STOPPED event, when it really is stopped.
   const shuttingDown = `${context}, вимикаюсь…`;
   const text = {
     idle: `💤 ${minutes} хв без активності. ${shuttingDown}`,
-    lifetime: `⏱ Досягнуто ліміту ${hours} год. ${shuttingDown}`,
     sigterm: `${interrupted ? 'Поточну задачу перервано. ' : ''}${shuttingDown}`,
     crash: shuttingDown,
   }[reason];
@@ -1078,7 +1102,6 @@ function checkLimits() {
   if (stopReason) return;
   const idle = !turn && backgroundTaskCount === 0;
   if (idle && Date.now() - lastActivity >= IDLE_MS) stopReason = 'idle';
-  else if (!turn && Date.now() - startedAt >= LIFETIME_MS) stopReason = 'lifetime';
   if (stopReason) void stop();
 }
 
@@ -1103,6 +1126,9 @@ async function main() {
   );
 
   lastActivity = Date.now();
+  // The ready message counts as an answer for the watchdog
+  lastAnswerAt = new Date().toISOString();
+  publishActivity(false);
   void keepSession();
   setInterval(checkLimits, LIMITS_CHECK_MS).unref();
 
