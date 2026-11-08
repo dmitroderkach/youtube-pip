@@ -2,7 +2,9 @@
 
 Two entry points:
 - Telegram webhook (Lambda Function URL): /up starts the dev-worker ECS task, /down stops it, any other message
-  (text, photo, voice, audio, file with its caption) goes to the worker's SQS FIFO queue. Only requests with the webhook secret token from the owner's chat are served.
+  (text, photo, voice, audio, file with its caption) goes to the worker's SQS FIFO queue and starts the worker when
+  it is not running. While a stopped worker is still saving its session, the start is deferred to its STOPPED event
+  (marker state/pending-start.json in the state bucket). Only requests with the webhook secret token from the owner's chat are served.
 - EventBridge "ECS Task State Change" (STOPPED) of the dev-worker cluster: a stop the worker did not report itself
   (exit code other than 0 / REPORTED_EXIT_CODE, failed start, killed task) is reported in the chat.
 
@@ -35,6 +37,8 @@ DEV_SECRET_ARN = os.environ["DEV_SECRET_ARN"]
 REPORTED_EXIT_CODES = {0, 10}
 STARTED_BY = "telegram"
 META_KEY = "state/meta.json"
+# Start requested while a stopped worker was still saving: consumed by the STOPPED event of that task
+PENDING_START_KEY = "state/pending-start.json"
 
 _config = None
 
@@ -77,13 +81,17 @@ def worker_tasks():
     return [{"arn": t["taskArn"], "lastStatus": t.get("lastStatus", "")} for t in tasks]
 
 
-def up(message):
-    tasks = worker_tasks()
-    if tasks:
-        running = any(t["lastStatus"] == "RUNNING" for t in tasks)
-        say("🟢 Воркер уже працює" if running else "⏳ Воркер уже піднімається")
-        return
-    say("⏳ Піднімаю воркера…")
+def worker_stopping():
+    """True while a stopped worker task is still shutting down (saving its session to S3)."""
+    arns = ecs.list_tasks(cluster=CLUSTER_ARN, desiredStatus="STOPPED").get("taskArns", [])
+    if not arns:
+        return False
+    tasks = ecs.describe_tasks(cluster=CLUSTER_ARN, tasks=arns).get("tasks", [])
+    return any(t.get("lastStatus") != "STOPPED" for t in tasks)
+
+
+def start_worker(up_at):
+    """Run the worker task; messages sent before `up_at` (unix seconds) are skipped by it. True on success."""
     try:
         response = ecs.run_task(
             cluster=CLUSTER_ARN,
@@ -102,8 +110,8 @@ def up(message):
                 "containerOverrides": [
                     {
                         "name": CONTAINER_NAME,
-                        # Messages sent before this /up (left in the queue) are skipped by the worker
-                        "environment": [{"name": "UP_AT", "value": str(message.get("date", int(time.time())))}],
+                        # Messages sent before this start (left in the queue) are skipped by the worker
+                        "environment": [{"name": "UP_AT", "value": str(up_at)}],
                     }
                 ]
             },
@@ -112,8 +120,50 @@ def up(message):
         if failures or not response.get("tasks"):
             reason = "; ".join(f"{f.get('reason')} {f.get('detail') or ''}".strip() for f in failures)
             say(f"🔴 Не вдалося підняти воркера: {reason or 'ECS не створив таск'}")
+            return False
+        return True
     except Exception as error:
         say(f"🔴 Не вдалося підняти воркера: {error}")
+        return False
+
+
+def request_start_after_stop(up_at):
+    """A worker is still stopping: start a new one once it has stopped (its STOPPED event, see task_stopped)."""
+    try:
+        existing = json.loads(s3.get_object(Bucket=STATE_BUCKET, Key=PENDING_START_KEY)["Body"].read())
+        up_at = min(up_at, int(existing.get("up_at", up_at)))
+    except Exception:
+        pass
+    s3.put_object(Bucket=STATE_BUCKET, Key=PENDING_START_KEY, Body=json.dumps({"up_at": up_at}).encode())
+    # It may have stopped between the check and the write: then its event saw no request, so start now
+    if not worker_stopping() and not worker_tasks():
+        start_pending()
+
+
+def start_pending():
+    """Start the worker for a pending request, if there is one (exactly once: the request is deleted first)."""
+    try:
+        pending = json.loads(s3.get_object(Bucket=STATE_BUCKET, Key=PENDING_START_KEY)["Body"].read())
+    except Exception:
+        return False
+    s3.delete_object(Bucket=STATE_BUCKET, Key=PENDING_START_KEY)
+    say("⏳ Попередній воркер зупинився: піднімаю новий…")
+    return start_worker(int(pending.get("up_at", time.time())))
+
+
+def up(message):
+    tasks = worker_tasks()
+    if tasks:
+        running = any(t["lastStatus"] == "RUNNING" for t in tasks)
+        say("🟢 Воркер уже працює" if running else "⏳ Воркер уже піднімається")
+        return
+    if worker_stopping():
+        # A new task would restore the state before the stopping one has saved it: start after it stops
+        say("⏳ Воркер ще зберігає контекст: підніму новий, щойно він зупиниться")
+        request_start_after_stop(message.get("date", int(time.time())))
+        return
+    say("⏳ Піднімаю воркера…")
+    start_worker(message.get("date", int(time.time())))
 
 
 def down():
@@ -150,15 +200,26 @@ def attachments_of(message):
 def forward(message, text, attachments):
     tasks = worker_tasks()
     if not tasks:
-        say("Воркер не запущений. Напиши /up")
-        return
+        # Not running: start it for this message (it is delivered once the worker is ready)
+        if worker_stopping():
+            # Queue it and start a new worker once the stopping one has saved its session
+            say("⏳ Воркер ще зберігає контекст: підніму знову й передам повідомлення")
+            request_start_after_stop(message.get("date", int(time.time())))
+        else:
+            say("⏳ Воркер не був запущений: піднімаю, передам повідомлення, щойно підніметься")
+            if not start_worker(message.get("date", int(time.time()))):
+                return
+        tasks = [{"lastStatus": "PROVISIONING"}]
+        announced = True
+    else:
+        announced = False
     sqs.send_message(
         QueueUrl=QUEUE_URL,
         MessageBody=json.dumps({"text": text, "attachments": attachments, "date": message.get("date", 0)}),
         MessageGroupId=str(message["chat"]["id"]),
         MessageDeduplicationId=str(message["message_id"]),
     )
-    if not any(t["lastStatus"] == "RUNNING" for t in tasks):
+    if not announced and not any(t["lastStatus"] == "RUNNING" for t in tasks):
         say("📥 Отримав, передам, щойно підніметься")
 
 
@@ -207,8 +268,15 @@ def task_stopped(event):
         return {"statusCode": 200, "body": "not stopped"}
     containers = detail.get("containers") or []
     exit_code = next((c.get("exitCode") for c in containers if c.get("name") == CONTAINER_NAME), None)
-    if exit_code in REPORTED_EXIT_CODES:
-        return {"statusCode": 200, "body": "reported by the worker"}
+    if exit_code not in REPORTED_EXIT_CODES:
+        report_unexpected_stop(detail, containers, exit_code)
+    # A start requested while this task was saving its session
+    if not worker_tasks():
+        start_pending()
+    return {"statusCode": 200, "body": "handled"}
+
+
+def report_unexpected_stop(detail, containers, exit_code):
     reason = detail.get("stoppedReason") or detail.get("stopCode") or "невідома причина"
     container_reason = next((c.get("reason") for c in containers if c.get("reason")), "")
     parts = [reason]
@@ -217,7 +285,6 @@ def task_stopped(event):
     if exit_code is not None:
         parts.append(f"exit code {exit_code}")
     say(f"🔴 Воркер несподівано зупинився ({'; '.join(parts)}). Контекст останнього збереження: {last_save_time()}")
-    return {"statusCode": 200, "body": "reported"}
 
 
 def handler(event, _context):
