@@ -18,6 +18,8 @@ import type { Nullable } from '../types/app';
 import { inject, injectable } from '../di';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+/** Class YouTube's list menu rows get while hovered (its CSS paints the highlight). */
+const LIST_ITEM_HOVERED_CLASS = 'ytListItemViewModelHovered';
 
 /**
  * Extra ways to open our PiP from the page, labelled with YouTube's own texts in the interface language (I18n):
@@ -144,9 +146,18 @@ export class PiPEntryPoints {
     if (svg) svg.replaceWith(this.createIcon());
     else item.prepend(this.createIcon());
     item.querySelectorAll('[id]').forEach((e) => e.removeAttribute('id'));
+    // YouTube highlights a row with a class its component toggles on hover (`ytListItemViewModelHovered`), which a
+    // copy does not get: toggle it ourselves on the row's tappable container, on hover and keyboard focus
+    const highlighted = item.querySelector<HTMLElement>(SELECTORS.LIST_ITEM_TAPPABLE) ?? item;
+    const highlight = (on: boolean) => highlighted.classList.toggle(LIST_ITEM_HOVERED_CLASS, on);
+    item.addEventListener('mouseenter', () => highlight(true));
+    item.addEventListener('mouseleave', () => highlight(false));
+    item.addEventListener('focus', () => highlight(true));
+    item.addEventListener('blur', () => highlight(false));
     item.addEventListener('click', (e) => {
       e.stopPropagation();
       e.preventDefault();
+      highlight(false);
       this.closeDropdown(item.closest<HTMLElement>(SELECTORS.POPUP_DROPDOWN));
       this.openPiP('Shorts menu');
     });

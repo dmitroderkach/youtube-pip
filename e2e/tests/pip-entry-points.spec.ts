@@ -417,6 +417,17 @@ test.describe('Open PiP from Shorts (controls button, context menu item)', () =>
         )
       ).toBe(0);
     }
+    // Highlighted on hover like YouTube's rows (its CSS paints rows with the hovered class)
+    await menuItem.hover();
+    await expect
+      .poll(() =>
+        menuItem.evaluate(
+          (i) =>
+            i.matches('.ytListItemViewModelHovered') ||
+            !!i.querySelector('.ytListItemViewModelHovered')
+        )
+      )
+      .toBe(true);
     await menuItem.click();
     await closeShortsPiP(page);
 

@@ -19,6 +19,8 @@ export const SELECTORS = {
   POPUP_DROPDOWN: 'ytd-popup-container tp-yt-iron-dropdown',
   /** Row of a view-model list menu (Shorts "⋮" menu). */
   LIST_ITEM: 'yt-list-item-view-model',
+  /** Tappable container inside a list menu row (carries the hover highlight). */
+  LIST_ITEM_TAPPABLE: '.ytListItemViewModelTappable',
   /** Slot of the "⋮" button in the Shorts top controls (our PiP button goes right after it). */
   /** Icon container of a YouTube spec button (`yt-button-shape`). */
   SPEC_BUTTON_ICON: '.ytSpecButtonShapeNextIcon',

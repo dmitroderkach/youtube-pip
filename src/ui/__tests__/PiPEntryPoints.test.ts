@@ -740,6 +740,30 @@ describe('PiPEntryPoints', () => {
       expect(list.querySelector(`${SHORTS_MENU_ITEM} svg path`)).not.toBeNull();
     });
 
+    it('"⋮" menu item is highlighted like YouTube\'s rows on hover and focus', async () => {
+      const { menuButton, dropdown, list } = addShortsMenu();
+      vi.spyOn(dropdown, 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ width: 200, height: 300 })
+      );
+      list
+        .querySelectorAll('yt-list-item-view-model > div')
+        .forEach((d) => d.classList.add('ytListItemViewModelTappable'));
+      entryPoints.initialize();
+      menuButton.click();
+      await vi.runAllTimersAsync();
+      const item = list.querySelector<HTMLElement>(SHORTS_MENU_ITEM)!;
+      const container = item.querySelector<HTMLElement>('.ytListItemViewModelTappable')!;
+
+      item.dispatchEvent(new MouseEvent('mouseenter'));
+      expect(container.classList.contains('ytListItemViewModelHovered')).toBe(true);
+      item.dispatchEvent(new MouseEvent('mouseleave'));
+      expect(container.classList.contains('ytListItemViewModelHovered')).toBe(false);
+      item.dispatchEvent(new FocusEvent('focus'));
+      expect(container.classList.contains('ytListItemViewModelHovered')).toBe(true);
+      item.dispatchEvent(new FocusEvent('blur'));
+      expect(container.classList.contains('ytListItemViewModelHovered')).toBe(false);
+    });
+
     it('"⋮" menu item: click closes the dropdown and opens PiP; Enter activates it', async () => {
       const { menuButton, dropdown } = addShortsMenu();
       vi.spyOn(dropdown, 'getBoundingClientRect').mockReturnValue(
