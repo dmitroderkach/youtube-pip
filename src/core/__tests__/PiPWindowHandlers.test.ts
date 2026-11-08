@@ -53,7 +53,8 @@ describe('PiPWindowHandlers', () => {
 
     void cleanup();
 
-    expect(mocks.titleSyncHandler.cleanup).toHaveBeenCalledOnce();
+    expect(mocks.titleSyncHandler.stopSync).toHaveBeenCalledOnce();
+    expect(mocks.titleSyncHandler.cleanup).not.toHaveBeenCalled();
     expect(mocks.documentFocusHandler.cleanup).toHaveBeenCalledOnce();
     expect(mocks.seekHandler.cleanup).toHaveBeenCalledOnce();
     expect(mocks.pipEventBridgeHandler.stop).toHaveBeenCalledOnce();

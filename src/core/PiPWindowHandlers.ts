@@ -36,7 +36,8 @@ export class PiPWindowHandlers {
     this.titleSyncHandler.initialize();
 
     return () => {
-      this.titleSyncHandler.cleanup();
+      // The page title stays held until the player is back (PiPManager)
+      this.titleSyncHandler.stopSync();
       this.documentFocusHandler.cleanup();
       this.seekHandler.cleanup();
       this.pipEventBridgeHandler.stop();

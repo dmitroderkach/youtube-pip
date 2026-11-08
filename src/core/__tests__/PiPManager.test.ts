@@ -494,11 +494,21 @@ describe('PiPManager (integration)', () => {
     expect(manager.isOpen()).toBe(true);
     expect(manager.getWindow()).toBe(pipWindow);
 
+    const order: string[] = [];
+    mockPlayerManager.restorePlayingState.mockImplementation(() => {
+      order.push('player restored');
+    });
+    mockTitleSync.releasePageTitleWhenIdle.mockImplementation(() => {
+      order.push('title released');
+    });
+
     await awaitClose(manager);
 
     expect(manager.getWindow()).toBeNull();
     expect(manager.isOpen()).toBe(false);
     expect(miniplayerEl.parentNode).toBe(document.body);
+    // The title is held until the player is back (YouTube rewrites it while the mini player goes away)
+    expect(order).toEqual(['player restored', 'title released']);
     expect(mockPlayerManager.savePlayingState).toHaveBeenCalled();
     expect(mockPlayerManager.restorePlayingState).toHaveBeenCalled();
   });

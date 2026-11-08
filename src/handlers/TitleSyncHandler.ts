@@ -8,6 +8,7 @@ import type { YouTubePlayer } from '../types/youtube';
 import { inject, injectable } from '../di';
 import { Nullable } from '../types/app';
 import { YtdShortsProvider } from '../core/YtdShortsProvider';
+import { YouTubeScheduler } from '../utils/YouTubeScheduler';
 
 /**
  * Syncs PiP window title when the player's video element src or the notify renderer DOM changes.
@@ -19,7 +20,9 @@ import { YtdShortsProvider } from '../core/YtdShortsProvider';
  * title is held, YouTube's writes are therefore not applied at all (own `title` property on the document); the
  * <title> observer stays as a fallback for other ways of changing it. Opening PiP from the watch page activates the
  * mini player first, and YouTube switches the title to "YouTube" right away: holdPageTitle() starts the hold before
- * that step.
+ * that step. Closing PiP goes back through the mini player too: the PiP window handlers only stop syncing
+ * (stopSync()), and PiPManager releases the hold once the player is back on the watch page and YouTube has run its
+ * pending jobs (releasePageTitleWhenIdle()).
  * Does not depend on PiPManager to avoid circular dependencies.
  */
 /** At most this many title restores per window; more means something fights back. */
@@ -37,6 +40,8 @@ export class TitleSyncHandler {
   private readonly nativeTitle = Object.getOwnPropertyDescriptor(Document.prototype, 'title');
   /** Restores in the current window (guard against a ping-pong with code that keeps setting its own title). */
   private restoreWindowStart = 0;
+  /** Incremented for every new hold, so a delayed release never ends the hold of a PiP opened in the meantime. */
+  private holdGeneration = 0;
   private restoresInWindow = 0;
   private shortsMode: boolean = false;
 
@@ -66,6 +71,8 @@ export class TitleSyncHandler {
       this.logger.debug('PiP not open, skipping title sync init');
       return;
     }
+    // A new PiP session (Shorts holds the title only from here): a pending release must not end it
+    this.holdGeneration++;
 
     const player = this.getPlayer() as YouTubePlayer;
     const video = player.querySelector(SELECTORS.PLAYER_VIDEO);
@@ -107,6 +114,7 @@ export class TitleSyncHandler {
    */
   public holdPageTitle(): void {
     if (!document.title) return;
+    this.holdGeneration++;
     this.expectedTitle = document.title;
     this.blockPageTitleWrites();
     this.observePageTitle();
@@ -186,14 +194,35 @@ export class TitleSyncHandler {
   }
 
   /**
-   * Stop observing. Call when PiP window is closing.
+   * Stop syncing the title from the player (PiP window closing); the page title stays held until
+   * releasePageTitleWhenIdle() / cleanup().
    */
-  public cleanup(): void {
+  public stopSync(): void {
     if (this.mutationObserver) {
       this.mutationObserver.disconnect();
       this.mutationObserver = null;
       this.logger.debug('Title sync observer disconnected');
     }
+  }
+
+  /**
+   * Release the page title to YouTube once its pending low-priority jobs have run (call when the player is back on
+   * the watch page): the watch page's own title updates are then done, so nothing flickers.
+   */
+  public releasePageTitleWhenIdle(): void {
+    const generation = this.holdGeneration;
+    void YouTubeScheduler.waitForLowPriorityJobs().then(() => {
+      if (generation !== this.holdGeneration) return;
+      this.cleanup();
+      this.logger.debug('Page title released to YouTube');
+    });
+  }
+
+  /**
+   * Stop syncing and release the page title to YouTube at once.
+   */
+  public cleanup(): void {
+    this.stopSync();
     this.titleObserver?.disconnect();
     this.titleObserver = null;
     this.unblockPageTitleWrites();

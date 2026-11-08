@@ -30,7 +30,8 @@ export class PipShortsWindowHandlers {
       this.pipEventBridgeHandler.stop();
       this.pipLinkFocusHandler.stop();
       this.documentFocusHandler.cleanup();
-      this.titleSyncHandler.cleanup();
+      // The page title stays held until the player is back (PiPManager)
+      this.titleSyncHandler.stopSync();
     };
   }
 }
