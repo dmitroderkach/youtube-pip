@@ -325,11 +325,21 @@ test.describe('Open PiP from Shorts (controls button, context menu item)', () =>
     });
     await waitForShortsPlayerVisibleInMain(page);
 
-    // Top controls (signed-in layout): our button right before full screen
-    await player.hover();
-    // Every reel has its controls; the shown one is the active reel's
+    // Top controls (signed-in layout): our button right before full screen. YouTube shows the controls on pointer
+    // movement over the reel (re-rendered after PiP), so keep moving until the shown reel's button is there
     const button = page.locator(`${SHORTS_BUTTON} button >> visible=true`).first();
-    await expect(button).toBeVisible({ timeout: E2E_WAIT_TIMEOUT_MS });
+    const reel = (await player.boundingBox())!;
+    let step = 0;
+    await expect
+      .poll(
+        async () => {
+          step = (step + 1) % 2;
+          await page.mouse.move(reel.x + reel.width / 2 + step * 20, reel.y + reel.height / 4);
+          return button.count();
+        },
+        { timeout: E2E_WAIT_TIMEOUT_MS }
+      )
+      .toBeGreaterThan(0);
     expect(await button.evaluate((b) => b.parentElement?.nextElementSibling?.id ?? '')).toBe(
       'fullscreen-button-shape'
     );
