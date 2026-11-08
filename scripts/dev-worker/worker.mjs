@@ -5,7 +5,7 @@
  * then keeps ONE Claude Code session open for the whole run (Claude Agent SDK, streaming input), like an interactive
  * terminal: the owner's messages from the SQS FIFO queue (filled by the dev-bot Lambda) go into it as they arrive.
  * A message that arrives while Claude is working moves its running commands to the background (they keep running,
- * like Ctrl+B) and is delivered at once with priority 'now'. Background tasks survive between turns; their
+ * like Ctrl+B) and is delivered at the turn's next step (priority 'next', right away once nothing blocks). Background tasks survive between turns; their
  * completion starts a turn of its own. Every turn's progress and final answer go to Telegram; the state is saved to
  * S3 after every answer. Stops by itself after IDLE_TIMEOUT_SECONDS without activity (no turn and no background task)
  * or MAX_LIFETIME_SECONDS in total, and on SIGTERM (`/down`, ECS StopTask); every stop it initiates is reported in
@@ -304,6 +304,10 @@ let session = null;
 let turn = null;
 /** Live background tasks (Bash / subagents) of the session. */
 let backgroundTaskCount = 0;
+/** Tool calls of the current turn still waiting for their result (blocking commands in the foreground). */
+const foregroundToolIds = new Set();
+/** A message from the owner was delivered during the current turn (its end may be the cut-off of that turn). */
+let deliveredMidTurn = false;
 
 function describeTool(name, input = {}) {
   const detail =
@@ -343,20 +347,30 @@ function onToolUse(what) {
 async function finishTurn(result) {
   const current = turn ?? { progress: null, started: Date.now(), steps: 0 };
   turn = null;
+  foregroundToolIds.clear();
   const failed = result.subtype !== 'success' || result.is_error;
+  const answer = typeof result.result === 'string' ? result.result.trim() : '';
+  // A turn cut off by the owner's new message ends with an internal error and no answer: not an error to report
+  const superseded = failed && !answer && deliveredMidTurn;
+  deliveredMidTurn = false;
   const seconds = Math.round((Date.now() - current.started) / 1000);
   if (current.progress) {
+    const status = superseded
+      ? '↪️ Перервано новим повідомленням'
+      : failed
+        ? '⚠️ Завершено з помилкою'
+        : '✅ Готово';
     await edit(
       current.progress.message_id,
-      `${failed ? '⚠️ Завершено з помилкою' : '✅ Готово'} за ${seconds} с, кроків: ${current.steps}` +
+      `${status} за ${seconds} с, кроків: ${current.steps}` +
         (backgroundTaskCount ? `; у фоні: ${backgroundTaskCount}` : '')
     );
   }
-  const text =
-    typeof result.result === 'string' && result.result.trim()
-      ? result.result
-      : (result.errors ?? []).join('\n') || `(${result.subtype})`;
-  await say(text);
+  if (superseded) {
+    log(`turn superseded: ${result.subtype} ${(result.errors ?? []).join(' ')}`);
+    return;
+  }
+  await say(answer || (result.errors ?? []).join('\n') || `(${result.subtype})`);
   try {
     await save();
   } catch (error) {
@@ -394,7 +408,13 @@ async function runSession(resumeId) {
     if (message.type === 'assistant') {
       ensureTurn();
       for (const item of message.message?.content ?? []) {
-        if (item.type === 'tool_use') onToolUse(describeTool(item.name, item.input));
+        if (item.type !== 'tool_use') continue;
+        foregroundToolIds.add(item.id);
+        onToolUse(describeTool(item.name, item.input));
+      }
+    } else if (message.type === 'user' && Array.isArray(message.message?.content)) {
+      for (const item of message.message.content) {
+        if (item.type === 'tool_result') foregroundToolIds.delete(item.tool_use_id);
       }
     } else if (message.type === 'system' && message.subtype === 'background_tasks_changed') {
       backgroundTaskCount = (message.tasks ?? []).length;
@@ -452,17 +472,24 @@ async function deliver(message) {
     return;
   }
   if (turn && session) {
-    const moved = await session.backgroundTasks().catch((error) => {
-      log('backgroundTasks failed', error);
-      return false;
-    });
+    // Blocking commands in the foreground go to the background (Ctrl+B), so the turn reaches its next step at once
+    let moved = false;
+    if (foregroundToolIds.size) {
+      moved = await session.backgroundTasks().catch((error) => {
+        log('backgroundTasks failed', error);
+        return false;
+      });
+    }
+    deliveredMidTurn = true;
+    // 'next': read at the turn's next step (right away once the commands are in the background) without cutting
+    // off what the model is writing now
     sendToClaude(
-      `[New message from the owner while you were working. ${
+      `[New message from the owner while you were working.${
         moved
-          ? 'Your running commands were moved to the background and keep running; you get a notification when they finish.'
-          : 'Nothing was running in the foreground.'
+          ? ' Your running commands were moved to the background and keep running; you get a notification when they finish.'
+          : ''
       } Read this first and then decide what to do with the previous task.]\n\n${text}`,
-      'now'
+      'next'
     );
     await say(moved ? '📨 Передав одразу; поточні команди пішли у фон' : '📨 Передав одразу');
   } else {
