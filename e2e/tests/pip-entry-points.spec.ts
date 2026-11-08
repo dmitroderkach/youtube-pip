@@ -284,10 +284,33 @@ test.describe('Open PiP from the page (context menu item, controls button)', () 
   });
 });
 
+/** Shorts PiP opened: wait for the player in it, close it, wait for the player back on the page. */
+async function closeShortsPiP(page: Page): Promise<void> {
+  await waitForShortsPlayerVisibleInPip(page);
+  await page.evaluate(() => window.documentPictureInPicture?.window?.close());
+  await page.waitForFunction(() => window.documentPictureInPicture?.window == null, {
+    timeout: E2E_WAIT_TIMEOUT_MS,
+  });
+  await waitForShortsPlayerVisibleInMain(page);
+}
+
+/** What the Shorts top controls look like now (for a failure message). */
+function shortsControlsState(page: Page): Promise<string> {
+  return page.evaluate((sel) => {
+    const shown = (e: Element) => (e as HTMLElement).getBoundingClientRect().width > 0;
+    const controls = Array.from(document.querySelectorAll('ytd-shorts-player-controls'));
+    const fullscreen = Array.from(
+      document.querySelectorAll('ytd-shorts-player-controls #fullscreen-button-shape')
+    );
+    const ours = Array.from(document.querySelectorAll(sel));
+    return `controls ${controls.length} (${controls.filter(shown).length} shown), full screen ${fullscreen.length} (${fullscreen.filter(shown).length} shown), ours ${ours.length} (${ours.filter(shown).length} shown)`;
+  }, SHORTS_BUTTON);
+}
+
 test.describe('Open PiP from Shorts (controls button, context menu item)', () => {
   test.use({ authState: true });
 
-  test('Shorts: context menu has only our PiP item; "⋮" menu item and the button left of full screen open PiP', async ({
+  test('Shorts: context menu has only our PiP item; the button left of full screen and the "⋮" menu item open PiP', async ({
     shortsPageReady: page,
   }) => {
     await waitForShortsPlayerVisibleInMain(page);
@@ -307,26 +330,8 @@ test.describe('Open PiP from Shorts (controls button, context menu item)', () =>
     // Close the menu with a click outside the player
     await page.mouse.click(1, 1);
 
-    // "⋮" menu of the top controls: our item first, opens PiP
-    await player.hover();
-    await page
-      .locator('ytd-shorts-player-controls #menu-button button >> visible=true')
-      .first()
-      .click();
-    const menuItem = page.locator(`${SHORTS_MENU_ITEM} >> visible=true`).first();
-    await expect(menuItem).toBeVisible({ timeout: E2E_WAIT_TIMEOUT_MS });
-    if (labels) await expect(menuItem).toHaveText(labels.menuItem);
-    expect(await menuItem.evaluate((i) => i.parentElement?.firstElementChild === i)).toBe(true);
-    await menuItem.click();
-    await waitForShortsPlayerVisibleInPip(page);
-    await page.evaluate(() => window.documentPictureInPicture?.window?.close());
-    await page.waitForFunction(() => window.documentPictureInPicture?.window == null, {
-      timeout: E2E_WAIT_TIMEOUT_MS,
-    });
-    await waitForShortsPlayerVisibleInMain(page);
-
     // Top controls (signed-in layout): our button right before full screen. YouTube shows the controls on pointer
-    // movement over the reel (re-rendered after PiP), so keep moving until the shown reel's button is there
+    // movement over the reel, so keep moving until the shown reel's button is there
     const button = page.locator(`${SHORTS_BUTTON} button >> visible=true`).first();
     const reel = (await player.boundingBox())!;
     let step = 0;
@@ -339,18 +344,29 @@ test.describe('Open PiP from Shorts (controls button, context menu item)', () =>
         },
         { timeout: E2E_WAIT_TIMEOUT_MS }
       )
-      .toBeGreaterThan(0);
+      .toBeGreaterThan(0)
+      .catch(async (error: unknown) => {
+        throw new Error(`${String(error)}\nShorts controls: ${await shortsControlsState(page)}`);
+      });
     expect(await button.evaluate((b) => b.parentElement?.nextElementSibling?.id ?? '')).toBe(
       'fullscreen-button-shape'
     );
     if (labels) expect(await button.getAttribute('title')).toBe(`${labels.button} (p)`);
-
     await button.click();
-    await waitForShortsPlayerVisibleInPip(page);
-    await page.evaluate(() => window.documentPictureInPicture?.window?.close());
-    await page.waitForFunction(() => window.documentPictureInPicture?.window == null, {
-      timeout: E2E_WAIT_TIMEOUT_MS,
-    });
-    await waitForShortsPlayerVisibleInMain(page);
+    await closeShortsPiP(page);
+
+    // "⋮" menu of the top controls: our item first, opens PiP
+    await page.mouse.move(reel.x + reel.width / 2, reel.y + reel.height / 4);
+    await page.mouse.move(reel.x + reel.width / 2 + 20, reel.y + reel.height / 4);
+    await page
+      .locator('ytd-shorts-player-controls #menu-button button >> visible=true')
+      .first()
+      .click();
+    const menuItem = page.locator(`${SHORTS_MENU_ITEM} >> visible=true`).first();
+    await expect(menuItem).toBeVisible({ timeout: E2E_WAIT_TIMEOUT_MS });
+    if (labels) await expect(menuItem).toHaveText(labels.menuItem);
+    expect(await menuItem.evaluate((i) => i.parentElement?.firstElementChild === i)).toBe(true);
+    await menuItem.click();
+    await closeShortsPiP(page);
   });
 });
