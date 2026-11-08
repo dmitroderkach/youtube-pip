@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 ### Fixed
 
-- **Tab title could still flicker when closing PiP** (e.g. after switching to another video in PiP) — The hold of the page title was released first thing on close, before the player went back through the mini player to the watch page, so YouTube's title writes during that step reached the tab. The PiP window handlers now only stop syncing (`TitleSyncHandler.stopSync()`); `PiPManager` releases the title once the player is back on the watch page and YouTube has run its pending low-priority jobs (`releasePageTitleWhenIdle()`). A release still pending when PiP is opened again does not end the new hold.
+- **Tab title could still flicker when closing PiP** (e.g. after switching to another video in PiP) — The hold of the page title was released first thing on close, before the player went back through the mini player to the watch page, so YouTube's title writes during that step reached the tab. The PiP window handlers now only stop syncing (`TitleSyncHandler.stopSync()`); `PiPManager` releases the title once the player is back on the watch page and YouTube has run its pending low-priority jobs (`releasePageTitleWhenIdle()`). A release still pending when PiP is opened again does not end the new hold. If the page is not the watch page when the title is released (e.g. the watch page did not come back and the mini player stays on the home page), the last title YouTube set while it was held is applied, so the tab does not keep the video title there.
 
 ### Changed
 

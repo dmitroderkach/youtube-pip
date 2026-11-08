@@ -138,6 +138,36 @@ describe('TitleSyncHandler', () => {
     expect(applied).toEqual([]);
   });
 
+  it('applies the last title YouTube set while held when the title is released', () => {
+    handler.initialize();
+    document.title = 'YouTube';
+    document.title = 'Home - YouTube';
+    expect(document.title).toBe('Test Video - YouTube');
+
+    handler.cleanup();
+
+    expect(document.title).toBe('Home - YouTube');
+  });
+
+  it('keeps the video title on release when back on the watch page', () => {
+    const before = window.location.href;
+    window.history.pushState({}, '', '/watch?v=v1');
+    handler.initialize();
+    document.title = 'YouTube'; // set when the mini player was activated for PiP
+
+    handler.cleanup();
+
+    expect(document.title).toBe('Test Video - YouTube');
+    window.history.pushState({}, '', before);
+  });
+
+  it('keeps our title on release when YouTube set nothing while held', () => {
+    handler.initialize();
+    handler.cleanup();
+
+    expect(document.title).toBe('Test Video - YouTube');
+  });
+
   it('applies document.title writes again after cleanup', () => {
     handler.initialize();
     handler.cleanup();

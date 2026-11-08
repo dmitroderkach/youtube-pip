@@ -28,6 +28,8 @@ import { YouTubeScheduler } from '../utils/YouTubeScheduler';
 /** At most this many title restores per window; more means something fights back. */
 const TITLE_RESTORE_MAX_PER_WINDOW = 5;
 const TITLE_RESTORE_WINDOW_MS = 1000;
+/** Path of the watch page, where our title (the video's) is the right one after PiP closes. */
+const WATCH_PATH = '/watch';
 
 @injectable()
 export class TitleSyncHandler {
@@ -36,6 +38,8 @@ export class TitleSyncHandler {
   private titleObserver: MutationObserver | null = null;
   /** Title we set on the page; YouTube overwriting it is undone. */
   private expectedTitle: string | null = null;
+  /** Last title YouTube tried to set while it was held off: applied on release, so the page ends up with it. */
+  private blockedTitle: string | null = null;
   /** Document.prototype `title` accessor: our own writes go through it while YouTube's are held off. */
   private readonly nativeTitle = Object.getOwnPropertyDescriptor(Document.prototype, 'title');
   /** Restores in the current window (guard against a ping-pong with code that keeps setting its own title). */
@@ -124,10 +128,12 @@ export class TitleSyncHandler {
   private blockPageTitleWrites(): void {
     const native = this.nativeTitle;
     if (!native?.get || !native.set || Object.getOwnPropertyDescriptor(document, 'title')) return;
+    this.blockedTitle = null;
     Object.defineProperty(document, 'title', {
       configurable: true,
       get: () => native.get!.call(document),
       set: (value: string) => {
+        this.blockedTitle = value;
         if (value !== this.expectedTitle) {
           this.logger.debug(`Page title "${value}" set by YouTube not applied while PiP is open`);
         }
@@ -225,7 +231,22 @@ export class TitleSyncHandler {
     this.stopSync();
     this.titleObserver?.disconnect();
     this.titleObserver = null;
+    const wasBlocked = Object.getOwnPropertyDescriptor(document, 'title') !== undefined;
     this.unblockPageTitleWrites();
+    // Back on the watch page our title is the video's (YouTube's write when PiP opened was "YouTube" for the page
+    // under the mini player). Anywhere else (e.g. the watch page did not come back, mini player on the home page)
+    // apply what YouTube set meanwhile: one write at the end.
+    const onWatchPage = window.location.pathname === WATCH_PATH;
+    if (
+      wasBlocked &&
+      !onWatchPage &&
+      this.blockedTitle !== null &&
+      this.blockedTitle !== document.title
+    ) {
+      this.logger.debug(`Applying the page title YouTube set while held: "${this.blockedTitle}"`);
+      document.title = this.blockedTitle;
+    }
+    this.blockedTitle = null;
     this.expectedTitle = null;
   }
 }
