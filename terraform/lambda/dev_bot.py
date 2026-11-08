@@ -220,7 +220,8 @@ def context_of(message):
             " ".join(filter(None, [sender.get("first_name"), sender.get("last_name")]))
             + (" (bot)" if sender.get("is_bot") else "")
             or origin.get("sender_user_name")
-            or (origin.get("chat") or {}).get("title")
+            # MessageOriginChat (a group) has sender_chat, MessageOriginChannel has chat
+            or (origin.get("sender_chat") or origin.get("chat") or {}).get("title")
             or origin.get("type", "unknown")
         )
     return context
