@@ -93,9 +93,10 @@ export class MiniPlayerController {
    * If mini player is active, navigates back to full player using YT_EVENTS.NAVIGATE.
    * Otherwise, activates mini player using YT_EVENTS.ACTION with YT_ACTION_NAMES.ACTIVATE_MINIPLAYER_FROM_WATCH.
    *
+   * @param videoId Video to return to the full player with (default: the player's current video)
    * @returns void
    */
-  public toggleMiniPlayer(): void {
+  public toggleMiniPlayer(videoId?: Nullable<string>): void {
     const ytdApp = this.ytdAppProvider.getApp();
     if (typeof ytdApp.fire !== 'function') {
       this.logger.error('ytd-app fire method not found');
@@ -107,19 +108,18 @@ export class MiniPlayerController {
         // Return to full player: use YT_EVENTS.NAVIGATE with watchEndpoint
         this.logger.debug('Returning to full player via YouTube API');
 
-        // Get video ID from player using PlayerManager
-        const videoId = this.playerManager.getVideoId();
-        if (!videoId) {
+        const targetVideoId = videoId ?? this.playerManager.getVideoId();
+        if (!targetVideoId) {
           this.logger.error('Video ID not found, cannot navigate to full player');
           return;
         }
 
         ytdApp.fire(YT_EVENTS.NAVIGATE, {
           endpoint: {
-            watchEndpoint: { videoId },
+            watchEndpoint: { videoId: targetVideoId },
           },
         });
-        this.logger.debug(`Navigation to full player dispatched for video ${videoId}`);
+        this.logger.debug(`Navigation to full player dispatched for video ${targetVideoId}`);
       } else {
         // Activate miniplayer: use YT_EVENTS.ACTION with YT_ACTION_NAMES.ACTIVATE_MINIPLAYER_FROM_WATCH
         this.logger.debug('Activating miniplayer via YouTube API');

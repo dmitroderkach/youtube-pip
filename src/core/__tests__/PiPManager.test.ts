@@ -606,6 +606,7 @@ describe('PiPManager (integration)', () => {
     expect(manager.getWindow()).toBeNull();
     // The watch page is the player's video: wait for its id (still loading after a switch in PiP) first
     expect(order).toEqual(['video id', 'toggle']);
+    expect(mockMiniController.toggleMiniPlayer).toHaveBeenLastCalledWith('next');
     expect(mockPlayerManager.waitForMainPlayer).toHaveBeenCalled();
     vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
   });

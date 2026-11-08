@@ -17,6 +17,8 @@ import { YtdShortsProvider } from './YtdShortsProvider';
  */
 @injectable()
 export class PlayerManager {
+  /** Video switched to in PiP (NavigationHandler) and the player's video at that moment. */
+  private requestedVideo: Nullable<{ videoId: string; previous: Nullable<string> }> = null;
   private readonly logger: Logger;
   private player: Nullable<YouTubePlayer> = null;
   private wasPlaying: boolean = false;
@@ -188,23 +190,42 @@ export class PlayerManager {
   }
 
   /**
-   * Wait until the player reports its video id: right after switching to another video (e.g. in PiP) it is still
-   * loading that video and has none. Resolves with the id, or null after `timeoutMs`.
+   * Remember a switch to another video (navigation inside PiP): until the player reports a new video, that is the
+   * video to return to.
+   */
+  public setRequestedVideoId(videoId: string): void {
+    this.requestedVideo = {
+      videoId,
+      previous: this.getVideoDataFromPlayer(this.getPlayer())?.video_id || null,
+    };
+  }
+
+  /**
+   * The video to return to the watch page with. Right after switching to another video in PiP the player is still
+   * loading it and reports no id (or the previous one): wait until it reports a new video, at most `timeoutMs`,
+   * then fall back to the requested one (it may never load, e.g. a bot check). Clears the requested video.
    */
   public async waitForVideoId(
     timeoutMs: number = TIMEOUTS.VIDEO_ID_WAIT
   ): Promise<Nullable<string>> {
+    const requested = this.requestedVideo;
+    this.requestedVideo = null;
     const started = Date.now();
     for (;;) {
-      const videoId = this.getVideoDataFromPlayer(this.getPlayer())?.video_id;
-      if (videoId) {
+      const videoId = this.getVideoDataFromPlayer(this.getPlayer())?.video_id || null;
+      // Without a pending switch any id will do; with one, the player must have moved past the previous video
+      const isNew = !requested || videoId !== requested.previous || videoId === requested.videoId;
+      if (videoId && isNew) {
         const waited = Date.now() - started;
         if (waited > 0) this.logger.debug(`Video id ${videoId} available after ${waited}ms`);
         return videoId;
       }
       if (Date.now() - started >= timeoutMs) {
-        this.logger.warn(`Player reported no video id within ${timeoutMs}ms`);
-        return null;
+        const fallback = requested?.videoId ?? videoId;
+        this.logger.warn(
+          `Player reported no new video id within ${timeoutMs}ms; using ${fallback}`
+        );
+        return fallback;
       }
       await new Promise((resolve) => setTimeout(resolve, TIMEOUTS.VIDEO_ID_POLL));
     }

@@ -94,6 +94,38 @@ describe('PlayerManager', () => {
     vi.useRealTimers();
   });
 
+  it('waitForVideoId falls back to the video switched to in PiP when the player never loads it', async () => {
+    vi.useFakeTimers();
+    manager.setRequestedVideoId('switched');
+    mockPlayer.getVideoData.mockReturnValue({});
+    const result = manager.waitForVideoId();
+
+    await vi.runAllTimersAsync();
+
+    await expect(result).resolves.toBe('switched');
+    vi.useRealTimers();
+  });
+
+  it('waitForVideoId waits while the player still reports the video from before the switch', async () => {
+    vi.useFakeTimers();
+    manager.setRequestedVideoId('switched'); // player reports 'abc' at this moment
+    const result = manager.waitForVideoId();
+
+    await vi.advanceTimersByTimeAsync(TIMEOUTS.VIDEO_ID_POLL * 2);
+    mockPlayer.getVideoData.mockReturnValue({ video_id: 'switched' });
+    await vi.advanceTimersByTimeAsync(TIMEOUTS.VIDEO_ID_POLL);
+
+    await expect(result).resolves.toBe('switched');
+    vi.useRealTimers();
+  });
+
+  it('waitForVideoId takes the player video once it moved past the switch (e.g. next video)', async () => {
+    manager.setRequestedVideoId('switched');
+    mockPlayer.getVideoData.mockReturnValue({ video_id: 'later' });
+
+    await expect(manager.waitForVideoId()).resolves.toBe('later');
+  });
+
   it('waitForVideoId resolves null after the timeout', async () => {
     vi.useFakeTimers();
     mockPlayer.getVideoData.mockReturnValue({});

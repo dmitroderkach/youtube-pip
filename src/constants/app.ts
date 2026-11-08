@@ -21,10 +21,10 @@ export const TIMEOUTS = {
    */
   YOUTUBE_LOW_PRIORITY_JOBS: 2000,
   /**
-   * Max wait, when PiP closes, for the player to report the video it is loading (no video_id right after switching
-   * to another video in PiP): returning to the watch page needs it. Slow CI runners take several seconds.
+   * Max wait, when PiP closes, for the player to report the video switched to in PiP (no video_id while it is
+   * loading); after it the id requested by the switch is used (the video may never load, e.g. bot check).
    */
-  VIDEO_ID_WAIT: 10000,
+  VIDEO_ID_WAIT: 5000,
   VIDEO_ID_POLL: 100,
 } as const;
 
