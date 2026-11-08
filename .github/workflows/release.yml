@@ -96,7 +96,15 @@ jobs:
 
             ### Full Changelog
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for all changes.
-          draft: false
+          # Created as a draft with the assets, published in the next step: Greasy Fork syncs on the release webhook
+          # from releases/latest/download/youtube-pip.user.js, which must already be there when the release is published
+          draft: true
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish release (Greasy Fork sync)
+        # Publishing fires the `release` webhook; Greasy Fork then updates the script (docs/GREASY_FORK.md)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false --latest
