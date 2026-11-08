@@ -175,7 +175,11 @@ export class PiPEntryPoints {
 
   /** Capture phase, before YouTube opens the menu: remember the target and watch the menus. */
   private onContextMenu = (e: MouseEvent): void => {
-    this.lastContextTarget = e.target instanceof Element ? e.target : null;
+    const target = e.target instanceof Element ? e.target : null;
+    // A right-click on the open menu itself (the browser shows its own menu over it) is not a new menu: the shown
+    // one keeps its target, and with it our item
+    if (target?.closest(SELECTORS.CONTEXT_MENU_CONTAINER)) return;
+    this.lastContextTarget = target;
     this.observeMenus();
     // The first menu is created by YouTube's own handler of this event: pick it up afterwards
     window.setTimeout(() => {

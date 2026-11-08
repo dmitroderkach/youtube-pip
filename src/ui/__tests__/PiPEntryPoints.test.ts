@@ -249,6 +249,20 @@ describe('PiPEntryPoints', () => {
       }
     });
 
+    it('stays when the user right-clicks the open menu itself', async () => {
+      const { video } = addPlayer();
+      const { list } = addMenu();
+      mocks.pipWindowProvider.getWindow.mockReturnValue(null);
+      entryPoints.initialize();
+      rightClick(video);
+      await afterContextMenu();
+
+      rightClick(list.querySelector(MENU_ITEM)!);
+      await afterContextMenu();
+
+      expect(list.firstElementChild?.matches(MENU_ITEM)).toBe(true);
+    });
+
     it('is not added for a menu opened outside the player', async () => {
       addPlayer();
       const { list } = addMenu();

@@ -142,6 +142,14 @@ test.describe('Open PiP from the page (context menu item, controls button)', () 
     await expect
       .poll(() => shownMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS })
       .toEqual({ hasItem: true, firstIsItem: true, allItemsFit: true });
+    // A right-click on the open menu (the browser opens its own menu over it) keeps our item
+    const shownBox = (await page.locator(MENU_ITEM).boundingBox())!;
+    await page.mouse.click(shownBox.x + shownBox.width / 2, shownBox.y + shownBox.height / 2, {
+      button: 'right',
+    });
+    await expect
+      .poll(() => shownMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS })
+      .toEqual({ hasItem: true, firstIsItem: true, allItemsFit: true });
     const item = page.locator(MENU_ITEM);
     const labels = await expectedLabels(page);
     if (labels) await expect(item).toHaveText(labels.menuItem);
