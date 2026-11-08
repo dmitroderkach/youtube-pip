@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*.*.*'
+      # Pre-release tags vX.Y.Z-rc.N (prerelease.yml) are not releases
+      - '!v*-*'
   workflow_dispatch:
 
 permissions:
@@ -108,3 +110,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --draft=false --latest
+
+      - name: Delete pre-releases of this version
+        # vX.Y.Z-rc.N pre-releases (prerelease.yml, docs/PRERELEASE.md) were test builds of this release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh api "repos/$REPO/git/matching-refs/tags/$TAG-rc." --jq '.[].ref' | sed 's#^refs/tags/##' | while read -r RC; do
+            echo "Deleting pre-release $RC"
+            gh release delete "$RC" --repo "$REPO" --cleanup-tag --yes || gh api -X DELETE "repos/$REPO/git/refs/tags/$RC"
+          done

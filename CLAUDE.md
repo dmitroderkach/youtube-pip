@@ -4,11 +4,12 @@ Project rules live in `.cursor/` and are shared with Cursor. They are imported h
 
 ## Workflows (Cursor rules)
 
-| User says                                                    | Follow                                                  |
-| ------------------------------------------------------------ | ------------------------------------------------------- |
-| "бамп версії" [мінор / мажор], "bump version"                | **Bump Version Flow** — @.cursor/rules/bump-version.mdc |
-| "реліз флов", "залий зміни і створи реліз", "create release" | **Release Flow** — @.cursor/rules/release-flow.mdc      |
-| Writing or changing unit tests                               | **Test rules** — @.cursor/rules/tests.mdc               |
+| User says                                                    | Follow                                                      |
+| ------------------------------------------------------------ | ----------------------------------------------------------- |
+| "бамп версії" [мінор / мажор], "bump version"                | **Bump Version Flow** — @.cursor/rules/bump-version.mdc     |
+| "реліз флов", "залий зміни і створи реліз", "create release" | **Release Flow** — @.cursor/rules/release-flow.mdc          |
+| "предреліз", "pre-release"                                   | **Release Flow**, step 3a — @.cursor/rules/release-flow.mdc |
+| Writing or changing unit tests                               | **Test rules** — @.cursor/rules/tests.mdc                   |
 
 The Cursor slash commands `.cursor/commands/bump-version.md` and `.cursor/commands/release-flow.md` only point at these rules. Run the flows step by step in the order the rule gives; when a step fails (e.g. PR checks), stop and handle it as the rule says before continuing.
 

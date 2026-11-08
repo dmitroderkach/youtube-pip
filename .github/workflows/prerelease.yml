@@ -1,0 +1,132 @@
+name: Pre-release Userscript
+
+# Manual pre-release of a release branch for local testing before the release (docs/PRERELEASE.md):
+#   gh workflow run prerelease.yml --ref release/X.Y.Z
+# Builds the userscript as X.Y.Z-rc.N (N = next free number for this version) and publishes a GitHub pre-release
+# vX.Y.Z-rc.N with youtube-pip.user.js attached. A pre-release is never "latest", so Greasy Fork and the
+# @updateURL of installed scripts (releases/latest/download/...) keep serving the last stable release.
+# The stable release of X.Y.Z (release.yml) deletes its rc pre-releases and tags.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: prerelease-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prerelease:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Cache npm
+        uses: actions/cache@v5
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Pick pre-release version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          BASE=$(node -p "require('./package.json').version")
+          if ! [[ "$BASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::package.json version '$BASE' is not X.Y.Z"
+            exit 1
+          fi
+          if gh api "repos/$REPO/git/ref/tags/v$BASE" --silent 2>/dev/null; then
+            echo "::error::v$BASE is already released: bump the version on this branch first (bump version flow)"
+            exit 1
+          fi
+          LAST=$(gh api "repos/$REPO/git/matching-refs/tags/v$BASE-rc." --jq '.[].ref' \
+            | sed -n "s#^refs/tags/v$BASE-rc\.\([0-9]\+\)\$#\1#p" | sort -n | tail -1)
+          N=$(( ${LAST:-0} + 1 ))
+          echo "base=$BASE" >> "$GITHUB_OUTPUT"
+          echo "version=$BASE-rc.$N" >> "$GITHUB_OUTPUT"
+          echo "tag=v$BASE-rc.$N" >> "$GITHUB_OUTPUT"
+          echo "Pre-release: v$BASE-rc.$N"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build userscript
+        # The version only changes in this job's checkout: @version of the build is X.Y.Z-rc.N
+        run: |
+          npm version "${{ steps.version.outputs.version }}" --no-git-tag-version
+          npm run build
+          cp dist/userscript.js dist/youtube-pip.user.js
+          grep -m1 '@version' dist/youtube-pip.user.js
+
+      - name: Extract changelog for version
+        id: changelog
+        env:
+          VERSION_NUM: ${{ steps.version.outputs.base }}
+        run: |
+          CHANGELOG_SECTION=$(awk -v version="$VERSION_NUM" '
+            /^## \[/ {
+              if ($0 ~ "^## \\[" version "\\]") { found=1; next } else if (found) { exit }
+            }
+            /^\[/ && found { exit }
+            found { print }
+          ' CHANGELOG.md)
+          [ -n "$CHANGELOG_SECTION" ] || CHANGELOG_SECTION="_No CHANGELOG.md section for $VERSION_NUM yet._"
+          {
+            echo "content<<EOF"
+            echo "$CHANGELOG_SECTION"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Find the pull request of the branch
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PR=$(gh pr list --repo "${{ github.repository }}" --head "${{ github.ref_name }}" --state open \
+            --json url --jq '.[0].url // ""')
+          echo "line=${PR:+Pull request: $PR}" >> "$GITHUB_OUTPUT"
+
+      - name: Create pre-release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda
+        with:
+          files: |
+            dist/userscript.js
+            dist/youtube-pip.user.js
+          tag_name: ${{ steps.version.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Pre-release ${{ steps.version.outputs.tag }}
+          body: |
+            ## YouTube PiP ${{ steps.version.outputs.version }} (pre-release)
+
+            Test build of `${{ github.ref_name }}` (${{ github.sha }}), not the release. Users and Greasy Fork stay on the latest stable release.
+            ${{ steps.pr.outputs.line }}
+
+            ### Install for testing
+
+            Open [youtube-pip.user.js](https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/youtube-pip.user.js) with Tampermonkey installed and confirm the update. It replaces the installed YouTube PiP (same name); the stable release of ${{ steps.version.outputs.base }} updates it back through `@updateURL`.
+
+            ### Changelog
+
+            ${{ steps.changelog.outputs.content }}
+          prerelease: true
+          make_latest: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "Pre-release: https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Userscript: https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/youtube-pip.user.js" >> "$GITHUB_STEP_SUMMARY"
