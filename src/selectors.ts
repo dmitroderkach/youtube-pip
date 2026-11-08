@@ -37,6 +37,8 @@ export const SELECTORS = {
     '.yt-spec-button-shape-next[aria-expanded], .ytSpecButtonShapeNextHost[aria-expanded]',
   PLAYLIST_PANEL: '.ytdMiniplayerComponentPlaylistPanel',
   PROGRESS_BAR: '.ytp-progress-bar',
+  /** Player settings (gear) button; our PiP button goes before it. */
+  SETTINGS_BUTTON: '.ytp-settings-button',
   LIKE_BUTTON: 'ytd-slim-metadata-toggle-button-renderer',
   /** Click target inside like/dislike toggles; match both class variants. */
   BUTTON_SHAPE: '.yt-spec-button-shape-next, .ytSpecButtonShapeNextHost',

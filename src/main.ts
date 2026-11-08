@@ -5,6 +5,7 @@ import { YtdAppProvider } from './core/YtdAppProvider';
 import { MiniPlayerController } from './ui/MiniPlayerController';
 import { MediaSessionHandler } from './handlers/MediaSessionHandler';
 import { getGlobalMetadata } from './utils/VersionDetector';
+import { PiPEntryPoints } from './ui/PiPEntryPoints';
 
 const logger = Logger.getInstance('Main');
 
@@ -30,6 +31,8 @@ async function initializeApp(): Promise<void> {
 
     const mediaSessionHandler = container.get<MediaSessionHandler>(MediaSessionHandler);
     mediaSessionHandler.initialize();
+
+    container.get<PiPEntryPoints>(PiPEntryPoints).initialize();
 
     logger.log('YouTube PiP application initialized');
   } catch (error) {

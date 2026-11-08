@@ -49,6 +49,8 @@ video {
 
 .ytp-miniplayer-expand-watch-page-button,
 .ytp-miniplayer-close-button,
+/* Our "open PiP" button of the page's controls (PiPEntryPoints) has nothing to do in PiP */
+.ytpip-open-button,
 #header-contents,
 .ytdMiniplayerComponentResizers,
 /* TODO: remove when context menu interception is implemented */

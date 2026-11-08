@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.7.0] - 2026-11-08
+
+### Added
+
+- **Open PiP from the player's context menu** (experimental) — An item "Відкрити картинку в картинці" at the top of the player context menu on the watch page and in the mini player opens our PiP window. It is not shown in the menu inside the PiP window (removed while PiP is open, back after it closes). YouTube sizes the menu when it opens; the item stays in the menu, and when it is added or removed while the menu is shown, the menu's inline heights are corrected by its height. The click closes the menu through YouTube (a non-bubbling Escape on the menu: a document-level Escape would close the mini player). Ukrainian label only for now (`ENTRY_POINT_LABELS`), whatever the page language.
+- **PiP button in the player controls** (experimental) — A button with the picture-in-picture icon before the settings (gear) button opens our PiP; re-added when YouTube rebuilds the controls, hidden in the PiP window (`styles.css`).
+- **E2E** `pip-entry-points.spec.ts`: the menu item (first, fits in the menu, opens PiP, absent from the PiP menu, back after close), the item in the mini player, and the controls button (next to the settings, opens PiP, hidden in PiP); real mouse clicks.
+
 ## [2.6.4] - 2026-11-08
 
 ### Fixed
@@ -1233,6 +1241,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.7.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.4...refs/tags/v2.7.0
 [2.6.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.3...refs/tags/v2.6.4
 [2.6.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.2...refs/tags/v2.6.3
 [2.6.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.1...refs/tags/v2.6.2

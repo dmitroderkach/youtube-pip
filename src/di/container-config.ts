@@ -18,6 +18,7 @@ import { PiPManager } from '../core/PiPManager';
 import { MediaSessionHandler } from '../handlers/MediaSessionHandler';
 import { PiPEventBridgeHandler } from '../handlers/PiPEventBridgeHandler';
 import { PiPLinkFocusHandler } from '../handlers/PiPLinkFocusHandler';
+import { PiPEntryPoints } from '../ui/PiPEntryPoints';
 
 export function createContainer(): Container {
   const container = new Container();
@@ -41,6 +42,7 @@ export function createContainer(): Container {
   container.bind(PipShortsWindowHandlers).toSelf();
   container.bind(PiPManager).toSelf();
   container.bind(MediaSessionHandler).toSelf();
+  container.bind(PiPEntryPoints).toSelf();
 
   return container;
 }
