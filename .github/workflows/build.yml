@@ -129,8 +129,7 @@ jobs:
         id: e2e
         env:
           SKIP_AUTH_E2E_ON_CI: ${{ vars.SKIP_AUTH_E2E_ON_CI || 'false' }}
-        # TEMPORARY (release/2.7.0): only the specs being worked on; restore `npm run test:e2e` before merge
-        run: npm run test:e2e -- e2e/tests/pip-entry-points.spec.ts
+        run: npm run test:e2e
 
       - name: Upload Playwright report
         uses: actions/upload-artifact@v7

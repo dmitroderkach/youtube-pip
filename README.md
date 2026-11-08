@@ -22,7 +22,7 @@ This project is **not affiliated with, endorsed by, or officially connected to**
 
 - **Document Picture-in-Picture** — Opens the YouTube mini player in a separate PiP window (Chrome’s Document PiP API).
 - **Media Session** — PiP can be triggered from the native media controls (e.g. “Enter Picture-in-Picture” when available).
-- **Player context menu and controls** (experimental) — "Відкрити картинку в картинці" at the top of the player's context menu (watch page and mini player) and a PiP button before the settings button open PiP from the page.
+- **Open PiP from the page** — "Picture-in-picture" at the top of the player's context menu (watch page, mini player, Shorts) and of the Shorts "⋮" menu, a PiP button in the player controls and in the Shorts top controls, and the key `p` (again in PiP to close it). Labels are YouTube's own, in all 83 interface languages ([i18n](docs/I18N.md)); YouTube's own PiP item and button are hidden, so ours always open this PiP.
 - **SPA navigation** — Clicks on video links inside PiP navigate within the tab via `history.pushState` / `popstate` instead of full reloads.
 - **Seek** — Click or drag on the progress bar in PiP to seek; player size updates on PiP resize.
 - **Like / Dislike** — Native like/dislike buttons in PiP work as on the main page: their `yt-action` events are forwarded to the main YouTube app by the PiP event bridge.

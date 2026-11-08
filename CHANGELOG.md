@@ -9,9 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 ### Added
 
-- **Open PiP from the player's context menu** (experimental) — An item "Відкрити картинку в картинці" at the top of the player context menu on the watch page and in the mini player opens our PiP window. It is not shown in the menu inside the PiP window (removed while PiP is open, back after it closes). YouTube sizes the menu when it opens; the item stays in the menu, and when it is added or removed while the menu is shown, the menu's inline heights are corrected by its height. The click closes the menu through YouTube (a non-bubbling Escape on the menu: a document-level Escape would close the mini player). Ukrainian label only for now (`ENTRY_POINT_LABELS`), whatever the page language.
-- **PiP button in the player controls** (experimental) — A button with the picture-in-picture icon before the settings (gear) button opens our PiP; re-added when YouTube rebuilds the controls, hidden in the PiP window (`styles.css`).
-- **E2E** `pip-entry-points.spec.ts`: the menu item (first, fits in the menu, opens PiP, absent from the PiP menu, back after close), the item in the mini player, and the controls button (next to the settings, opens PiP, hidden in PiP); real mouse clicks.
+- **Open PiP from the page without the media controls** (`PiPEntryPoints`):
+  - **Player context menu** (watch page, mini player, Shorts): a "Picture-in-picture" item at the top; not in the menu inside the PiP window (removed while PiP is open). YouTube sizes the menu when it opens; when the item is added or removed while the menu is shown, the menu's inline heights are corrected by its height. Its click closes the menu through YouTube (a non-bubbling Escape on the menu: hiding it ourselves left YouTube's "open" state behind; a document-level Escape closes the mini player).
+  - **Player controls**: a PiP button before the settings (gear) button, with a tooltip built like the player's own (`.ytp-tooltip`, "Picture-in-picture (p)"); re-added when YouTube rebuilds the controls; hidden in the PiP window.
+  - **Shorts top controls** (signed-in layout): a PiP button right after the "⋮" button, i.e. left of full screen, styled like its neighbours with a `title` tooltip as YouTube's own buttons there; laid out in the "⋮" slot, which YouTube always shows (it hides the full screen slot in small windows and does not render it with `web_shorts_hide_fullscreen_and_captions_for_ask`).
+  - **Shorts "⋮" menu**: a "Picture-in-picture" row at the top.
+  - **Key `p`**: opens PiP on the page and closes it in the PiP window; plain key only (YouTube uses only Shift+P), not while typing (inputs, text areas, editable content), not when the page already handled the key (`PiPHotkeyHandler`).
+- **Texts in the YouTube interface language** (`src/i18n`, docs/I18N.md): dictionaries for all 83 languages of YouTube's language picker. The texts are YouTube's own: its name of picture-in-picture from the localized player (the tooltip of its PiP button), e.g. "Картинка в картинці", "Bild im Bild", "画中画". The language is YouTube's `hl` (`ytcfg`), else `<html lang>`; English when there is no dictionary.
+- **E2E** `pip-entry-points.spec.ts` with real mouse clicks and keys: menu item (first, all items fit, opens PiP, absent in the PiP menu, back after close; mini player), controls button (next to the settings, YouTube-style tooltip, opens PiP, hidden in PiP), key `p` (opens, closes in PiP, ignored while typing), and for Shorts (signed in) the context menu item, the controls button and the "⋮" menu item. Every flag set checks that only our PiP entries are offered.
+
+### Changed
+
+- **YouTube's own PiP entry points are hidden** so ours are the only ones and always open our PiP: its "Picture-in-picture" context menu item (`web_watch_pip_context_menu_button`, recognized by its label, which is our text) and its controls button (`.ytp-pip-button`, `web_watch_pip`); both opened YouTube's own PiP instead of ours.
+- **CI**: the full Build Check runs only when product code or tests change; other PRs get lint and Prettier (#159). Pre-releases `vX.Y.Z-rc.N` for testing a release branch (`docs/PRERELEASE.md`, #159).
+- **CLAUDE.md**: changed e2e specs are made green locally before the full CI matrix runs; CI-only specs are iterated on with the e2e step narrowed to them.
 
 ## [2.6.4] - 2026-11-08
 

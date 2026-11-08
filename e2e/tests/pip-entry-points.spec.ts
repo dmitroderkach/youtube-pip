@@ -274,8 +274,9 @@ test.describe('Open PiP from the page (context menu item, controls button)', () 
       .filter((p) => p !== page && !p.isClosed())
       .pop();
     expect(pipPage).toBeDefined();
-    // keydown closes the window, so the keyup of press() would hit a closed page
-    await pipPage!.keyboard.down('p');
+    // The keydown closes the window right away, so Playwright may find the page closed before it reports the key
+    // as pressed (or at the keyup): the window being gone, checked below, is the result
+    await pipPage!.keyboard.down('p').catch(() => undefined);
     await pipPage!.keyboard.up('p').catch(() => undefined);
     await page.waitForFunction(() => window.documentPictureInPicture?.window == null, {
       timeout: E2E_WAIT_TIMEOUT_MS,
