@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.6.3] - 2026-11-08
+
+### Fixed
+
+- **Tab title still flickered for a few milliseconds when opening PiP** — 2.6.2 put the video title back right after YouTube wrote "YouTube", but Chrome passes every `document.title` write to the tab at once, so the tab still showed "YouTube" for a moment. While the title is held (from right before the mini player is activated until PiP closes), YouTube's `document.title` writes (ytd-app `setPageTitle`) are no longer applied: `TitleSyncHandler` gives the document its own `title` property whose setter ignores them, and writes our title through the native accessor; removed on cleanup. The `<title>` observer stays as a fallback.
+
+### Changed
+
+- **E2E title check records every applied title** (`e2e/fixtures/page-title.ts`): text set on `<title>`, not a sample per animation frame, which missed the 2.6.2 flicker.
+
 ## [2.6.2] - 2026-11-08
 
 ### Fixed
@@ -1213,6 +1223,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.6.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.2...refs/tags/v2.6.3
 [2.6.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.1...refs/tags/v2.6.2
 [2.6.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.0...refs/tags/v2.6.1
 [2.6.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.5.1...refs/tags/v2.6.0

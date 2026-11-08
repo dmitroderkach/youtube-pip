@@ -14,9 +14,12 @@ import { YtdShortsProvider } from '../core/YtdShortsProvider';
  * Observes the video element (src) and the notify renderer element (childList) and updates title from getVideoData().
  * While PiP is open the page itself is not the watch page (the player went through the mini player), so YouTube
  * sets its own page title ("(1) YouTube") after navigations / data updates; the main document's <title> is
- * watched too and our title put back. Opening PiP from the watch page activates the mini player first, and YouTube
- * switches the title to "YouTube" right away: holdPageTitle() keeps the current title from before that step, so
- * the tab title never flickers.
+ * kept. YouTube writes it with `document.title = …` (ytd-app setPageTitle on yt-update-title); Chrome passes every
+ * write to the tab right away, so putting our title back afterwards still flickers for a few milliseconds. While the
+ * title is held, YouTube's writes are therefore not applied at all (own `title` property on the document); the
+ * <title> observer stays as a fallback for other ways of changing it. Opening PiP from the watch page activates the
+ * mini player first, and YouTube switches the title to "YouTube" right away: holdPageTitle() starts the hold before
+ * that step.
  * Does not depend on PiPManager to avoid circular dependencies.
  */
 /** At most this many title restores per window; more means something fights back. */
@@ -30,6 +33,8 @@ export class TitleSyncHandler {
   private titleObserver: MutationObserver | null = null;
   /** Title we set on the page; YouTube overwriting it is undone. */
   private expectedTitle: string | null = null;
+  /** Document.prototype `title` accessor: our own writes go through it while YouTube's are held off. */
+  private readonly nativeTitle = Object.getOwnPropertyDescriptor(Document.prototype, 'title');
   /** Restores in the current window (guard against a ping-pong with code that keeps setting its own title). */
   private restoreWindowStart = 0;
   private restoresInWindow = 0;
@@ -103,7 +108,35 @@ export class TitleSyncHandler {
   public holdPageTitle(): void {
     if (!document.title) return;
     this.expectedTitle = document.title;
+    this.blockPageTitleWrites();
     this.observePageTitle();
+  }
+
+  /** Make `document.title = …` (YouTube) a no-op until cleanup(); reading it is unchanged. */
+  private blockPageTitleWrites(): void {
+    const native = this.nativeTitle;
+    if (!native?.get || !native.set || Object.getOwnPropertyDescriptor(document, 'title')) return;
+    Object.defineProperty(document, 'title', {
+      configurable: true,
+      get: () => native.get!.call(document),
+      set: (value: string) => {
+        if (value !== this.expectedTitle) {
+          this.logger.debug(`Page title "${value}" set by YouTube not applied while PiP is open`);
+        }
+      },
+    });
+  }
+
+  private unblockPageTitleWrites(): void {
+    if (Object.getOwnPropertyDescriptor(document, 'title')) {
+      delete (document as { title?: string }).title;
+    }
+  }
+
+  /** Write the page title past the block. */
+  private applyPageTitle(title: string): void {
+    if (this.nativeTitle?.set) this.nativeTitle.set.call(document, title);
+    else document.title = title;
   }
 
   /** Put our title back when YouTube changes the page title (text or the <title> element itself). */
@@ -126,7 +159,7 @@ export class TitleSyncHandler {
         return;
       }
       this.logger.debug(`Page title changed by YouTube to "${document.title}"; restoring`);
-      document.title = this.expectedTitle;
+      this.applyPageTitle(this.expectedTitle);
     });
     this.titleObserver.observe(document.head, {
       childList: true,
@@ -146,7 +179,8 @@ export class TitleSyncHandler {
     const countNotif = notify?.showNotificationCount ? `(${notify.showNotificationCount}) ` : '';
     const newTitle = `${countNotif}${title} - YouTube`;
     this.expectedTitle = newTitle;
-    document.title = newTitle;
+    this.blockPageTitleWrites();
+    this.applyPageTitle(newTitle);
     pipWindow.document.title = newTitle;
     this.logger.debug(`Title synced: ${title}`);
   }
@@ -162,6 +196,7 @@ export class TitleSyncHandler {
     }
     this.titleObserver?.disconnect();
     this.titleObserver = null;
+    this.unblockPageTitleWrites();
     this.expectedTitle = null;
   }
 }
