@@ -22,3 +22,13 @@ output "runner_nat_eip" {
   description = "Static outbound Elastic IP used by Fargate tasks via NAT EC2 instance."
   value       = aws_eip.nat.public_ip
 }
+
+output "dev_bot_webhook_url" {
+  description = "Telegram webhook URL of the dev worker bot (scripts/dev-worker/setup-telegram.mjs)."
+  value       = aws_lambda_function_url.dev_bot.function_url
+}
+
+output "dev_worker_ecr_repository_url" {
+  description = "ECR repository of the dev worker image (scripts/build-dev-worker-image.sh)."
+  value       = aws_ecr_repository.dev_worker.repository_url
+}

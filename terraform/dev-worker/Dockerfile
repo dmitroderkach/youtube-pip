@@ -1,0 +1,36 @@
+# Dev worker image (docs/DEV_WORKER.md): Claude Code driven from Telegram. Build context = repository root:
+#   scripts/build-dev-worker-image.sh
+FROM node:24-bookworm-slim
+
+# Claude Code: same pinned version as the on-call (.github/workflows/e2e-manual.yml); bump both together.
+ARG CLAUDE_CODE_VERSION=2.1.319
+# Keep in sync with @playwright/test in package-lock.json (browsers for narrowed local e2e runs).
+ARG PLAYWRIGHT_VERSION=1.58.2
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+# Pinned version above: no self-update inside the container
+ENV DISABLE_AUTOUPDATER=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates curl git gnupg jq less procps tar unzip \
+    && mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli.gpg \
+    && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" \
+      > /etc/apt/sources.list.d/github-cli.list \
+    && apt-get update && apt-get install -y --no-install-recommends gh \
+    && curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscli.zip \
+    && unzip -q /tmp/awscli.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/aws /tmp/awscli.zip \
+    && npx -y playwright@${PLAYWRIGHT_VERSION} install --with-deps --only-shell chromium \
+    && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
+    && rm -rf /var/lib/apt/lists/* /root/.npm
+
+# Claude Code refuses --dangerously-skip-permissions as root: run as a regular user
+RUN useradd -m -d /home/worker -s /bin/bash worker
+COPY --chown=worker:worker scripts/dev-worker/worker.mjs scripts/dev-worker/system-prompt.md /opt/dev-worker/
+COPY terraform/dev-worker/entrypoint.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+USER worker
+WORKDIR /home/worker
+ENTRYPOINT ["/entrypoint.sh"]

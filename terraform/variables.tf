@@ -131,3 +131,45 @@ variable "project_budget_alert_threshold_percent" {
   type        = number
   default     = 80
 }
+
+variable "dev_worker_cpu" {
+  description = "Fargate CPU units of the dev worker task (docs/DEV_WORKER.md)."
+  type        = number
+  default     = 2048
+}
+
+variable "dev_worker_memory" {
+  description = "Fargate memory in MB of the dev worker task."
+  type        = number
+  default     = 4096
+}
+
+variable "dev_worker_idle_timeout_seconds" {
+  description = "The dev worker stops after this long without a message or work in progress."
+  type        = number
+  default     = 600
+}
+
+variable "dev_worker_max_lifetime_seconds" {
+  description = "Hard limit of one dev worker run."
+  type        = number
+  default     = 14400
+}
+
+variable "dev_worker_state_retention_days" {
+  description = "Dev worker state (session transcripts, working copy) not written for this many days expires."
+  type        = number
+  default     = 7
+}
+
+variable "dev_worker_git_user_name" {
+  description = "Git author name of the dev worker's commits."
+  type        = string
+  default     = "Dmytro Derkach"
+}
+
+variable "dev_worker_git_user_email" {
+  description = "Git author email of the dev worker's commits (GitHub no-reply address)."
+  type        = string
+  default     = "14731091+dmitroderkach@users.noreply.github.com"
+}
