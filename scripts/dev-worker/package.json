@@ -1,0 +1,9 @@
+{
+  "name": "youtube-pip-dev-worker",
+  "private": true,
+  "type": "module",
+  "description": "Dev worker (docs/DEV_WORKER.md): installed into the worker image at /opt/dev-worker",
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.319"
+  }
+}

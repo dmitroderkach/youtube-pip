@@ -26,7 +26,8 @@ Telegram ──webhook──▶ Lambda dev-bot (Function URL)
                                         │
                      ECS task dev-worker (2 vCPU / 4 GB) ◀──┘ long poll
                         ├─ restores the session from S3, clones the repo, applies the saved uncommitted changes
-                        ├─ per message: Claude Code (--model opus, --resume <session>) with all tools
+                        ├─ one Claude Code session for the whole run (Agent SDK, streaming input, opus, all tools);
+                        │  each message goes into it; a message during a turn: running commands → background, priority 'now'
                         ├─ answers / statuses ─▶ Telegram Bot API
                         ├─ after each answer: session + uncommitted diff ─▶ S3 dev-worker-state
                         └─ idle 10 min / 4 h / SIGTERM: save, notify, exit 0
@@ -40,6 +41,15 @@ EventBridge "ECS Task State Change" (dev-worker STOPPED) ─▶ Lambda dev-bot
 - **ECS task `dev-worker`**: on-demand Fargate (an interactive session interrupted by Spot costs more than the ~$0.07/h saved), its own image (Node, git, `gh`, Claude Code, Playwright Chromium for narrowed tests), in its own ECS cluster `dev-worker`, in the public subnet of the runner VPC with a public IP. It does not use the NAT instance: the NAT exists for the e2e runs, and the NAT lifecycle Lambda starts it whenever the runner cluster has a task, so the worker stays out of that cluster.
 - **S3 `dev-worker-state`**: the Claude Code session (transcript), its id and the uncommitted diff of the working tree. Restored on every `/up`, so the conversation continues across `/down`, idle stops and restarts.
 - **EventBridge rule**: ECS stop events of the `dev-worker` family → dev-bot, so a crash is reported even when the worker could not say anything.
+
+## Talking while it works
+
+The worker keeps one Claude Code session open for the whole run (Claude Agent SDK, streaming input), like an interactive terminal:
+
+- A message that arrives while Claude is working is not queued behind the turn: its running commands (Bash, subagents) are moved to the background (`backgroundTasks()`, the SDK's Ctrl+B) and keep running, and the message is delivered at once (`priority: 'now'`) with a note that it arrived mid-task. The chat gets `📨 Передав одразу; поточні команди пішли у фон`.
+- Long waits (CI, builds, e2e) are run in the background by the model (system prompt); background tasks survive between turns, and their completion notifies the model.
+- The idle timer counts only while there is no turn and no background task, so a long CI watch in the background does not stop the worker.
+- Any turn (also one started by a finished background task) shows `⏳ Працюю…` with the current step and ends with its answer.
 
 ## Photos, voice and files
 

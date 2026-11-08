@@ -2,16 +2,21 @@
  * Dev worker (docs/DEV_WORKER.md): Claude Code session driven from the on-call Telegram chat.
  *
  * Runs inside the `dev-worker` ECS task (terraform/dev-worker): restores the session and the working copy from S3,
- * takes the owner's messages from the SQS FIFO queue filled by the dev-bot Lambda, runs each through Claude Code
- * (`--resume` of one session) and posts the answer to Telegram. Saves the state to S3 after every answer. Stops by
- * itself after IDLE_TIMEOUT_SECONDS without activity or MAX_LIFETIME_SECONDS in total, and on SIGTERM (`/down`,
- * ECS StopTask); every stop it initiates is reported in the chat and ends with exit code REPORTED_EXIT_CODE or 0,
- * which the dev-bot Lambda does not report again.
+ * then keeps ONE Claude Code session open for the whole run (Claude Agent SDK, streaming input), like an interactive
+ * terminal: the owner's messages from the SQS FIFO queue (filled by the dev-bot Lambda) go into it as they arrive.
+ * A message that arrives while Claude is working moves its running commands to the background (they keep running,
+ * like Ctrl+B) and is delivered at once with priority 'now'. Background tasks survive between turns; their
+ * completion starts a turn of its own. Every turn's progress and final answer go to Telegram; the state is saved to
+ * S3 after every answer. Stops by itself after IDLE_TIMEOUT_SECONDS without activity (no turn and no background task)
+ * or MAX_LIFETIME_SECONDS in total, and on SIGTERM (`/down`, ECS StopTask); every stop it initiates is reported in
+ * the chat and ends with exit code 0 or REPORTED_EXIT_CODE, which the dev-bot Lambda does not report again.
  *
  * Env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, QUEUE_URL, STATE_BUCKET, CLAUDE_CODE_OAUTH_TOKEN, GH_TOKEN,
- *      GITHUB_REPO, UP_AT (unix seconds of /up), IDLE_TIMEOUT_SECONDS, MAX_LIFETIME_SECONDS, CLAUDE_MODEL.
+ *      GITHUB_REPO, UP_AT (unix seconds of /up), IDLE_TIMEOUT_SECONDS, MAX_LIFETIME_SECONDS, CLAUDE_MODEL,
+ *      TRANSCRIBE_LANGUAGE.
  */
-import { execFile, spawn } from 'node:child_process';
+import { query } from '@anthropic-ai/claude-agent-sdk';
+import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -35,8 +40,12 @@ const REPORTED_EXIT_CODE = 10;
 const RECEIVE_WAIT_SECONDS = 10;
 const TELEGRAM_MAX_LENGTH = 4000;
 const PROGRESS_EDIT_INTERVAL_MS = 4000;
-/** SIGTERM from ECS leaves stopTimeout (120 s) to save; Claude gets this long to stop first. */
+/** SIGTERM from ECS leaves stopTimeout (120 s) to save; Claude gets this long to stop its turn first. */
 const CLAUDE_STOP_GRACE_MS = 10000;
+/** How often the idle / lifetime limits are checked. */
+const LIMITS_CHECK_MS = 10000;
+/** A Claude session that ends unexpectedly is restarted (resumed) at most this many times per run. */
+const MAX_SESSION_RESTARTS = 3;
 const META_KEY = 'state/meta.json';
 const WORKSPACE_KEY = 'state/workspace.tar.gz';
 const PROJECTS_PREFIX = 'claude/projects/';
@@ -264,10 +273,37 @@ async function buildPrompt(message, setStatus) {
   return parts.join('\n\n');
 }
 
-// ---------------------------------------------------------------------------------------------- Claude
+// ---------------------------------------------------------------------------------------------- Claude session
 
-/** Claude Code process of the turn in progress (killed on SIGTERM). */
-let claude = null;
+/** Messages waiting to be read by the SDK's input stream. */
+const inputQueue = [];
+let wakeInput = null;
+
+async function* userMessages() {
+  for (;;) {
+    while (inputQueue.length) yield inputQueue.shift();
+    await new Promise((resolve) => (wakeInput = resolve));
+    wakeInput = null;
+  }
+}
+
+function sendToClaude(text, priority) {
+  inputQueue.push({
+    type: 'user',
+    message: { role: 'user', content: text },
+    parent_tool_use_id: null,
+    origin: { kind: 'human' },
+    ...(priority ? { priority } : {}),
+  });
+  wakeInput?.();
+}
+
+/** The SDK query (Claude Code process) of the session. */
+let session = null;
+/** Turn in progress: { progress, started, steps, lastEdit }; null while Claude is idle. */
+let turn = null;
+/** Live background tasks (Bash / subagents) of the session. */
+let backgroundTaskCount = 0;
 
 function describeTool(name, input = {}) {
   const detail =
@@ -281,132 +317,167 @@ function describeTool(name, input = {}) {
   return `${name}${detail ? `: ${String(detail).split('\n')[0].slice(0, 120)}` : ''}`;
 }
 
-/** Run one message through Claude Code in the saved session; returns { text, isError, sessionId, steps }. */
-function runClaude(prompt, sessionId, onStep) {
-  const args = [
-    '-p',
-    prompt,
-    '--model',
-    MODEL,
-    '--output-format',
-    'stream-json',
-    '--verbose',
-    '--dangerously-skip-permissions',
-    '--append-system-prompt',
-    SYSTEM_PROMPT,
-  ];
-  if (sessionId) args.push('--resume', sessionId);
+/** Start tracking a turn (a message from the owner, or a turn Claude starts for a finished background task). */
+function ensureTurn() {
+  if (turn) return turn;
+  const current = { progress: null, started: Date.now(), steps: 0, lastEdit: 0 };
+  turn = current;
+  void telegram('sendMessage', { text: '⏳ Працюю…' }).then((progress) => {
+    current.progress = progress;
+  });
+  return current;
+}
+
+function onToolUse(what) {
+  const current = ensureTurn();
+  current.steps++;
+  const now = Date.now();
+  if (!current.progress || now - current.lastEdit < PROGRESS_EDIT_INTERVAL_MS) return;
+  current.lastEdit = now;
+  void edit(
+    current.progress.message_id,
+    `⏳ Працюю… крок ${current.steps}\n${what}${backgroundTaskCount ? `\nУ фоні: ${backgroundTaskCount}` : ''}`
+  );
+}
+
+async function finishTurn(result) {
+  const current = turn ?? { progress: null, started: Date.now(), steps: 0 };
+  turn = null;
+  const failed = result.subtype !== 'success' || result.is_error;
+  const seconds = Math.round((Date.now() - current.started) / 1000);
+  if (current.progress) {
+    await edit(
+      current.progress.message_id,
+      `${failed ? '⚠️ Завершено з помилкою' : '✅ Готово'} за ${seconds} с, кроків: ${current.steps}` +
+        (backgroundTaskCount ? `; у фоні: ${backgroundTaskCount}` : '')
+    );
+  }
+  const text =
+    typeof result.result === 'string' && result.result.trim()
+      ? result.result
+      : (result.errors ?? []).join('\n') || `(${result.subtype})`;
+  await say(text);
+  try {
+    await save();
+  } catch (error) {
+    log('save failed', error);
+    await say('⚠️ Не вдалося зберегти контекст у S3 (див. логи воркера).');
+  }
+}
+
+/** Run the Claude session until it ends; resumes `resumeId` when given. */
+async function runSession(resumeId) {
   // Claude never needs the Telegram bot: keep it out of its environment
   const childEnv = { ...env };
   delete childEnv.TELEGRAM_BOT_TOKEN;
   delete childEnv.TELEGRAM_CHAT_ID;
-
-  return new Promise((resolve) => {
-    const child = spawn('claude', args, { cwd: REPO_DIR, env: childEnv });
-    claude = child;
-    let buffer = '';
-    let stderr = '';
-    let steps = 0;
-    let result = null;
-    let newSessionId = sessionId;
-    child.stdout.on('data', (data) => {
-      buffer += data;
-      for (let nl = buffer.indexOf('\n'); nl >= 0; nl = buffer.indexOf('\n')) {
-        const line = buffer.slice(0, nl);
-        buffer = buffer.slice(nl + 1);
-        let event;
-        try {
-          event = JSON.parse(line);
-        } catch {
-          continue;
-        }
-        if (event.session_id) newSessionId = event.session_id;
-        if (event.type === 'assistant') {
-          for (const item of event.message?.content ?? []) {
-            if (item.type === 'tool_use') onStep(++steps, describeTool(item.name, item.input));
-          }
-        }
-        if (event.type === 'result') result = event;
-      }
-    });
-    child.stderr.on('data', (data) => {
-      stderr = (stderr + data).slice(-4000);
-    });
-    child.on('close', (code) => {
-      claude = null;
-      if (result) {
-        resolve({
-          text: typeof result.result === 'string' ? result.result : '',
-          isError: Boolean(result.is_error),
-          sessionId: newSessionId,
-          steps,
-        });
-      } else {
-        resolve({
-          text: `Claude Code завершився без відповіді (код ${code}). ${stderr.trim().slice(-1500)}`,
-          isError: true,
-          sessionId: newSessionId,
-          steps,
-        });
-      }
-    });
+  session = query({
+    prompt: userMessages(),
+    options: {
+      model: MODEL,
+      cwd: REPO_DIR,
+      ...(resumeId ? { resume: resumeId } : {}),
+      permissionMode: 'bypassPermissions',
+      allowDangerouslySkipPermissions: true,
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM_PROMPT },
+      // user: the English-only hook (~/.claude/settings.json); project: CLAUDE.md and the repository settings
+      settingSources: ['user', 'project', 'local'],
+      env: childEnv,
+      stderr: (data) => log(`claude: ${String(data).trim().slice(0, 2000)}`),
+    },
   });
+  for await (const message of session) {
+    lastActivity = Date.now();
+    if (message.session_id && message.session_id !== meta?.sessionId) {
+      meta = { ...(meta ?? {}), sessionId: message.session_id };
+    }
+    if (message.type === 'assistant') {
+      ensureTurn();
+      for (const item of message.message?.content ?? []) {
+        if (item.type === 'tool_use') onToolUse(describeTool(item.name, item.input));
+      }
+    } else if (message.type === 'system' && message.subtype === 'background_tasks_changed') {
+      backgroundTaskCount = (message.tasks ?? []).length;
+    } else if (message.type === 'result') {
+      await finishTurn(message);
+    }
+  }
 }
 
-async function handleMessage(message) {
-  const started = Date.now();
-  const progress = await telegram('sendMessage', { text: '⏳ Працюю…' });
-  const text = await buildPrompt(message, (status) =>
-    progress ? edit(progress.message_id, status) : Promise.resolve()
-  );
+/** Keep the session running for the whole worker run: resume it after an unexpected end. */
+async function keepSession() {
+  let restarts = 0;
+  let resumeId = meta?.sessionId ?? null;
+  for (;;) {
+    try {
+      await runSession(resumeId);
+      if (stopReason) return;
+      throw new Error('Claude session ended');
+    } catch (error) {
+      if (stopReason) return;
+      log('session ended', error);
+      turn = null;
+      backgroundTaskCount = 0;
+      if (resumeId && /no conversation found/i.test(String(error?.message ?? error))) {
+        // The saved session is gone (e.g. expired from S3): continue in a new one
+        await say('ℹ️ Збережену сесію не знайдено (старша за тиждень?): починаю нову.');
+        resumeId = null;
+        continue;
+      }
+      if (++restarts > MAX_SESSION_RESTARTS) {
+        await say(
+          `🔴 Сесія Claude падає знову і знову: ${String(error?.message ?? error).slice(0, 1000)}`
+        );
+        stopReason = 'crash';
+        return stop();
+      }
+      await say(
+        `⚠️ Сесія Claude перезапускається: ${String(error?.message ?? error).slice(0, 500)}`
+      );
+      resumeId = meta?.sessionId ?? resumeId;
+    }
+  }
+}
+
+/** Deliver one message from the owner; while Claude works, its running commands go to the background first. */
+async function deliver(message) {
+  let status = null;
+  const setStatus = async (text) => {
+    if (status) await edit(status.message_id, text);
+    else status = await telegram('sendMessage', { text });
+  };
+  const text = await buildPrompt(message, setStatus);
   if (!text) {
-    if (progress) await edit(progress.message_id, 'ℹ️ Нічого передати: порожнє повідомлення');
+    await say('ℹ️ Нічого передати: порожнє повідомлення');
     return;
   }
-  if (progress) await edit(progress.message_id, '⏳ Працюю…');
-  let lastEdit = 0;
-  const onStep = (step, what) => {
-    const now = Date.now();
-    if (!progress || now - lastEdit < PROGRESS_EDIT_INTERVAL_MS) return;
-    lastEdit = now;
-    void edit(progress.message_id, `⏳ Працюю… крок ${step}\n${what}`);
-  };
-
-  let answer = await runClaude(text, meta?.sessionId ?? null, onStep);
-  if (answer.isError && meta?.sessionId && /no conversation found/i.test(answer.text)) {
-    // The saved session is gone (e.g. expired from S3): continue in a new one
-    log(`session ${meta.sessionId} not found, starting a new one`);
-    await say('ℹ️ Збережену сесію не знайдено (старша за тиждень?): починаю нову.');
-    answer = await runClaude(text, null, onStep);
-  }
-  meta = { ...(meta ?? {}), sessionId: answer.sessionId };
-  const seconds = Math.round((Date.now() - started) / 1000);
-  if (progress) {
-    await edit(
-      progress.message_id,
-      `${answer.isError ? '⚠️ Завершено з помилкою' : '✅ Готово'} за ${seconds} с, кроків: ${answer.steps}`
+  if (turn && session) {
+    const moved = await session.backgroundTasks().catch((error) => {
+      log('backgroundTasks failed', error);
+      return false;
+    });
+    sendToClaude(
+      `[New message from the owner while you were working. ${
+        moved
+          ? 'Your running commands were moved to the background and keep running; you get a notification when they finish.'
+          : 'Nothing was running in the foreground.'
+      } Read this first and then decide what to do with the previous task.]\n\n${text}`,
+      'now'
     );
+    await say(moved ? '📨 Передав одразу; поточні команди пішли у фон' : '📨 Передав одразу');
+  } else {
+    sendToClaude(text);
+    ensureTurn();
   }
-  await say(answer.text);
 }
 
 // ---------------------------------------------------------------------------------------------- main loop
 
 const startedAt = Date.now();
 let lastActivity = Date.now();
-/** Why the worker is stopping: 'sigterm' | 'idle' | 'lifetime' | null. */
+/** Why the worker is stopping: 'sigterm' | 'idle' | 'lifetime' | 'crash' | null. */
 let stopReason = null;
-let turnInterrupted = false;
-
-process.on('SIGTERM', () => {
-  log('SIGTERM');
-  stopReason ??= 'sigterm';
-  if (claude) {
-    turnInterrupted = true;
-    claude.kill('SIGINT');
-    setTimeout(() => claude?.kill('SIGKILL'), CLAUDE_STOP_GRACE_MS).unref();
-  }
-});
+let stopping = false;
 
 async function receive() {
   const out = await aws(
@@ -437,7 +508,18 @@ async function receive() {
 }
 
 async function stop() {
+  if (stopping) return;
+  stopping = true;
   const reason = stopReason;
+  const interrupted = Boolean(turn);
+  if (session) {
+    // Stop the turn in progress (and the session's background tasks), then end the Claude Code process
+    await Promise.race([
+      session.interrupt().catch(() => {}),
+      new Promise((resolve) => setTimeout(resolve, CLAUDE_STOP_GRACE_MS)),
+    ]);
+    session.close();
+  }
   let saved = true;
   try {
     await save();
@@ -451,10 +533,25 @@ async function stop() {
   const text = {
     idle: `💤 ${minutes} хв без активності: ${context}, воркер зупинився`,
     lifetime: `⏱ Досягнуто ліміту ${hours} год: ${context}, воркер зупинився`,
-    sigterm: `⚪ Воркер зупинено, ${context}${turnInterrupted ? '. Поточну задачу перервано' : ''}`,
+    sigterm: `⚪ Воркер зупинено, ${context}${interrupted ? '. Поточну задачу перервано' : ''}`,
+    crash: `⚪ Воркер зупинився, ${context}`,
   }[reason];
   await say(text);
   process.exit(0);
+}
+
+process.on('SIGTERM', () => {
+  log('SIGTERM');
+  stopReason ??= 'sigterm';
+  void stop();
+});
+
+function checkLimits() {
+  if (stopReason) return;
+  const idle = !turn && backgroundTaskCount === 0;
+  if (idle && Date.now() - lastActivity >= IDLE_MS) stopReason = 'idle';
+  else if (!turn && Date.now() - startedAt >= LIFETIME_MS) stopReason = 'lifetime';
+  if (stopReason) void stop();
 }
 
 async function main() {
@@ -469,6 +566,7 @@ async function main() {
     );
     process.exit(REPORTED_EXIT_CODE);
   }
+  if (stopReason) return stop();
   const branch = (await sh('git', ['-C', REPO_DIR, 'branch', '--show-current'])).trim();
   await say(
     meta?.sessionId
@@ -476,19 +574,17 @@ async function main() {
       : `🟢 Воркер готовий (Opus). Нова сесія; гілка ${branch || '(detached)'}.`
   );
 
-  let skipped = 0;
-  for (;;) {
-    if (stopReason) return stop();
-    if (Date.now() - lastActivity >= IDLE_MS) stopReason = 'idle';
-    else if (Date.now() - startedAt >= LIFETIME_MS) stopReason = 'lifetime';
-    if (stopReason) return stop();
+  lastActivity = Date.now();
+  void keepSession();
+  setInterval(checkLimits, LIMITS_CHECK_MS).unref();
 
+  let skipped = 0;
+  while (!stopReason) {
     let messages = [];
     try {
       messages = await receive();
     } catch (error) {
-      if (stopReason) return stop();
-      log('receive failed', error);
+      if (!stopReason) log('receive failed', error);
       continue;
     }
     for (const message of messages) {
@@ -504,18 +600,10 @@ async function main() {
       }
       lastActivity = Date.now();
       try {
-        await handleMessage(message);
+        await deliver(message);
       } catch (error) {
-        log('turn failed', error);
+        log('deliver failed', error);
         await say(`⚠️ Помилка воркера: ${String(error.message ?? error).slice(0, 1500)}`);
-      }
-      lastActivity = Date.now();
-      if (stopReason) break;
-      try {
-        await save();
-      } catch (error) {
-        log('save failed', error);
-        await say('⚠️ Не вдалося зберегти контекст у S3 (див. логи воркера).');
       }
     }
   }

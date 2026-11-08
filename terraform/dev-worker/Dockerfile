@@ -2,14 +2,13 @@
 #   scripts/build-dev-worker-image.sh
 FROM node:24-bookworm-slim
 
-# Claude Code: same pinned version as the on-call (.github/workflows/e2e-manual.yml); bump both together.
-ARG CLAUDE_CODE_VERSION=2.1.319
 # Keep in sync with @playwright/test in package-lock.json (browsers for narrowed local e2e runs).
 ARG PLAYWRIGHT_VERSION=1.58.2
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
-# Pinned version above: no self-update inside the container
+# Claude Code comes with the Agent SDK (scripts/dev-worker/package.json, same version line as the on-call's CLI):
+# no self-update inside the container
 ENV DISABLE_AUTOUPDATER=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -22,11 +21,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscli.zip \
     && unzip -q /tmp/awscli.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/aws /tmp/awscli.zip \
     && npx -y playwright@${PLAYWRIGHT_VERSION} install --with-deps --only-shell chromium \
-    && npm install -g @anthropic-ai/claude-code@${CLAUDE_CODE_VERSION} \
     && rm -rf /var/lib/apt/lists/* /root/.npm
 
 # Claude Code refuses --dangerously-skip-permissions as root: run as a regular user
 RUN useradd -m -d /home/worker -s /bin/bash worker
+# Agent SDK (bundles the Claude Code executable for linux-x64), installed from the lockfile
+COPY scripts/dev-worker/package.json scripts/dev-worker/package-lock.json /opt/dev-worker/
+RUN cd /opt/dev-worker && npm ci --omit=dev --no-audit --no-fund && rm -rf /root/.npm
 COPY --chown=worker:worker scripts/dev-worker/worker.mjs scripts/dev-worker/system-prompt.md \
      scripts/dev-worker/english-only-hook.mjs /opt/dev-worker/
 # User settings: the PreToolUse hook that keeps text sent to GitHub / git history in English
