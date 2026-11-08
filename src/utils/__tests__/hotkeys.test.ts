@@ -9,6 +9,29 @@ describe('isPlainKey', () => {
     expect(isPlainKey(new KeyboardEvent('keydown', { key: 'P' }), KEY)).toBe(true);
   });
 
+  /** Legacy key code of P, as Chrome reports it for the key on every layout. */
+  const P_KEY_CODE = 80;
+
+  it('matches by key code whatever the layout (Ukrainian layout types "з" on P)', () => {
+    expect(
+      isPlainKey(new KeyboardEvent('keydown', { key: 'з', code: 'KeyP', keyCode: P_KEY_CODE }), KEY)
+    ).toBe(true);
+  });
+
+  it('Dvorak: the key labelled P (code KeyR) counts, the QWERTY P position typing "l" does not', () => {
+    expect(
+      isPlainKey(new KeyboardEvent('keydown', { key: 'p', code: 'KeyR', keyCode: P_KEY_CODE }), KEY)
+    ).toBe(true);
+    expect(
+      isPlainKey(new KeyboardEvent('keydown', { key: 'l', code: 'KeyP', keyCode: 76 }), KEY)
+    ).toBe(false);
+  });
+
+  it('without a key code, the physical key decides, then the character', () => {
+    expect(isPlainKey(new KeyboardEvent('keydown', { key: 'з', code: 'KeyP' }), KEY)).toBe(true);
+    expect(isPlainKey(new KeyboardEvent('keydown', { key: 'p', code: 'KeyG' }), KEY)).toBe(false);
+  });
+
   it.each([
     { shiftKey: true },
     { ctrlKey: true },

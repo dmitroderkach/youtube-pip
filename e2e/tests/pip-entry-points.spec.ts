@@ -251,7 +251,7 @@ test.describe('Open PiP from the page (context menu item, controls button)', () 
     await expect(button).toBeVisible({ timeout: E2E_WAIT_TIMEOUT_MS });
   });
 
-  test('hotkey: "p" on the page opens PiP, "p" in the PiP window closes it; ignored while typing', async ({
+  test('hotkey: "p" on the page opens PiP, "p" in the PiP window closes it; any keyboard layout; ignored while typing', async ({
     videoPageReady: page,
     assertPiPWindowHasPlayer,
   }) => {
@@ -283,6 +283,21 @@ test.describe('Open PiP from the page (context menu item, controls button)', () 
       timeout: E2E_WAIT_TIMEOUT_MS,
     });
     await page.locator(E2E_SELECTORS.MOVIE_PLAYER).waitFor({ state: 'visible' });
+
+    // Any keyboard layout: the physical P key on a Ukrainian layout types "з" (a trusted key event through CDP,
+    // which Playwright's keyboard cannot send with another layout)
+    const cdp = await page.context().newCDPSession(page);
+    for (const type of ['keyDown', 'keyUp'] as const) {
+      await cdp.send('Input.dispatchKeyEvent', {
+        type,
+        key: 'з',
+        code: 'KeyP',
+        text: type === 'keyDown' ? 'з' : undefined,
+        windowsVirtualKeyCode: 80,
+      });
+    }
+    await assertPiPWindowHasPlayer(page);
+    await closePiPAndWait(page);
   });
 });
 
