@@ -20,6 +20,8 @@ export const SELECTORS = {
   /** Row of a view-model list menu (Shorts "⋮" menu). */
   LIST_ITEM: 'yt-list-item-view-model',
   /** Slot of the "⋮" button in the Shorts top controls (our PiP button goes right after it). */
+  /** Icon container of a YouTube spec button (`yt-button-shape`). */
+  SPEC_BUTTON_ICON: '.ytSpecButtonShapeNextIcon',
   SHORTS_MENU_BUTTON_SLOT: 'ytd-shorts-player-controls #right-controls > #menu-button',
   /** Slot of the full screen button next to it (not rendered with web_shorts_hide_fullscreen_and_captions_for_ask). */
   SHORTS_FULLSCREEN_SLOT: ':scope > #fullscreen-button-shape',

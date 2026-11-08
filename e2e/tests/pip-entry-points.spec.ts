@@ -206,9 +206,10 @@ test.describe('Open PiP from the page (context menu item, controls button)', () 
     // Visible to the eye too: YouTube's CSS keeps a tooltip transparent unless it is shown the way the player shows it
     await expect(tooltip).toHaveCSS('opacity', '1', { timeout: E2E_WAIT_TIMEOUT_MS });
     const labels = await expectedLabels(page);
-    // YouTube's PiP name with the key, as YouTube writes "Full screen (f)"
-    if (labels) await expect(tooltip).toHaveText(`${labels.button} (p)`);
-    else await expect(tooltip).not.toHaveText('');
+    // YouTube's PiP name and the key in YouTube's badge (as on its own buttons)
+    if (labels) await expect(tooltip.locator('.ytp-tooltip-text')).toHaveText(labels.button);
+    else await expect(tooltip.locator('.ytp-tooltip-text')).not.toHaveText('');
+    await expect(tooltip.locator('.ytp-tooltip-keyboard-shortcut')).toHaveText('P');
     const placement = await page.evaluate(
       ({ tipSel, btnSel }) => {
         const tip = document.querySelector(tipSel)!.getBoundingClientRect();

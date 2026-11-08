@@ -166,7 +166,11 @@ describe('PiPEntryPoints', () => {
       const tooltip = player.querySelector<HTMLElement>(TOOLTIP)!;
       expect(tooltip.classList.contains('ytp-tooltip')).toBe(true);
       expect(tooltip.classList.contains('ytp-bottom')).toBe(true);
-      expect(tooltip.textContent).toBe(`${EN_MESSAGES.PIP} (${PIP_HOTKEY})`);
+      expect(tooltip.querySelector('.ytp-tooltip-text')?.textContent).toBe(EN_MESSAGES.PIP);
+      // The key in YouTube's badge, not in brackets
+      expect(tooltip.querySelector('.ytp-tooltip-keyboard-shortcut')?.textContent).toBe(
+        PIP_HOTKEY.toUpperCase()
+      );
       // aria-hidden on the tooltip itself keeps it transparent in YouTube's CSS
       expect(tooltip.hasAttribute('aria-hidden')).toBe(false);
       expect(tooltip.style.display).toBe('');
@@ -577,6 +581,24 @@ describe('PiPEntryPoints', () => {
       expect(button.getAttribute('aria-label')).toBe(`${EN_MESSAGES.PIP} (${PIP_HOTKEY})`);
       expect(button.querySelector('svg path')?.getAttribute('d')).toBeTruthy();
       expect(document.querySelectorAll(SHORTS_BUTTON)).toHaveLength(1);
+    });
+
+    it('our icon goes into the icon container even before YouTube drew its own icon there', () => {
+      const { fullscreen } = addShortsControls();
+      const button = fullscreen.querySelector('button')!;
+      button.replaceChildren();
+      const iconSlot = document.createElement('div');
+      iconSlot.className = 'ytSpecButtonShapeNextIcon';
+      const pending = document.createElement('span');
+      iconSlot.appendChild(pending);
+      button.appendChild(iconSlot);
+      entryPoints.initialize();
+
+      const ours = document.querySelector<HTMLElement>(
+        `${SHORTS_BUTTON} .ytSpecButtonShapeNextIcon`
+      )!;
+      expect(ours.children).toHaveLength(1);
+      expect(ours.firstElementChild?.querySelector('path')).not.toBeNull();
     });
 
     it('click opens PiP without reaching the reel', () => {

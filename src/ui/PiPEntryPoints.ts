@@ -364,9 +364,12 @@ export class PiPEntryPoints {
     button.setAttribute('title', label);
     button.setAttribute('aria-label', label);
     button.setAttribute('aria-keyshortcuts', PIP_HOTKEY);
-    const svg = shape.querySelector('svg');
-    if (svg) svg.replaceWith(this.createIcon());
-    else button.appendChild(this.createIcon());
+    // YouTube draws the copied button's own icon later (its SVG may not be there yet): our icon goes into the icon
+    // container itself, whatever it holds now
+    const iconSlot = button.querySelector(SELECTORS.SPEC_BUTTON_ICON);
+    if (iconSlot) iconSlot.replaceChildren(this.createIcon());
+    else button.querySelector('svg')?.remove();
+    if (!iconSlot) button.appendChild(this.createIcon());
     shape.addEventListener('click', (e) => {
       // The reel would toggle play / pause on the click
       e.stopPropagation();
@@ -436,9 +439,12 @@ export class PiPEntryPoints {
     bottom.className = 'ytp-tooltip-bottom-text';
     const text = document.createElement('span');
     text.className = 'ytp-tooltip-text';
-    // With the key, as YouTube writes "Full screen (f)"
-    text.textContent = `${this.i18n.t('PIP')} (${PIP_HOTKEY})`;
-    bottom.appendChild(text);
+    text.textContent = this.i18n.t('PIP');
+    // The key in YouTube's badge next to the text (`keyBoardShortcut` of the player's tooltip template)
+    const shortcut = document.createElement('div');
+    shortcut.className = 'ytp-tooltip-keyboard-shortcut';
+    shortcut.textContent = PIP_HOTKEY.toUpperCase();
+    bottom.append(text, shortcut);
     wrapper.appendChild(bottom);
     tooltip.appendChild(wrapper);
     this.tooltip = tooltip;
