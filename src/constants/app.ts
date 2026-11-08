@@ -20,6 +20,12 @@ export const TIMEOUTS = {
    * activation window that requestWindow() needs; on timeout we go ahead anyway.
    */
   YOUTUBE_LOW_PRIORITY_JOBS: 2000,
+  /**
+   * Max wait, when PiP closes, for the player to report the video it is loading (no video_id right after switching
+   * to another video in PiP): returning to the watch page needs it. Slow CI runners take several seconds.
+   */
+  VIDEO_ID_WAIT: 10000,
+  VIDEO_ID_POLL: 100,
 } as const;
 
 /** Retry counts */

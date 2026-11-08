@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 
 - **Tab title could still flicker when closing PiP** (e.g. after switching to another video in PiP) — The hold of the page title was released first thing on close, before the player went back through the mini player to the watch page, so YouTube's title writes during that step reached the tab. The PiP window handlers now only stop syncing (`TitleSyncHandler.stopSync()`); `PiPManager` releases the title once the player is back on the watch page and YouTube has run its pending low-priority jobs (`releasePageTitleWhenIdle()`). A release still pending when PiP is opened again does not end the new hold.
 
+- **Closing PiP right after switching to another video left the mini player on the home page** — Returning to the watch page navigates to the player's video, but while the player is still loading the new video it reports no id (`Video ID not found, cannot navigate to full player`), so the watch page never came back. `PiPManager` now waits for the id (`PlayerManager.waitForVideoId()`, up to 10 s) before moving the player back. Found by the extended `playlist-navigation` e2e on CI (~1.5 s after the switch).
+
 ### Changed
 
 - **E2E `playlist-navigation`** closes PiP after switching to another video and checks that the tab title never shows anything but a video title.

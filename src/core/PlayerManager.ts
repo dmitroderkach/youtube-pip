@@ -188,6 +188,29 @@ export class PlayerManager {
   }
 
   /**
+   * Wait until the player reports its video id: right after switching to another video (e.g. in PiP) it is still
+   * loading that video and has none. Resolves with the id, or null after `timeoutMs`.
+   */
+  public async waitForVideoId(
+    timeoutMs: number = TIMEOUTS.VIDEO_ID_WAIT
+  ): Promise<Nullable<string>> {
+    const started = Date.now();
+    for (;;) {
+      const videoId = this.getVideoDataFromPlayer(this.getPlayer())?.video_id;
+      if (videoId) {
+        const waited = Date.now() - started;
+        if (waited > 0) this.logger.debug(`Video id ${videoId} available after ${waited}ms`);
+        return videoId;
+      }
+      if (Date.now() - started >= timeoutMs) {
+        this.logger.warn(`Player reported no video id within ${timeoutMs}ms`);
+        return null;
+      }
+      await new Promise((resolve) => setTimeout(resolve, TIMEOUTS.VIDEO_ID_POLL));
+    }
+  }
+
+  /**
    * Get video data (video_id, title, list) from player.
    */
   public getVideoData(): Nullable<VideoData> {
