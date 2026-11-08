@@ -4,7 +4,7 @@ import { createTestContainer } from '../../test-utils/test-container';
 import { createMockPlayer, type MockPlayerMethods } from './__mocks__/PlayerManager.mock';
 import { PlayerManager } from '../PlayerManager';
 import { YtdShortsProvider } from '../YtdShortsProvider';
-import { PLAYER_STATES, DEFAULT_DIMENSIONS, TIMEOUTS } from '../../constants';
+import { PLAYER_STATES, DEFAULT_DIMENSIONS } from '../../constants';
 
 vi.mock('../../utils/DOMUtils', () => ({
   DOMUtils: {
@@ -79,62 +79,6 @@ describe('PlayerManager', () => {
   it('getVideoId returns null when no video_id', () => {
     mockPlayer.getVideoData.mockReturnValue({});
     expect(manager.getVideoId()).toBeNull();
-  });
-
-  it('waitForVideoId waits until the player reports the video it is loading', async () => {
-    vi.useFakeTimers();
-    mockPlayer.getVideoData.mockReturnValue({});
-    const result = manager.waitForVideoId();
-
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.VIDEO_ID_POLL * 2);
-    mockPlayer.getVideoData.mockReturnValue({ video_id: 'next' });
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.VIDEO_ID_POLL);
-
-    await expect(result).resolves.toBe('next');
-    vi.useRealTimers();
-  });
-
-  it('waitForVideoId falls back to the video switched to in PiP when the player never loads it', async () => {
-    vi.useFakeTimers();
-    manager.setRequestedVideoId('switched');
-    mockPlayer.getVideoData.mockReturnValue({});
-    const result = manager.waitForVideoId();
-
-    await vi.runAllTimersAsync();
-
-    await expect(result).resolves.toBe('switched');
-    vi.useRealTimers();
-  });
-
-  it('waitForVideoId waits while the player still reports the video from before the switch', async () => {
-    vi.useFakeTimers();
-    manager.setRequestedVideoId('switched'); // player reports 'abc' at this moment
-    const result = manager.waitForVideoId();
-
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.VIDEO_ID_POLL * 2);
-    mockPlayer.getVideoData.mockReturnValue({ video_id: 'switched' });
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.VIDEO_ID_POLL);
-
-    await expect(result).resolves.toBe('switched');
-    vi.useRealTimers();
-  });
-
-  it('waitForVideoId takes the player video once it moved past the switch (e.g. next video)', async () => {
-    manager.setRequestedVideoId('switched');
-    mockPlayer.getVideoData.mockReturnValue({ video_id: 'later' });
-
-    await expect(manager.waitForVideoId()).resolves.toBe('later');
-  });
-
-  it('waitForVideoId resolves null after the timeout', async () => {
-    vi.useFakeTimers();
-    mockPlayer.getVideoData.mockReturnValue({});
-    const result = manager.waitForVideoId();
-
-    await vi.runAllTimersAsync();
-
-    await expect(result).resolves.toBeNull();
-    vi.useRealTimers();
   });
 
   it('getVideoData returns data from player', () => {

@@ -388,10 +388,6 @@ export class PiPManager {
 
     // Get player and save state
     const player = this.playerManager.getPlayer();
-    // Returning to the watch page navigates to the player's video: right after switching to another video in PiP
-    // the player is still loading it and reports no id, so nothing would bring the watch page back. Wait for it
-    // (falls back to the video switched to) before anything moves.
-    const videoId = await this.playerManager.waitForVideoId();
     this.playerManager.savePlayingState(player);
 
     // Park the player in the main document first with YouTube's own move (CoW-safe)
@@ -412,7 +408,7 @@ export class PiPManager {
     await this.unparkYtdPlayer(parked);
 
     if (!this.playerManager.getWasMiniPlayerActiveBeforePiP()) {
-      this.miniPlayerController.toggleMiniPlayer(videoId);
+      this.miniPlayerController.toggleMiniPlayer();
 
       // Wait for main player
       await this.playerManager.waitForMainPlayer();

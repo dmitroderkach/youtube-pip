@@ -592,21 +592,11 @@ describe('PiPManager (integration)', () => {
 
     await manager.open();
     expect(manager.isOpen()).toBe(true);
-    const order: string[] = [];
-    mockPlayerManager.waitForVideoId.mockImplementation(async () => {
-      order.push('video id');
-      return 'next';
-    });
-    mockMiniController.toggleMiniPlayer.mockImplementation(() => {
-      order.push('toggle');
-    });
 
     await awaitClose(manager);
 
     expect(manager.getWindow()).toBeNull();
-    // The watch page is the player's video: wait for its id (still loading after a switch in PiP) first
-    expect(order).toEqual(['video id', 'toggle']);
-    expect(mockMiniController.toggleMiniPlayer).toHaveBeenLastCalledWith('next');
+    expect(mockMiniController.toggleMiniPlayer).toHaveBeenCalledTimes(2); // open + close
     expect(mockPlayerManager.waitForMainPlayer).toHaveBeenCalled();
     vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
   });

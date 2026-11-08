@@ -5,7 +5,6 @@ import { createFakeWindow } from '../../test-utils/test-helpers';
 import type { NavigationState } from '../../types/youtube';
 import { NavigationHandler } from '../NavigationHandler';
 import { PipWindowProvider } from '../PipWindowProvider';
-import { PlayerManager } from '../PlayerManager';
 import { SELECTORS } from '../../selectors';
 
 /** Sample watch URLs for navigation tests */
@@ -16,7 +15,6 @@ const SAMPLE_WATCH_URL_SHORT = 'https://www.youtube.com/watch?v=x';
 describe('NavigationHandler', () => {
   let handler: NavigationHandler;
   let mockPipProvider: MockProxy<PipWindowProvider>;
-  let mockPlayerManager: MockProxy<PlayerManager>;
   let pipDoc: Document;
   let popstateSpy: ReturnType<typeof vi.fn<(ev: PopStateEvent) => void>>;
 
@@ -28,10 +26,8 @@ describe('NavigationHandler', () => {
     popstateSpy = vi.fn<(ev: PopStateEvent) => void>();
     window.addEventListener('popstate', popstateSpy);
 
-    mockPlayerManager = mock<PlayerManager>();
     const c = createTestContainer();
     c.bind(PipWindowProvider).toInstance(mockPipProvider);
-    c.bind(PlayerManager).toInstance(mockPlayerManager);
     c.bind(NavigationHandler).toSelf();
     handler = c.get(NavigationHandler);
   });
@@ -56,8 +52,6 @@ describe('NavigationHandler', () => {
     link.dispatchEvent(ev);
     expect(popstateSpy).toHaveBeenCalled();
     expect(ev.preventDefault).toHaveBeenCalled();
-    // Closing PiP before the player has loaded it returns to this video
-    expect(mockPlayerManager.setRequestedVideoId).toHaveBeenCalledWith('abc');
   });
 
   it('click on link with playlist and index builds state', () => {

@@ -6,7 +6,6 @@ import type { Nullable } from '../types/app';
 import type { Logger } from '../logger';
 import { LoggerFactory } from '../logger';
 import { PipWindowProvider } from './PipWindowProvider';
-import { PlayerManager } from './PlayerManager';
 import { inject, injectable } from '../di';
 
 /**
@@ -19,8 +18,7 @@ export class NavigationHandler {
 
   constructor(
     @inject(LoggerFactory) loggerFactory: LoggerFactory,
-    @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider,
-    @inject(PlayerManager) private readonly playerManager: PlayerManager
+    @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider
   ) {
     this.logger = loggerFactory.create('NavigationHandler');
   }
@@ -93,8 +91,6 @@ export class NavigationHandler {
           };
 
           this.logger.log(`SPA navigation via ${YT_EVENTS.NAVIGATE}: ${href}`);
-          // Closing PiP before the player has loaded it must still return to this video
-          if (params.v) this.playerManager.setRequestedVideoId(params.v);
 
           // Trigger navigation (no pushState — YouTube does not update URL in mini player)
           window.dispatchEvent(new PopStateEvent('popstate', { state }));

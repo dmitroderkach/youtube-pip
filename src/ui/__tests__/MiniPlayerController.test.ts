@@ -83,16 +83,6 @@ describe('MiniPlayerController', () => {
     });
   });
 
-  it('toggleMiniPlayer with a video id navigates to that video (not the player one)', () => {
-    mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdAppWithFire(mockFire, true));
-    mockPlayerManager.getVideoId.mockReturnValue('vid123');
-    controller.toggleMiniPlayer('switched');
-    expect(mockFire).toHaveBeenCalledWith(YT_EVENTS.NAVIGATE, {
-      endpoint: { watchEndpoint: { videoId: 'switched' } },
-    });
-    expect(mockPlayerManager.getVideoId).not.toHaveBeenCalled();
-  });
-
   it('initialize throws AppInitializationError when miniplayer not found', async () => {
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockRejectedValue(new Error('timeout'));
