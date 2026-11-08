@@ -90,6 +90,7 @@ On-demand 2 vCPU / 4 GB ≈ $0.10 per hour of work (plus a public IPv4 address, 
 3. `scripts/build-dev-worker-image.sh` builds and pushes the image (`:latest`, used by the next `/up`). Rebuild it when `scripts/dev-worker/` or `terraform/dev-worker/` changes.
 4. `node scripts/dev-worker/setup-telegram.mjs "$(terraform -chdir=terraform output -raw dev_bot_webhook_url)"`: generates the webhook secret (stored in the secret, never printed), sets the bot's webhook to the dev-bot Lambda and the `/up`, `/down` menu.
 
+- **Telegram network**: every Bot API call is retried (3 attempts with a pause) and never throws; a stray rejection is logged, not fatal. A dropped connection to Telegram (seen live: `connect ETIMEDOUT` to api.telegram.org) used to kill the worker through an unhandled rejection of a progress update.
 - **Logs**: CloudWatch `/ecs/youtube-pip-prod-dev-worker` (worker), `/aws/lambda/youtube-pip-prod-dev-bot` (bot).
 - **Start fresh**: delete `state/` and `claude/` in the state bucket (or wait a week without using the worker).
 - **Rotate the GitHub token**: new fine-grained token with the permissions above → `github_token` in the secret; the next `/up` uses it.

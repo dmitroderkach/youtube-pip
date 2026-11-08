@@ -48,6 +48,9 @@ const REPORTED_EXIT_CODE = 10;
 const RECEIVE_WAIT_SECONDS = 10;
 const TELEGRAM_MAX_LENGTH = 4000;
 const PROGRESS_EDIT_INTERVAL_MS = 4000;
+/** Telegram Bot API calls: attempts and pause between them (the network to Telegram drops now and then). */
+const TELEGRAM_ATTEMPTS = 3;
+const TELEGRAM_RETRY_DELAY_MS = 2000;
 /** SIGTERM from ECS leaves stopTimeout (120 s) to save; Claude gets this long to stop its turn first. */
 const CLAUDE_STOP_GRACE_MS = 10000;
 /** How often the idle / lifetime limits are checked. */
@@ -93,17 +96,41 @@ const log = (...args) => console.log(new Date().toISOString(), ...args);
 
 // ---------------------------------------------------------------------------------------------- Telegram
 
+/**
+ * POST to the Bot API with retries; never throws (a status that does not arrive must not stop the worker).
+ * `makeBody` builds a fresh body per attempt (a FormData stream cannot be sent twice). Returns the parsed JSON.
+ */
+async function telegramRequest(method, makeBody, headers = {}) {
+  let lastError = '';
+  for (let attempt = 1; attempt <= TELEGRAM_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
+        method: 'POST',
+        headers,
+        body: makeBody(),
+      });
+      const json = await res.json().catch(() => ({ ok: false, description: `HTTP ${res.status}` }));
+      // 4xx (bad request, message not modified, too big) will not get better with a retry
+      if (json.ok || (res.status >= 400 && res.status < 500 && res.status !== 429)) return json;
+      lastError = `${json.error_code ?? res.status} ${json.description ?? ''}`;
+    } catch (error) {
+      lastError = String(error?.cause?.code ?? error?.message ?? error);
+    }
+    if (attempt < TELEGRAM_ATTEMPTS) {
+      await new Promise((resolve) => setTimeout(resolve, TELEGRAM_RETRY_DELAY_MS * attempt));
+    }
+  }
+  log(`telegram ${method} failed after ${TELEGRAM_ATTEMPTS} attempts: ${lastError}`);
+  return { ok: false, description: lastError };
+}
+
 async function telegram(method, body) {
-  const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      chat_id: env.TELEGRAM_CHAT_ID,
-      disable_web_page_preview: true,
-      ...body,
-    }),
-  });
-  const json = await res.json().catch(() => ({ ok: false, description: `HTTP ${res.status}` }));
+  const json = await telegramRequest(
+    method,
+    () =>
+      JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, disable_web_page_preview: true, ...body }),
+    { 'Content-Type': 'application/json' }
+  );
   if (!json.ok) log(`telegram ${method} failed: ${json.error_code ?? ''} ${json.description}`);
   return json.result;
 }
@@ -139,16 +166,15 @@ async function sendFile(path) {
     return;
   }
   const asPhoto = PHOTO_EXTENSIONS.test(name) && size <= TELEGRAM_PHOTO_MAX_BYTES;
-  const form = new FormData();
-  form.append('chat_id', String(env.TELEGRAM_CHAT_ID));
-  form.append('caption', name);
-  form.append(asPhoto ? 'photo' : 'document', new Blob([readFileSync(path)]), name);
+  const content = readFileSync(path);
   const method = asPhoto ? 'sendPhoto' : 'sendDocument';
-  const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
-    method: 'POST',
-    body: form,
+  const json = await telegramRequest(method, () => {
+    const form = new FormData();
+    form.append('chat_id', String(env.TELEGRAM_CHAT_ID));
+    form.append('caption', name);
+    form.append(asPhoto ? 'photo' : 'document', new Blob([content]), name);
+    return form;
   });
-  const json = await res.json().catch(() => ({ ok: false, description: `HTTP ${res.status}` }));
   if (!json.ok) {
     log(`telegram ${method} failed: ${json.error_code ?? ''} ${json.description}`);
     await say(`⚠️ Не вдалося надіслати ${name}: ${json.description ?? 'помилка Telegram'}`);
@@ -701,6 +727,9 @@ async function main() {
     }
   }
 }
+
+// Last line of defence: a stray rejection (e.g. a status update that failed) is logged, never fatal
+process.on('unhandledRejection', (error) => log('unhandled rejection', error));
 
 main().catch(async (error) => {
   log('fatal', error);
