@@ -651,9 +651,10 @@ const voiceName = () => meta?.voiceName ?? TTS_DEFAULT_VOICE;
 /** OGG/Opus audio of `text` in the voice `name` (Chirp 3 HD), or throws. */
 async function synthesize(text, name = voiceName()) {
   if (!env.GOOGLE_TTS_API_KEY) throw new Error('GOOGLE_TTS_API_KEY is not set');
-  const res = await fetch(`${TTS_URL}?key=${env.GOOGLE_TTS_API_KEY}`, {
+  // The key in a header, never in the URL (URLs end up in error messages and logs)
+  const res = await fetch(TTS_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': env.GOOGLE_TTS_API_KEY },
     body: JSON.stringify({
       input: { text },
       voice: { languageCode: TTS_LANGUAGE, name: `${TTS_VOICE_PREFIX}${name}` },
