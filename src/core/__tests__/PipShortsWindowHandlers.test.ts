@@ -40,6 +40,7 @@ describe('PipShortsWindowHandlers', () => {
     expect(mocks.pipEventBridgeHandler.stop).toHaveBeenCalledOnce();
     expect(mocks.pipLinkFocusHandler.stop).toHaveBeenCalledOnce();
     expect(mocks.documentFocusHandler.cleanup).toHaveBeenCalledOnce();
-    expect(mocks.titleSyncHandler.cleanup).toHaveBeenCalledOnce();
+    expect(mocks.titleSyncHandler.stopSync).toHaveBeenCalledOnce();
+    expect(mocks.titleSyncHandler.cleanup).not.toHaveBeenCalled();
   });
 });

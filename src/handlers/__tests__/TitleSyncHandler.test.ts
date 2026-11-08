@@ -9,6 +9,7 @@ import { YtdShortsProvider } from '../../core/YtdShortsProvider';
 import { PlayerManager } from '../../core/PlayerManager';
 import { SELECTORS } from '../../selectors';
 import type { YouTubePlayer } from '../../types/youtube';
+import { YouTubeScheduler } from '../../utils/YouTubeScheduler';
 
 describe('TitleSyncHandler', () => {
   let handler: TitleSyncHandler;
@@ -137,6 +138,36 @@ describe('TitleSyncHandler', () => {
     expect(applied).toEqual([]);
   });
 
+  it('applies the last title YouTube set while held when the title is released', () => {
+    handler.initialize();
+    document.title = 'YouTube';
+    document.title = 'Home - YouTube';
+    expect(document.title).toBe('Test Video - YouTube');
+
+    handler.cleanup();
+
+    expect(document.title).toBe('Home - YouTube');
+  });
+
+  it('keeps the video title on release when back on the watch page', () => {
+    const before = window.location.href;
+    window.history.pushState({}, '', '/watch?v=v1');
+    handler.initialize();
+    document.title = 'YouTube'; // set when the mini player was activated for PiP
+
+    handler.cleanup();
+
+    expect(document.title).toBe('Test Video - YouTube');
+    window.history.pushState({}, '', before);
+  });
+
+  it('keeps our title on release when YouTube set nothing while held', () => {
+    handler.initialize();
+    handler.cleanup();
+
+    expect(document.title).toBe('Test Video - YouTube');
+  });
+
   it('applies document.title writes again after cleanup', () => {
     handler.initialize();
     handler.cleanup();
@@ -145,6 +176,53 @@ describe('TitleSyncHandler', () => {
 
     expect(document.title).toBe('Watch page - YouTube');
     expect(Object.getOwnPropertyDescriptor(document, 'title')).toBeUndefined();
+  });
+
+  it('stopSync keeps the page title held (PiP window closing, player not back yet)', () => {
+    handler.initialize();
+    handler.stopSync();
+
+    document.title = 'YouTube';
+
+    expect(document.title).toBe('Test Video - YouTube');
+  });
+
+  it('releasePageTitleWhenIdle releases the title after YouTube low-priority jobs', async () => {
+    let jobsDone: () => void = () => {};
+    const barrier = vi
+      .spyOn(YouTubeScheduler, 'waitForLowPriorityJobs')
+      .mockImplementation(() => new Promise<void>((resolve) => (jobsDone = resolve)));
+    handler.initialize();
+    handler.stopSync();
+
+    handler.releasePageTitleWhenIdle();
+    document.title = 'YouTube';
+    expect(document.title).toBe('Test Video - YouTube');
+
+    jobsDone();
+    await barrier.mock.results[0].value;
+    document.title = 'Watch page - YouTube';
+    expect(document.title).toBe('Watch page - YouTube');
+    barrier.mockRestore();
+  });
+
+  it('a pending release does not end the hold of a PiP opened in the meantime', async () => {
+    let jobsDone: () => void = () => {};
+    const barrier = vi
+      .spyOn(YouTubeScheduler, 'waitForLowPriorityJobs')
+      .mockImplementation(() => new Promise<void>((resolve) => (jobsDone = resolve)));
+    handler.initialize();
+    handler.stopSync();
+    handler.releasePageTitleWhenIdle();
+
+    // PiP opened again before YouTube's jobs ran
+    handler.holdPageTitle();
+    jobsDone();
+    await barrier.mock.results[0].value;
+
+    document.title = 'YouTube';
+    expect(document.title).toBe('Test Video - YouTube');
+    barrier.mockRestore();
   });
 
   it('holdPageTitle keeps the current title while PiP is being opened', async () => {

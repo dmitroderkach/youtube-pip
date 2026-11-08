@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.6.4] - 2026-11-08
+
+### Fixed
+
+- **Tab title could still flicker when closing PiP** (e.g. after switching to another video in PiP) — The hold of the page title was released first thing on close, before the player went back through the mini player to the watch page, so YouTube's title writes during that step reached the tab. The PiP window handlers now only stop syncing (`TitleSyncHandler.stopSync()`); `PiPManager` releases the title once the player is back on the watch page and YouTube has run its pending low-priority jobs (`releasePageTitleWhenIdle()`). A release still pending when PiP is opened again does not end the new hold. If the page is not the watch page when the title is released (e.g. the watch page did not come back and the mini player stays on the home page), the last title YouTube set while it was held is applied, so the tab does not keep the video title there.
+
+### Changed
+
+- **Release workflow** publishes the release only after its assets are attached, so Greasy Fork updates the script on the release webhook (`docs/GREASY_FORK.md`, #146).
+
 ## [2.6.3] - 2026-11-08
 
 ### Fixed
@@ -1223,6 +1233,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.6.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.3...refs/tags/v2.6.4
 [2.6.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.2...refs/tags/v2.6.3
 [2.6.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.1...refs/tags/v2.6.2
 [2.6.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.0...refs/tags/v2.6.1

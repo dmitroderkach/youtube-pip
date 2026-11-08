@@ -331,6 +331,8 @@ export class PiPManager {
     } catch (error) {
       this.logger.error('Error returning player to main window:', error);
     }
+    // The player is back on the watch page: YouTube manages the title again once its pending jobs have run
+    this.titleSyncHandler.releasePageTitleWhenIdle();
 
     this.pipWindowProvider.setWindow(null);
   }
@@ -370,6 +372,7 @@ export class PiPManager {
     }
     this.placeholder = null;
     this.ytdShortsProvider.setShorts(null);
+    this.titleSyncHandler.releasePageTitleWhenIdle();
 
     this.pipWindowProvider.setWindow(null);
   }
