@@ -75,7 +75,7 @@ On-demand 2 vCPU / 4 GB ≈ $0.10 per hour of work (plus a public IPv4 address, 
 
 ## Files
 
-- `terraform/main.tf` — dev-worker ECS cluster, dev-bot Lambda + Function URL, SQS FIFO, S3 bucket, ECR repository, task definition, EventBridge rule, IAM.
+- `terraform/dev_worker.tf` — dev-worker ECS cluster, dev-bot Lambda + Function URL, SQS FIFO, S3 bucket, ECR repository, task definition, EventBridge rule, IAM.
 - `terraform/lambda/dev_bot.py` — webhook, commands, statuses, stop events.
 - `terraform/dev-worker/` — worker image (`Dockerfile`, entrypoint).
 - `scripts/dev-worker/` — the worker loop (queue, Claude Code, Telegram, S3 state, idle timer), the system prompt and a Claude Code `PreToolUse` hook (`english-only-hook.mjs`, installed as the worker's user settings) that blocks `gh pr|issue|release|api` / `git commit|tag` commands with Cyrillic text: the model tends to copy earlier Ukrainian texts from the session despite the prompt, and the block makes it rewrite them in English.
