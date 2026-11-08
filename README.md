@@ -10,6 +10,7 @@ Smart Picture-in-Picture mode for YouTube with full playback controls, SPA navig
 - **[E2E tests (Playwright)](docs/E2E_TESTS.md)** - Implementation details, fixtures, auth flow, and test descriptions
 - **[On-call](docs/ONCALL.md)** - After every daily e2e run: results summary, YouTube experiment flag scan, Claude investigation and a Telegram message when something is off
 - **[Manual session in a visible browser](docs/MANUAL_SESSION.md)** - Check a change by hand with the built userscript under a chosen set of YouTube experiment flags
+- **[Greasy Fork auto-update](docs/GREASY_FORK.md)** - The script on Greasy Fork updates itself on every GitHub release (release webhook); one-time setup
 
 ## Disclaimer
 
