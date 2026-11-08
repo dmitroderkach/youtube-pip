@@ -147,7 +147,7 @@ def start_pending():
     except Exception:
         return False
     s3.delete_object(Bucket=STATE_BUCKET, Key=PENDING_START_KEY)
-    say("⏳ Попередній воркер зупинився: піднімаю новий…")
+    say("⏳ Піднімаю новий воркер…")
     return start_worker(int(pending.get("up_at", time.time())))
 
 
@@ -159,7 +159,7 @@ def up(message):
         return
     if worker_stopping():
         # A new task would restore the state before the stopping one has saved it: start after it stops
-        say("⏳ Воркер ще зберігає контекст: підніму новий, щойно він зупиниться")
+        say("⏳ Попередній воркер ще вимикається: підніму новий, щойно він зупиниться")
         request_start_after_stop(message.get("date", int(time.time())))
         return
     say("⏳ Піднімаю воркера…")
@@ -203,7 +203,7 @@ def forward(message, text, attachments):
         # Not running: start it for this message (it is delivered once the worker is ready)
         if worker_stopping():
             # Queue it and start a new worker once the stopping one has saved its session
-            say("⏳ Воркер ще зберігає контекст: підніму знову й передам повідомлення")
+            say("⏳ Попередній воркер ще вимикається: підніму новий і передам повідомлення")
             request_start_after_stop(message.get("date", int(time.time())))
         else:
             say("⏳ Воркер не був запущений: піднімаю, передам повідомлення, щойно підніметься")
@@ -270,6 +270,9 @@ def task_stopped(event):
     exit_code = next((c.get("exitCode") for c in containers if c.get("name") == CONTAINER_NAME), None)
     if exit_code not in REPORTED_EXIT_CODES:
         report_unexpected_stop(detail, containers, exit_code)
+    else:
+        # The worker said why it stops and that the context is saved; only now is the task really stopped
+        say("⚪ Воркер зупинено")
     # A start requested while this task was saving its session
     if not worker_tasks():
         start_pending()

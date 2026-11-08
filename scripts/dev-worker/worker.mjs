@@ -781,14 +781,17 @@ async function stop() {
     saved = false;
     log('save failed', error);
   }
-  const context = saved ? 'контекст збережено' : 'контекст НЕ вдалося зберегти (див. логи)';
+  const context = saved ? 'Контекст збережено' : 'Контекст НЕ вдалося зберегти (див. логи)';
   const minutes = Math.round(IDLE_MS / 60000);
   const hours = Math.round(LIFETIME_MS / 3600000);
+  // Sent as the process ends; ECS still needs a while to stop the task. "⚪ Воркер зупинено" comes from the bot on
+  // the task's STOPPED event, when it really is stopped.
+  const shuttingDown = `${context}, вимикаюсь…`;
   const text = {
-    idle: `💤 ${minutes} хв без активності: ${context}, воркер зупинився`,
-    lifetime: `⏱ Досягнуто ліміту ${hours} год: ${context}, воркер зупинився`,
-    sigterm: `⚪ Воркер зупинено, ${context}${interrupted ? '. Поточну задачу перервано' : ''}`,
-    crash: `⚪ Воркер зупинився, ${context}`,
+    idle: `💤 ${minutes} хв без активності. ${shuttingDown}`,
+    lifetime: `⏱ Досягнуто ліміту ${hours} год. ${shuttingDown}`,
+    sigterm: `${interrupted ? 'Поточну задачу перервано. ' : ''}${shuttingDown}`,
+    crash: shuttingDown,
   }[reason];
   await say(text);
   process.exit(0);
