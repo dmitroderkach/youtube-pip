@@ -2,6 +2,7 @@
  * TEMPORARY (release/2.7.0): dumps the Shorts player controls, their tooltips and the "⋮" menu DOM as the logged-in
  * test account sees them (not rendered for anonymous sessions), to build the Shorts entry points. Remove before merge.
  */
+import type { Page } from '@playwright/test';
 import { test } from '../fixtures';
 
 const strip = (html: string) =>
@@ -17,6 +18,17 @@ test.describe('Shorts DOM dump (temporary)', () => {
 
   test('dump', async ({ shortsPageReady: page }) => {
     const log = (tag: string, text: string) => console.log(`SHORTSDOM ${tag}: ${strip(text)}`);
+    // Never fails: it only logs what it finds
+    try {
+      await dump(page, log);
+    } catch (error) {
+      log('error', String(error));
+    }
+  });
+});
+
+async function dump(page: Page, log: (tag: string, text: string) => void): Promise<void> {
+  {
     await page.waitForTimeout(3000);
     const player = page.locator('#shorts-player').first();
     const box = (await player.boundingBox())!;
@@ -89,14 +101,10 @@ test.describe('Shorts DOM dump (temporary)', () => {
             document.querySelectorAll<HTMLElement>('ytd-popup-container tp-yt-iron-dropdown')
           ).find((d) => d.getBoundingClientRect().width > 0);
           if (!dropdown) return 'no visible dropdown';
-          const items = Array.from(dropdown.querySelectorAll('*')).filter(
-            (e) =>
-              /item|menu-service|navigation/i.test(e.tagName) &&
-              (e as HTMLElement).getBoundingClientRect().height > 0
+          const rows = Array.from(
+            dropdown.querySelectorAll('yt-list-item-view-model, .ytpip-shorts-menuitem')
           );
-          const describe = (e: Element) =>
-            `${e.tagName.toLowerCase()}.${typeof e.className === 'string' ? e.className : ''} "${e.textContent?.trim().slice(0, 40)}"`;
-          return `ITEMS: ${items.map(describe).join(' | ')} ##### HTML: ${dropdown.querySelector('#contentWrapper')?.innerHTML ?? ''}`;
+          return `ROWS: ${rows.length} FIRST: ${rows[0]?.outerHTML ?? ''} ##### SECOND: ${rows[1]?.outerHTML ?? ''}`;
         })
       );
       await page.keyboard.press('Escape');
@@ -132,5 +140,5 @@ test.describe('Shorts DOM dump (temporary)', () => {
           .join(' | ')
       )
     );
-  });
-});
+  }
+}

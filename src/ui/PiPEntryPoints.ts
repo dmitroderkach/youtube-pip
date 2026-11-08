@@ -9,6 +9,7 @@ import {
   PIP_HOTKEY,
   PIP_ICON_PATH,
   PLAYER_TOOLTIP,
+  SHORTS_MENU,
 } from '../constants';
 import { isTypingTarget, isPlainKey } from '../utils/hotkeys';
 import { I18n } from '../i18n/I18n';
@@ -19,7 +20,7 @@ import { inject, injectable } from '../di';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /**
- * Extra ways to open our PiP from the page (experimental), labelled in the YouTube interface language (I18n):
+ * Extra ways to open our PiP from the page, labelled with YouTube's own texts in the interface language (I18n):
  * - an item at the top of the player's context menu (watch page, mini player and Shorts), never in the PiP window;
  * - the PIP_HOTKEY key on the page (closing PiP with it in the PiP window is PiPHotkeyHandler);
  * - a button in the player controls next to the settings button, with a tooltip like YouTube's own buttons (hidden in
@@ -59,6 +60,7 @@ export class PiPEntryPoints {
   public initialize(): void {
     document.addEventListener('contextmenu', this.onContextMenu, true);
     document.addEventListener('keydown', this.onKeyDown);
+    document.addEventListener('click', this.onClick, true);
     // The controls are shown on pointer movement over the player: a cheap check that our button is still there
     document.addEventListener('pointermove', this.ensureControlsButton, {
       capture: true,
@@ -73,6 +75,7 @@ export class PiPEntryPoints {
   public stop(): void {
     document.removeEventListener('contextmenu', this.onContextMenu, true);
     document.removeEventListener('keydown', this.onKeyDown);
+    document.removeEventListener('click', this.onClick, true);
     document.removeEventListener('pointermove', this.ensureControlsButton, true);
     this.menuObserver.disconnect();
   }
@@ -84,6 +87,91 @@ export class PiPEntryPoints {
     e.preventDefault();
     this.openPiP('hotkey');
   };
+
+  /** A click on a Shorts "⋮" button: add our item to the menu YouTube opens for it. */
+  private onClick = (e: MouseEvent): void => {
+    const target = e.target instanceof Element ? e.target : null;
+    if (!target?.closest(SELECTORS.SHORTS_MENU_BUTTON)) return;
+    this.waitForShortsMenu(Date.now() + SHORTS_MENU.WAIT_MS);
+  };
+
+  /** Poll for the opened Shorts "⋮" menu (YouTube renders it into ytd-popup-container after the click). */
+  private waitForShortsMenu(deadline: number): void {
+    const list = this.shownShortsMenuList();
+    if (list) {
+      this.ensureShortsMenuItem(list);
+      return;
+    }
+    if (Date.now() < deadline) {
+      window.setTimeout(() => this.waitForShortsMenu(deadline), SHORTS_MENU.POLL_MS);
+    }
+  }
+
+  /** Parent of the items of the shown Shorts "⋮" menu (`yt-list-item-view-model` rows), or null. */
+  private shownShortsMenuList(): Nullable<HTMLElement> {
+    for (const dropdown of Array.from(
+      document.querySelectorAll<HTMLElement>(SELECTORS.POPUP_DROPDOWN)
+    )) {
+      if (dropdown.getBoundingClientRect().height <= 0) continue;
+      const row = dropdown.querySelector<HTMLElement>(SELECTORS.LIST_ITEM);
+      if (row?.parentElement) return row.parentElement;
+    }
+    return null;
+  }
+
+  /**
+   * Our item at the top of the Shorts "⋮" menu, built from a copy of YouTube's first row (its inner markup in a plain
+   * element: a copied view-model element would render itself empty without its data) with our icon and label.
+   */
+  private ensureShortsMenuItem(list: HTMLElement): void {
+    if (list.querySelector(`.${ENTRY_POINT_CLASSES.SHORTS_MENU_ITEM}`)) return;
+    const row = list.querySelector<HTMLElement>(SELECTORS.LIST_ITEM);
+    if (!row) return;
+    const item = document.createElement('div');
+    item.className = `${row.className} ${ENTRY_POINT_CLASSES.SHORTS_MENU_ITEM}`;
+    item.setAttribute('role', 'menuitem');
+    item.tabIndex = 0;
+    for (const child of Array.from(row.childNodes)) item.appendChild(child.cloneNode(true));
+    const rowText = row.textContent?.trim() ?? '';
+    const label = Array.from(item.querySelectorAll<HTMLElement>('*'))
+      .reverse()
+      .find((e) => e.children.length === 0 && (e.textContent?.trim() ?? '') === rowText);
+    if (label) label.textContent = this.i18n.t('PIP');
+    else item.appendChild(document.createTextNode(this.i18n.t('PIP')));
+    const svg = item.querySelector('svg');
+    if (svg) svg.replaceWith(this.createIcon());
+    item.querySelectorAll('[id]').forEach((e) => e.removeAttribute('id'));
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      this.closeDropdown(item.closest<HTMLElement>(SELECTORS.POPUP_DROPDOWN));
+      this.openPiP('Shorts menu');
+    });
+    item.addEventListener('keydown', (e) => {
+      if (e.key === KEYS.ENTER || e.key === KEYS.SPACE) {
+        e.preventDefault();
+        item.click();
+      }
+    });
+    list.prepend(item);
+    this.logger.debug('PiP item added to the Shorts menu');
+  }
+
+  /** Close YouTube's dropdown the way it closes itself (its close(); Escape on it otherwise). */
+  private closeDropdown(dropdown: Nullable<HTMLElement>): void {
+    if (!dropdown) return;
+    const closable = dropdown as HTMLElement & { close?: () => void };
+    if (typeof closable.close === 'function') closable.close();
+    else {
+      dropdown.dispatchEvent(
+        new KeyboardEvent('keydown', {
+          key: KEYS.ESCAPE,
+          keyCode: KEY_CODES.ESCAPE,
+          bubbles: false,
+        })
+      );
+    }
+  }
 
   /** Capture phase, before YouTube opens the menu: remember the target and watch the menus. */
   private onContextMenu = (e: MouseEvent): void => {

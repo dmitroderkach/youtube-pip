@@ -38,5 +38,6 @@ export {
   ENTRY_POINT_CLASSES,
   PLAYER_TOOLTIP,
   PIP_HOTKEY,
+  SHORTS_MENU,
   PIP_ICON_PATH,
 } from './ui';

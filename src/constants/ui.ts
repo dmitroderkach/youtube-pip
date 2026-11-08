@@ -39,8 +39,16 @@ export const ENTRY_POINT_CLASSES = {
   TOOLTIP: 'ytpip-tooltip',
   /** Our button in the Shorts player's top controls. */
   SHORTS_BUTTON: 'ytpip-shorts-button',
+  /** Our item in the Shorts "⋮" menu. */
+  SHORTS_MENU_ITEM: 'ytpip-shorts-menuitem',
   /** id of our style element on the page (hides YouTube's own PiP button). */
   PAGE_STYLE: 'ytpip-page-style',
+} as const;
+
+/** Waiting for the Shorts "⋮" menu YouTube opens after a click on its button. */
+export const SHORTS_MENU = {
+  WAIT_MS: 3000,
+  POLL_MS: 50,
 } as const;
 
 /** Placement of the player's control tooltips (`.ytp-tooltip.ytp-bottom`), as YouTube shows them. */

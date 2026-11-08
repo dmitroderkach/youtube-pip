@@ -20,6 +20,7 @@ const MENU_ITEM = '.ytpip-open-menuitem';
 const CONTROLS_BUTTON = '.ytpip-open-button';
 const TOOLTIP = '.ytpip-tooltip';
 const SHORTS_BUTTON = '.ytpip-shorts-button';
+const SHORTS_MENU_ITEM = '.ytpip-shorts-menuitem';
 /**
  * Our labels for the page languages the e2e runs see (src/i18n/dictionaries.ts); other languages are only checked
  * for a non-empty label.
@@ -273,7 +274,9 @@ test.describe('Open PiP from the page (context menu item, controls button)', () 
       .filter((p) => p !== page && !p.isClosed())
       .pop();
     expect(pipPage).toBeDefined();
-    await pipPage!.keyboard.press('p');
+    // keydown closes the window, so the keyup of press() would hit a closed page
+    await pipPage!.keyboard.down('p');
+    await pipPage!.keyboard.up('p').catch(() => undefined);
     await page.waitForFunction(() => window.documentPictureInPicture?.window == null, {
       timeout: E2E_WAIT_TIMEOUT_MS,
     });
@@ -284,7 +287,7 @@ test.describe('Open PiP from the page (context menu item, controls button)', () 
 test.describe('Open PiP from Shorts (controls button, context menu item)', () => {
   test.use({ authState: true });
 
-  test('Shorts: our button left of full screen (YouTube title tooltip) opens PiP; context menu has only our PiP item', async ({
+  test('Shorts: context menu has only our PiP item; "⋮" menu item and the button left of full screen open PiP', async ({
     shortsPageReady: page,
   }) => {
     await waitForShortsPlayerVisibleInMain(page);
@@ -304,9 +307,28 @@ test.describe('Open PiP from Shorts (controls button, context menu item)', () =>
     // Close the menu with a click outside the player
     await page.mouse.click(1, 1);
 
+    // "⋮" menu of the top controls: our item first, opens PiP
+    await player.hover();
+    await page
+      .locator('ytd-shorts-player-controls #menu-button button >> visible=true')
+      .first()
+      .click();
+    const menuItem = page.locator(`${SHORTS_MENU_ITEM} >> visible=true`).first();
+    await expect(menuItem).toBeVisible({ timeout: E2E_WAIT_TIMEOUT_MS });
+    if (labels) await expect(menuItem).toHaveText(labels.menuItem);
+    expect(await menuItem.evaluate((i) => i.parentElement?.firstElementChild === i)).toBe(true);
+    await menuItem.click();
+    await waitForShortsPlayerVisibleInPip(page);
+    await page.evaluate(() => window.documentPictureInPicture?.window?.close());
+    await page.waitForFunction(() => window.documentPictureInPicture?.window == null, {
+      timeout: E2E_WAIT_TIMEOUT_MS,
+    });
+    await waitForShortsPlayerVisibleInMain(page);
+
     // Top controls (signed-in layout): our button right before full screen
     await player.hover();
-    const button = page.locator(`${SHORTS_BUTTON} button`).first();
+    // Every reel has its controls; the shown one is the active reel's
+    const button = page.locator(`${SHORTS_BUTTON} button >> visible=true`).first();
     await expect(button).toBeVisible({ timeout: E2E_WAIT_TIMEOUT_MS });
     expect(await button.evaluate((b) => b.parentElement?.nextElementSibling?.id ?? '')).toBe(
       'fullscreen-button-shape'

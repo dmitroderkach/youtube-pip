@@ -587,6 +587,107 @@ describe('PiPEntryPoints', () => {
       expect(reelClick).not.toHaveBeenCalled();
     });
 
+    /** Shorts "⋮" button and the dropdown YouTube opens for it (rows of yt-list-item-view-model). */
+    function addShortsMenu(): {
+      menuButton: HTMLElement;
+      dropdown: HTMLElement;
+      list: HTMLElement;
+    } {
+      const shorts = document.createElement('ytd-shorts');
+      const menuButton = document.createElement('div');
+      menuButton.id = 'menu-button';
+      const inner = document.createElement('button');
+      menuButton.appendChild(inner);
+      shorts.appendChild(menuButton);
+      const popup = document.createElement('ytd-popup-container');
+      const dropdown = document.createElement('tp-yt-iron-dropdown');
+      const list = document.createElement('div');
+      for (const text of ['Description', 'Save to playlist']) {
+        const row = document.createElement('yt-list-item-view-model');
+        row.className = 'ytListItemViewModelHost';
+        const wrap = document.createElement('div');
+        wrap.id = 'row-id';
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        const title = document.createElement('span');
+        title.textContent = text;
+        wrap.append(icon, title);
+        row.appendChild(wrap);
+        list.appendChild(row);
+      }
+      dropdown.appendChild(list);
+      popup.appendChild(dropdown);
+      document.body.append(shorts, popup);
+      return { menuButton, dropdown, list };
+    }
+    const SHORTS_MENU_ITEM = `.${ENTRY_POINT_CLASSES.SHORTS_MENU_ITEM}`;
+
+    it('"⋮" menu: our item first, a row like YouTube\'s with our label and icon; once per opening', async () => {
+      const { menuButton, dropdown, list } = addShortsMenu();
+      vi.spyOn(dropdown, 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ width: 200, height: 300 })
+      );
+      entryPoints.initialize();
+
+      menuButton.querySelector('button')!.click();
+      await vi.runAllTimersAsync();
+      menuButton.querySelector('button')!.click();
+      await vi.runAllTimersAsync();
+
+      const item = list.firstElementChild as HTMLElement;
+      expect(item.matches(SHORTS_MENU_ITEM)).toBe(true);
+      expect(item.classList.contains('ytListItemViewModelHost')).toBe(true);
+      expect(item.textContent).toBe(EN_MESSAGES.PIP);
+      expect(item.querySelector('svg path')).not.toBeNull();
+      expect(item.querySelector('[id]')).toBeNull();
+      expect(list.querySelectorAll(SHORTS_MENU_ITEM)).toHaveLength(1);
+    });
+
+    it('"⋮" menu item: click closes the dropdown and opens PiP; Enter activates it', async () => {
+      const { menuButton, dropdown } = addShortsMenu();
+      vi.spyOn(dropdown, 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ width: 200, height: 300 })
+      );
+      const close = vi.fn();
+      Object.assign(dropdown, { close });
+      mocks.pipManager.open.mockResolvedValue();
+      entryPoints.initialize();
+      menuButton.click();
+      await vi.runAllTimersAsync();
+      const item = document.querySelector<HTMLElement>(SHORTS_MENU_ITEM)!;
+
+      item.click();
+      item.dispatchEvent(new KeyboardEvent('keydown', { key: KEYS.ENTER, bubbles: true }));
+
+      expect(close).toHaveBeenCalledTimes(2);
+      expect(mocks.pipManager.open).toHaveBeenCalledTimes(2);
+    });
+
+    it('"⋮" menu item: a dropdown without close() gets a non-bubbling Escape', async () => {
+      const { menuButton, dropdown } = addShortsMenu();
+      vi.spyOn(dropdown, 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ width: 200, height: 300 })
+      );
+      mocks.pipManager.open.mockResolvedValue();
+      entryPoints.initialize();
+      menuButton.click();
+      await vi.runAllTimersAsync();
+      const keys: KeyboardEvent[] = [];
+      dropdown.addEventListener('keydown', (e) => keys.push(e));
+
+      document.querySelector<HTMLElement>(SHORTS_MENU_ITEM)!.click();
+
+      expect(keys.map((e) => [e.key, e.bubbles])).toEqual([[KEYS.ESCAPE, false]]);
+    });
+
+    it('"⋮" menu: gives up when no menu shows; other clicks are ignored', async () => {
+      const { menuButton, list } = addShortsMenu();
+      entryPoints.initialize();
+      document.body.click();
+      menuButton.click();
+      await vi.runAllTimersAsync();
+      expect(list.querySelector(SHORTS_MENU_ITEM)).toBeNull();
+    });
+
     it('a full screen shape without a button or icon still gets a working button', () => {
       const controls = document.createElement('ytd-shorts-player-controls');
       const fullscreen = document.createElement('div');

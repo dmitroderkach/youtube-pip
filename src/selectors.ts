@@ -13,6 +13,12 @@ export const SELECTORS = {
   MOVIE_PLAYER_OUTSIDE_MINIPLAYER: '#movie_player:not(ytd-miniplayer-player-container *)',
   SHORTS_PLAYER: '#shorts-player',
   /** Full screen button of a Shorts player's top controls (our PiP button goes before it). */
+  /** "⋮" buttons of a Shorts reel (top controls; action bar). */
+  SHORTS_MENU_BUTTON: 'ytd-shorts #menu-button',
+  /** Dropdowns YouTube opens for menus (e.g. the Shorts "⋮" menu). */
+  POPUP_DROPDOWN: 'ytd-popup-container tp-yt-iron-dropdown',
+  /** Row of a view-model list menu (Shorts "⋮" menu). */
+  LIST_ITEM: 'yt-list-item-view-model',
   SHORTS_FULLSCREEN_BUTTON_SHAPE: 'ytd-shorts-player-controls #fullscreen-button-shape',
   /** <video> element inside the player (query relative to player root) */
   PLAYER_VIDEO: 'video',
