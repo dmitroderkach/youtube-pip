@@ -6,7 +6,11 @@
  * Both are opened with real mouse clicks (a real user activation, as for the owner).
  */
 import type { Page } from '@playwright/test';
-import { E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS, E2E_WAIT_TIMEOUT_MS } from '../constants';
+import {
+  E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS,
+  E2E_PAGE_HYDRATION_TIMEOUT_MS,
+  E2E_WAIT_TIMEOUT_MS,
+} from '../constants';
 import {
   expect,
   test,
@@ -357,6 +361,11 @@ test.describe('Open PiP from Shorts (controls button, context menu item)', () =>
 
     // Top controls (signed-in layout): our button right before full screen. YouTube shows the controls on pointer
     // movement over the reel, so keep moving until the shown reel's button is there
+    // The signed-in reel renders its top controls once the player is ready (sometimes well after the page)
+    await page
+      .locator('ytd-shorts-player-controls')
+      .first()
+      .waitFor({ state: 'attached', timeout: E2E_PAGE_HYDRATION_TIMEOUT_MS });
     const button = page.locator(`${SHORTS_BUTTON} button >> visible=true`).first();
     const reel = (await player.boundingBox())!;
     let step = 0;
