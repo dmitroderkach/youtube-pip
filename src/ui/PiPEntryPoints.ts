@@ -227,6 +227,7 @@ export class PiPEntryPoints {
 
   /** Our button before the settings button of the page's player; re-added when YouTube rebuilt the controls. */
   private ensureControlsButton = (): void => {
+    this.ensureShortsButtons();
     if (this.button?.isConnected) return;
     const settings = document.querySelector(
       `${SELECTORS.MOVIE_PLAYER} ${SELECTORS.SETTINGS_BUTTON}`
@@ -236,6 +237,43 @@ export class PiPEntryPoints {
     settings.parentElement.insertBefore(button, settings);
     this.logger.debug('PiP button added to the player controls');
   };
+
+  /**
+   * Our button left of the full screen button in every Shorts player's top controls (`ytd-shorts-player-controls`,
+   * one per reel, rendered for signed-in users). A copy of YouTube's full screen button with our icon, label and
+   * click, so it looks and lays out like its neighbours; like YouTube's own buttons there, its tooltip is `title`.
+   */
+  private ensureShortsButtons(): void {
+    document
+      .querySelectorAll<HTMLElement>(SELECTORS.SHORTS_FULLSCREEN_BUTTON_SHAPE)
+      .forEach((fullscreen) => {
+        const previous = fullscreen.previousElementSibling;
+        if (previous?.classList.contains(ENTRY_POINT_CLASSES.SHORTS_BUTTON)) return;
+        fullscreen.before(this.createShortsButton(fullscreen));
+        this.logger.debug('PiP button added to the Shorts player controls');
+      });
+  }
+
+  private createShortsButton(fullscreen: HTMLElement): HTMLElement {
+    const shape = fullscreen.cloneNode(true) as HTMLElement;
+    shape.removeAttribute('id');
+    shape.classList.add(ENTRY_POINT_CLASSES.SHORTS_BUTTON);
+    const label = `${this.i18n.t('PIP')} (${PIP_HOTKEY})`;
+    const button = shape.querySelector('button') ?? shape;
+    button.setAttribute('title', label);
+    button.setAttribute('aria-label', label);
+    button.setAttribute('aria-keyshortcuts', PIP_HOTKEY);
+    const svg = shape.querySelector('svg');
+    if (svg) svg.replaceWith(this.createIcon());
+    else button.appendChild(this.createIcon());
+    shape.addEventListener('click', (e) => {
+      // The reel would toggle play / pause on the click
+      e.stopPropagation();
+      e.preventDefault();
+      this.openPiP('Shorts controls button');
+    });
+    return shape;
+  }
 
   private createButton(): HTMLButtonElement {
     const button = document.createElement('button');

@@ -6,10 +6,11 @@ import { test } from '../fixtures';
 
 const strip = (html: string) =>
   html
+    .replace(/<!--[\s\S]*?-->/g, '')
     .replace(/<path[^>]*>(<\/path>)?/g, '')
     .replace(/ d="[^"]*"/g, '')
     .replace(/\s(style|nonce)="[^"]*"/g, '')
-    .slice(0, 6000);
+    .slice(0, 12000);
 
 test.describe('Shorts DOM dump (temporary)', () => {
   test.use({ authState: true });
@@ -35,7 +36,8 @@ test.describe('Shorts DOM dump (temporary)', () => {
     const before = await page.evaluate(() => document.querySelectorAll('*').length);
     const fs = page.locator('ytd-shorts-player-controls #fullscreen-button-shape button').first();
     if (await fs.count()) {
-      await fs.hover();
+      const fb = (await fs.boundingBox())!;
+      await page.mouse.move(fb.x + fb.width / 2, fb.y + fb.height / 2);
       await page.waitForTimeout(1200);
       log(
         'fullscreen-hover',
@@ -78,22 +80,23 @@ test.describe('Shorts DOM dump (temporary)', () => {
       )
       .first();
     if (await menuButton.count()) {
-      await menuButton.click();
+      await menuButton.click({ force: true });
       await page.waitForTimeout(1500);
       log(
         'menu-popup',
         await page.evaluate(() => {
-          const cands = Array.from(
-            document.querySelectorAll(
-              'ytd-popup-container > *, tp-yt-iron-dropdown, yt-sheet-view-model, ytd-menu-popup-renderer, [role=menu], [role=listbox], [role=dialog]'
-            )
-          ).filter((e) => (e as HTMLElement).getBoundingClientRect().width > 0);
-          return cands
-            .map(
-              (c) =>
-                `${c.tagName.toLowerCase()}.${typeof c.className === 'string' ? c.className : ''} :: ${c.outerHTML}`
-            )
-            .join(' ##### ');
+          const dropdown = Array.from(
+            document.querySelectorAll<HTMLElement>('ytd-popup-container tp-yt-iron-dropdown')
+          ).find((d) => d.getBoundingClientRect().width > 0);
+          if (!dropdown) return 'no visible dropdown';
+          const items = Array.from(dropdown.querySelectorAll('*')).filter(
+            (e) =>
+              /item|menu-service|navigation/i.test(e.tagName) &&
+              (e as HTMLElement).getBoundingClientRect().height > 0
+          );
+          const describe = (e: Element) =>
+            `${e.tagName.toLowerCase()}.${typeof e.className === 'string' ? e.className : ''} "${e.textContent?.trim().slice(0, 40)}"`;
+          return `ITEMS: ${items.map(describe).join(' | ')} ##### HTML: ${dropdown.querySelector('#contentWrapper')?.innerHTML ?? ''}`;
         })
       );
       await page.keyboard.press('Escape');

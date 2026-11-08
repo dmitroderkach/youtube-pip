@@ -7,12 +7,19 @@
  */
 import type { Page } from '@playwright/test';
 import { E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS, E2E_WAIT_TIMEOUT_MS } from '../constants';
-import { expect, test, waitForContextMenuItemVisible } from '../fixtures';
+import {
+  expect,
+  test,
+  waitForContextMenuItemVisible,
+  waitForShortsPlayerVisibleInMain,
+  waitForShortsPlayerVisibleInPip,
+} from '../fixtures';
 import { E2E_SELECTORS } from '../selectors';
 
 const MENU_ITEM = '.ytpip-open-menuitem';
 const CONTROLS_BUTTON = '.ytpip-open-button';
 const TOOLTIP = '.ytpip-tooltip';
+const SHORTS_BUTTON = '.ytpip-shorts-button';
 /**
  * Our labels for the page languages the e2e runs see (src/i18n/dictionaries.ts); other languages are only checked
  * for a non-empty label.
@@ -259,15 +266,59 @@ test.describe('Open PiP from the page (context menu item, controls button)', () 
     await page.keyboard.press('p');
     await assertPiPWindowHasPlayer(page);
 
+    // The open PiP window (an earlier one may have been closed and replaced)
     const pipPage = page
       .context()
       .pages()
-      .find((p) => p !== page);
+      .filter((p) => p !== page && !p.isClosed())
+      .pop();
     expect(pipPage).toBeDefined();
     await pipPage!.keyboard.press('p');
     await page.waitForFunction(() => window.documentPictureInPicture?.window == null, {
       timeout: E2E_WAIT_TIMEOUT_MS,
     });
     await page.locator(E2E_SELECTORS.MOVIE_PLAYER).waitFor({ state: 'visible' });
+  });
+});
+
+test.describe('Open PiP from Shorts (controls button, context menu item)', () => {
+  test.use({ authState: true });
+
+  test('Shorts: our button left of full screen (YouTube title tooltip) opens PiP; context menu has only our PiP item', async ({
+    shortsPageReady: page,
+  }) => {
+    await waitForShortsPlayerVisibleInMain(page);
+    const player = page.locator(E2E_SELECTORS.SHORTS_PLAYER).first();
+    await player.hover();
+
+    // Context menu of the Shorts player: our item first, no YouTube PiP item next to it
+    await rightClickPlayer(page, E2E_SELECTORS.SHORTS_PLAYER);
+    await expect
+      .poll(() => shownMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS })
+      .toEqual({ hasItem: true, firstIsItem: true, allItemsFit: true });
+    const labels = await expectedLabels(page);
+    if (labels) {
+      await expect(page.locator(MENU_ITEM)).toHaveText(labels.menuItem);
+      expect(await pipItemsInShownMenu(page, labels.button)).toEqual({ ours: 1, youtube: 0 });
+    }
+    // Close the menu with a click outside the player
+    await page.mouse.click(1, 1);
+
+    // Top controls (signed-in layout): our button right before full screen
+    await player.hover();
+    const button = page.locator(`${SHORTS_BUTTON} button`).first();
+    await expect(button).toBeVisible({ timeout: E2E_WAIT_TIMEOUT_MS });
+    expect(await button.evaluate((b) => b.parentElement?.nextElementSibling?.id ?? '')).toBe(
+      'fullscreen-button-shape'
+    );
+    if (labels) expect(await button.getAttribute('title')).toBe(`${labels.button} (p)`);
+
+    await button.click();
+    await waitForShortsPlayerVisibleInPip(page);
+    await page.evaluate(() => window.documentPictureInPicture?.window?.close());
+    await page.waitForFunction(() => window.documentPictureInPicture?.window == null, {
+      timeout: E2E_WAIT_TIMEOUT_MS,
+    });
+    await waitForShortsPlayerVisibleInMain(page);
   });
 });

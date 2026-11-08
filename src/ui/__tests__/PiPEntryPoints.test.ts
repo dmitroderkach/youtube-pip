@@ -534,6 +534,73 @@ describe('PiPEntryPoints', () => {
   });
 
   describe('Shorts', () => {
+    /** ytd-shorts-player-controls with the menu and full screen buttons, like YouTube renders them. */
+    function addShortsControls(): { right: HTMLElement; fullscreen: HTMLElement } {
+      const controls = document.createElement('ytd-shorts-player-controls');
+      const right = document.createElement('div');
+      right.id = 'right-controls';
+      const menu = document.createElement('div');
+      menu.id = 'menu-button';
+      const fullscreen = document.createElement('div');
+      fullscreen.id = 'fullscreen-button-shape';
+      fullscreen.className = 'ytdShortsPlayerControlsFullscreenButtonShape';
+      const button = document.createElement('button');
+      button.className = 'ytSpecButtonShapeNextHost';
+      button.title = 'Full screen (f)';
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      button.appendChild(svg);
+      fullscreen.appendChild(button);
+      right.append(menu, fullscreen);
+      controls.appendChild(right);
+      document.body.appendChild(controls);
+      return { right, fullscreen };
+    }
+    const SHORTS_BUTTON = `.${ENTRY_POINT_CLASSES.SHORTS_BUTTON}`;
+
+    it('adds a copy of the full screen button with our icon, label and key, left of it, once', () => {
+      const { fullscreen } = addShortsControls();
+      entryPoints.initialize();
+      document.dispatchEvent(new Event('pointermove'));
+
+      const ours = fullscreen.previousElementSibling as HTMLElement;
+      expect(ours.matches(SHORTS_BUTTON)).toBe(true);
+      expect(ours.id).toBe('');
+      expect(ours.classList.contains('ytdShortsPlayerControlsFullscreenButtonShape')).toBe(true);
+      const button = ours.querySelector('button')!;
+      expect(button.className).toBe('ytSpecButtonShapeNextHost');
+      expect(button.title).toBe(`${EN_MESSAGES.PIP} (${PIP_HOTKEY})`);
+      expect(button.getAttribute('aria-label')).toBe(`${EN_MESSAGES.PIP} (${PIP_HOTKEY})`);
+      expect(button.querySelector('svg path')?.getAttribute('d')).toBeTruthy();
+      expect(document.querySelectorAll(SHORTS_BUTTON)).toHaveLength(1);
+    });
+
+    it('click opens PiP without reaching the reel', () => {
+      const { right } = addShortsControls();
+      mocks.pipManager.open.mockResolvedValue();
+      entryPoints.initialize();
+      const reelClick = vi.fn();
+      right.addEventListener('click', reelClick);
+
+      document.querySelector<HTMLElement>(`${SHORTS_BUTTON} button`)!.click();
+
+      expect(mocks.pipManager.open).toHaveBeenCalledTimes(1);
+      expect(reelClick).not.toHaveBeenCalled();
+    });
+
+    it('a full screen shape without a button or icon still gets a working button', () => {
+      const controls = document.createElement('ytd-shorts-player-controls');
+      const fullscreen = document.createElement('div');
+      fullscreen.id = 'fullscreen-button-shape';
+      controls.appendChild(fullscreen);
+      document.body.appendChild(controls);
+      entryPoints.initialize();
+
+      const ours = fullscreen.previousElementSibling as HTMLElement;
+      expect(ours.matches(SHORTS_BUTTON)).toBe(true);
+      expect(ours.querySelector('svg')).not.toBeNull();
+      expect(ours.getAttribute('title')).toBe(`${EN_MESSAGES.PIP} (${PIP_HOTKEY})`);
+    });
+
     it('context menu opened on the Shorts player gets the item', async () => {
       const shortsPlayer = document.createElement('div');
       shortsPlayer.id = SELECTORS.SHORTS_PLAYER.slice(1);

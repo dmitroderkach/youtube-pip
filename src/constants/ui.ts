@@ -37,6 +37,8 @@ export const ENTRY_POINT_CLASSES = {
   MENU_ITEM: 'ytpip-open-menuitem',
   BUTTON: 'ytpip-open-button',
   TOOLTIP: 'ytpip-tooltip',
+  /** Our button in the Shorts player's top controls. */
+  SHORTS_BUTTON: 'ytpip-shorts-button',
   /** id of our style element on the page (hides YouTube's own PiP button). */
   PAGE_STYLE: 'ytpip-page-style',
 } as const;

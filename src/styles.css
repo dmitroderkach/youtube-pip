@@ -52,6 +52,7 @@ video {
 /* Our "open PiP" button of the page's controls (PiPEntryPoints) has nothing to do in PiP */
 .ytpip-open-button,
 .ytpip-tooltip,
+.ytpip-shorts-button,
 /* YouTube's own PiP button (web_watch_pip) opens its PiP, not ours */
 .ytp-pip-button,
 #header-contents,

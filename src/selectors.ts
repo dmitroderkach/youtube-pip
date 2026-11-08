@@ -12,6 +12,8 @@ export const SELECTORS = {
   /** Player that is back on the page, i.e. not inside the mini player container. */
   MOVIE_PLAYER_OUTSIDE_MINIPLAYER: '#movie_player:not(ytd-miniplayer-player-container *)',
   SHORTS_PLAYER: '#shorts-player',
+  /** Full screen button of a Shorts player's top controls (our PiP button goes before it). */
+  SHORTS_FULLSCREEN_BUTTON_SHAPE: 'ytd-shorts-player-controls #fullscreen-button-shape',
   /** <video> element inside the player (query relative to player root) */
   PLAYER_VIDEO: 'video',
   YTD_APP: 'ytd-app',
