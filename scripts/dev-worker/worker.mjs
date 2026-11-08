@@ -40,6 +40,27 @@ const CLAUDE_STOP_GRACE_MS = 10000;
 const META_KEY = 'state/meta.json';
 const WORKSPACE_KEY = 'state/workspace.tar.gz';
 const PROJECTS_PREFIX = 'claude/projects/';
+/** Voice / audio uploaded for AWS Transcribe (deleted after; the bucket lifecycle covers leftovers). */
+const INBOX_PREFIX = 'inbox/';
+/** Photos and files from the chat, for Claude's Read tool (outside the repository). */
+const INBOX_DIR = join(homedir(), 'inbox');
+const TRANSCRIBE_LANGUAGE = env.TRANSCRIBE_LANGUAGE ?? 'uk-UA';
+const TRANSCRIBE_POLL_MS = 2000;
+const TRANSCRIBE_TIMEOUT_MS = 180000;
+/** Telegram MIME type → AWS Transcribe media format. */
+const TRANSCRIBE_FORMATS = {
+  'audio/ogg': 'ogg',
+  'audio/opus': 'ogg',
+  'audio/mpeg': 'mp3',
+  'audio/mp3': 'mp3',
+  'audio/mp4': 'mp4',
+  'audio/x-m4a': 'mp4',
+  'audio/m4a': 'mp4',
+  'audio/wav': 'wav',
+  'audio/x-wav': 'wav',
+  'audio/flac': 'flac',
+  'audio/webm': 'webm',
+};
 /** Rebuilt / reinstalled on start: not worth saving. */
 const WORKSPACE_EXCLUDES = ['node_modules', 'dist', 'playwright-report', 'test-results'];
 const SYSTEM_PROMPT = readFileSync(new URL('./system-prompt.md', import.meta.url), 'utf8');
@@ -145,6 +166,104 @@ async function save() {
   log(`saved: session=${meta.sessionId}`);
 }
 
+// ---------------------------------------------------------------------------------------------- attachments
+
+/** Download a file the owner sent (Bot API getFile, up to 20 MB) to INBOX_DIR; returns its local path. */
+async function downloadTelegramFile(fileId, name) {
+  const file = await telegram('getFile', { file_id: fileId });
+  if (!file?.file_path) throw new Error('Telegram не віддав файл (більше 20 МБ?)');
+  const res = await fetch(
+    `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`
+  );
+  if (!res.ok) throw new Error(`завантаження файлу: HTTP ${res.status}`);
+  mkdirSync(INBOX_DIR, { recursive: true });
+  const ext = file.file_path.includes('.')
+    ? file.file_path.slice(file.file_path.lastIndexOf('.'))
+    : '';
+  const safeName = (name || `${Date.now()}${ext}`).replace(/[^\w.-]+/g, '_');
+  const path = join(INBOX_DIR, `${Date.now()}-${safeName}`);
+  writeFileSync(path, Buffer.from(await res.arrayBuffer()));
+  return path;
+}
+
+/** Speech to text with AWS Transcribe (batch job on the file uploaded to the state bucket). */
+async function transcribe(path, mimeType) {
+  const format = TRANSCRIBE_FORMATS[mimeType] ?? 'ogg';
+  const key = `${INBOX_PREFIX}${path.slice(path.lastIndexOf('/') + 1)}`;
+  const job = `dev-worker-${Date.now()}`;
+  await aws('s3', 'cp', path, `s3://${BUCKET}/${key}`, '--quiet');
+  try {
+    await aws(
+      'transcribe',
+      'start-transcription-job',
+      '--transcription-job-name',
+      job,
+      '--media',
+      `MediaFileUri=s3://${BUCKET}/${key}`,
+      '--media-format',
+      format,
+      '--language-code',
+      TRANSCRIBE_LANGUAGE
+    );
+    const started = Date.now();
+    for (;;) {
+      const out = JSON.parse(
+        await aws(
+          'transcribe',
+          'get-transcription-job',
+          '--transcription-job-name',
+          job,
+          '--output',
+          'json'
+        )
+      ).TranscriptionJob;
+      if (out.TranscriptionJobStatus === 'COMPLETED') {
+        const transcript = await (await fetch(out.Transcript.TranscriptFileUri)).json();
+        return (transcript.results?.transcripts ?? [])
+          .map((t) => t.transcript)
+          .join(' ')
+          .trim();
+      }
+      if (out.TranscriptionJobStatus === 'FAILED')
+        throw new Error(out.FailureReason ?? 'Transcribe failed');
+      if (Date.now() - started > TRANSCRIBE_TIMEOUT_MS) throw new Error('Transcribe: таймаут');
+      await new Promise((resolve) => setTimeout(resolve, TRANSCRIBE_POLL_MS));
+    }
+  } finally {
+    await aws('transcribe', 'delete-transcription-job', '--transcription-job-name', job).catch(
+      () => {}
+    );
+    await aws('s3', 'rm', `s3://${BUCKET}/${key}`, '--quiet').catch(() => {});
+  }
+}
+
+/**
+ * The prompt for Claude from a queued message: text / caption, transcribed voice and audio, and the local paths of
+ * photos and files (Claude Code reads images and PDFs with its Read tool).
+ */
+async function buildPrompt(message, setStatus) {
+  const parts = [];
+  const files = [];
+  for (const attachment of message.attachments ?? []) {
+    const path = await downloadTelegramFile(attachment.file_id, attachment.file_name);
+    if (attachment.kind === 'voice' || attachment.kind === 'audio') {
+      await setStatus('🎙 Розпізнаю аудіо…');
+      const text = await transcribe(path, attachment.mime_type);
+      await say(text ? `🎙 Розпізнав: «${text}»` : '🎙 У аудіо не знайшов мови');
+      if (text) parts.push(text);
+    } else {
+      files.push(
+        `${attachment.kind === 'photo' ? 'an image' : `a file (${attachment.mime_type ?? 'unknown type'})`}: ${path}`
+      );
+    }
+  }
+  if (message.text) parts.push(message.text);
+  if (files.length) {
+    parts.push(`[The owner attached ${files.join('; ')}. Open it with the Read tool.]`);
+  }
+  return parts.join('\n\n');
+}
+
 // ---------------------------------------------------------------------------------------------- Claude
 
 /** Claude Code process of the turn in progress (killed on SIGTERM). */
@@ -234,9 +353,17 @@ function runClaude(prompt, sessionId, onStep) {
   });
 }
 
-async function handleMessage(text) {
+async function handleMessage(message) {
   const started = Date.now();
   const progress = await telegram('sendMessage', { text: '⏳ Працюю…' });
+  const text = await buildPrompt(message, (status) =>
+    progress ? edit(progress.message_id, status) : Promise.resolve()
+  );
+  if (!text) {
+    if (progress) await edit(progress.message_id, 'ℹ️ Нічого передати: порожнє повідомлення');
+    return;
+  }
+  if (progress) await edit(progress.message_id, '⏳ Працюю…');
   let lastEdit = 0;
   const onStep = (step, what) => {
     const now = Date.now();
@@ -377,7 +504,7 @@ async function main() {
       }
       lastActivity = Date.now();
       try {
-        await handleMessage(message.text);
+        await handleMessage(message);
       } catch (error) {
         log('turn failed', error);
         await say(`⚠️ Помилка воркера: ${String(error.message ?? error).slice(0, 1500)}`);

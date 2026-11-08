@@ -4,14 +4,14 @@ A Claude Code session (Opus) on an on-demand ECS task that the owner starts, tal
 
 ## Commands and statuses
 
-| In the chat    | What happens                                                                                                                                                                    |
-| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/up`          | `⏳ Піднімаю воркера…` → `🟢 Воркер готовий. Контекст відновлено з сесії від <дата>` (or `🟢 Воркер уже працює`, `🔴 Не вдалося підняти: …`)                                    |
-| `/down`        | `⏳ Зупиняю, зберігаю контекст…` → `⚪ Воркер зупинено, контекст збережено`                                                                                                     |
-| any other text | to the worker; its answer comes back in the chat (`працюю…` while it works). Not running: `Воркер не запущений. Напиши /up`; starting: `📥 Отримав, передам, щойно підніметься` |
-| (10 min idle)  | `💤 10 хв без активності: контекст збережено, воркер зупинився`                                                                                                                 |
-| (4 h lifetime) | `⏱ Досягнуто ліміту 4 год: контекст збережено, воркер зупинився`                                                                                                                |
-| (unexpected)   | `🔴 Воркер несподівано зупинився (<причина>). Контекст останнього збереження: <час>`                                                                                            |
+| In the chat                     | What happens                                                                                                                                                                    |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/up`                           | `⏳ Піднімаю воркера…` → `🟢 Воркер готовий. Контекст відновлено з сесії від <дата>` (or `🟢 Воркер уже працює`, `🔴 Не вдалося підняти: …`)                                    |
+| `/down`                         | `⏳ Зупиняю, зберігаю контекст…` → `⚪ Воркер зупинено, контекст збережено`                                                                                                     |
+| text, photo, voice, audio, file | to the worker; its answer comes back in the chat (`працюю…` while it works). Not running: `Воркер не запущений. Напиши /up`; starting: `📥 Отримав, передам, щойно підніметься` |
+| (10 min idle)                   | `💤 10 хв без активності: контекст збережено, воркер зупинився`                                                                                                                 |
+| (4 h lifetime)                  | `⏱ Досягнуто ліміту 4 год: контекст збережено, воркер зупинився`                                                                                                                |
+| (unexpected)                    | `🔴 Воркер несподівано зупинився (<причина>). Контекст останнього збереження: <час>`                                                                                            |
 
 Idle = no message from the owner and no work in progress for 10 minutes.
 
@@ -41,6 +41,11 @@ EventBridge "ECS Task State Change" (dev-worker STOPPED) ─▶ Lambda dev-bot
 - **S3 `dev-worker-state`**: the Claude Code session (transcript), its id and the uncommitted diff of the working tree. Restored on every `/up`, so the conversation continues across `/down`, idle stops and restarts.
 - **EventBridge rule**: ECS stop events of the `dev-worker` family → dev-bot, so a crash is reported even when the worker could not say anything.
 
+## Photos, voice and files
+
+- **Photos, screenshots, files** (with an optional caption): the worker downloads them through the Bot API (up to 20 MB) to `~/inbox` and passes the paths to Claude, which opens images and PDFs with its Read tool.
+- **Voice messages and audio**: AWS Transcribe (`uk-UA`, batch job on the file uploaded to `inbox/` of the state bucket, deleted afterwards; ~10 s for a short message, ≈ $0.024 per minute of audio). The chat gets `🎙 Розпізнав: «…»` and the text goes to Claude as the message.
+
 ## Permissions and secrets
 
 | What                       | Where                                                                                                                                                                                      |
@@ -48,7 +53,7 @@ EventBridge "ECS Task State Change" (dev-worker STOPPED) ─▶ Lambda dev-bot
 | Claude Code (subscription) | `youtube-pip-oncall` → `claude_code_oauth_token` (same as the on-call; shares its usage limits)                                                                                            |
 | Telegram bot, chat id      | `youtube-pip-oncall` → `telegram_bot_token`, `telegram_chat_id`                                                                                                                            |
 | GitHub                     | `youtube-pip-dev-worker` → `github_token`: fine-grained token for `dmitroderkach/youtube-pip` only: Contents, Pull requests, Workflows, Actions read/write; Commit statuses, Metadata read |
-| AWS (task role)            | only its S3 state bucket and its SQS queue: no infrastructure rights                                                                                                                       |
+| AWS (task role)            | only its S3 state bucket, its SQS queue and AWS Transcribe jobs: no infrastructure rights                                                                                                  |
 
 - The worker runs Claude Code with all tools (shell, edits, network) inside the container. The repository's `CLAUDE.md` rules apply: merges, tags / releases and anything outward-facing only after the owner's explicit "так" in the chat; infrastructure changes (`terraform apply`) are not done from the worker.
 - `main` stays protected (squash merge, required green `build`), so nothing lands without CI.

@@ -124,7 +124,7 @@ resource "aws_iam_role_policy" "dev_worker_execution_secrets" {
   })
 }
 
-# The worker's own AWS rights: its state bucket and its queue, nothing else.
+# The worker's own AWS rights: its state bucket, its queue and AWS Transcribe for voice messages, nothing else.
 resource "aws_iam_role" "dev_worker_task" {
   name = "${local.name_prefix}-dev-worker-task-role"
   assume_role_policy = jsonencode({
@@ -157,6 +157,12 @@ resource "aws_iam_role_policy" "dev_worker_task" {
         Effect   = "Allow"
         Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
         Resource = aws_sqs_queue.dev_worker_inbox.arn
+      },
+      {
+        # Voice / audio messages: speech to text (the media is uploaded to the state bucket, inbox/)
+        Effect   = "Allow"
+        Action   = ["transcribe:StartTranscriptionJob", "transcribe:GetTranscriptionJob", "transcribe:DeleteTranscriptionJob"]
+        Resource = "*"
       }
     ]
   })
@@ -184,6 +190,7 @@ resource "aws_ecs_task_definition" "dev_worker" {
         { name = "STATE_BUCKET", value = aws_s3_bucket.dev_worker_state.bucket },
         { name = "GITHUB_REPO", value = "${var.github_owner}/${var.github_repo}" },
         { name = "CLAUDE_MODEL", value = "opus" },
+        { name = "TRANSCRIBE_LANGUAGE", value = "uk-UA" },
         { name = "IDLE_TIMEOUT_SECONDS", value = tostring(var.dev_worker_idle_timeout_seconds) },
         { name = "MAX_LIFETIME_SECONDS", value = tostring(var.dev_worker_max_lifetime_seconds) },
         { name = "GIT_USER_NAME", value = var.dev_worker_git_user_name },

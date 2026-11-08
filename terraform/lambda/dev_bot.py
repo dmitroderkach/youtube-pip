@@ -1,8 +1,8 @@
 """Dev worker bot (docs/DEV_WORKER.md).
 
 Two entry points:
-- Telegram webhook (Lambda Function URL): /up starts the dev-worker ECS task, /down stops it, any other text goes
-  to the worker's SQS FIFO queue. Only requests with the webhook secret token from the owner's chat are served.
+- Telegram webhook (Lambda Function URL): /up starts the dev-worker ECS task, /down stops it, any other message
+  (text, photo, voice, audio, file with its caption) goes to the worker's SQS FIFO queue. Only requests with the webhook secret token from the owner's chat are served.
 - EventBridge "ECS Task State Change" (STOPPED) of the dev-worker cluster: a stop the worker did not report itself
   (exit code other than 0 / REPORTED_EXIT_CODE, failed start, killed task) is reported in the chat.
 
@@ -127,14 +127,34 @@ def down():
         ecs.stop_task(cluster=CLUSTER_ARN, task=task["arn"], reason="/down from Telegram")
 
 
-def forward(message):
+def attachments_of(message):
+    """Photos, voice, audio and files of a message: the worker downloads them through the Bot API."""
+    found = []
+    if message.get("photo"):
+        # Sizes ascending: the last one is the original resolution
+        found.append({"kind": "photo", "file_id": message["photo"][-1]["file_id"], "mime_type": "image/jpeg"})
+    for kind in ("voice", "audio", "document"):
+        item = message.get(kind)
+        if item:
+            found.append(
+                {
+                    "kind": kind,
+                    "file_id": item["file_id"],
+                    "file_name": item.get("file_name"),
+                    "mime_type": item.get("mime_type"),
+                }
+            )
+    return found
+
+
+def forward(message, text, attachments):
     tasks = worker_tasks()
     if not tasks:
         say("Воркер не запущений. Напиши /up")
         return
     sqs.send_message(
         QueueUrl=QUEUE_URL,
-        MessageBody=json.dumps({"text": message["text"], "date": message.get("date", 0)}),
+        MessageBody=json.dumps({"text": text, "attachments": attachments, "date": message.get("date", 0)}),
         MessageGroupId=str(message["chat"]["id"]),
         MessageDeduplicationId=str(message["message_id"]),
     )
@@ -156,11 +176,12 @@ def telegram_update(event):
     message = update.get("message") or {}
     if str((message.get("chat") or {}).get("id")) != cfg["chat_id"]:
         return {"statusCode": 200, "body": "ignored"}
-    text = (message.get("text") or "").strip()
-    if not text:
-        say("Поки що розумію лише текст")
+    text = (message.get("text") or message.get("caption") or "").strip()
+    attachments = attachments_of(message)
+    if not text and not attachments:
+        say("Такий тип повідомлень не підтримую: текст, фото, голосові, аудіо або файли")
         return {"statusCode": 200, "body": "ok"}
-    command = text.split()[0].split("@")[0].lower()
+    command = text.split()[0].split("@")[0].lower() if text and not attachments else ""
     if command == "/up":
         up(message)
     elif command == "/down":
@@ -168,7 +189,7 @@ def telegram_update(event):
     elif command == "/start":
         say("Команди: /up — підняти воркера, /down — зупинити. Поки він працює, пиши йому сюди.")
     else:
-        forward(message)
+        forward(message, text, attachments)
     return {"statusCode": 200, "body": "ok"}
 
 
