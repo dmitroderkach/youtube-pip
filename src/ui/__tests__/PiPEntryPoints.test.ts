@@ -5,7 +5,13 @@ import { createPiPEntryPointsMocks } from './__mocks__/PiPEntryPoints.mock';
 import { PiPEntryPoints } from '../PiPEntryPoints';
 import { PiPManager } from '../../core/PiPManager';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
-import { ENTRY_POINT_CLASSES, KEYS, PIP_HOTKEY, PLAYER_TOOLTIP } from '../../constants';
+import {
+  ENTRY_POINT_CLASSES,
+  KEYS,
+  PIP_HOTKEY,
+  PLAYER_TOOLTIP,
+  SHORTS_MENU,
+} from '../../constants';
 import { I18n } from '../../i18n/I18n';
 import { EN_MESSAGES } from '../../i18n/messages';
 import { SELECTORS } from '../../selectors';
@@ -681,6 +687,57 @@ describe('PiPEntryPoints', () => {
       expect(item.querySelector('svg path')).not.toBeNull();
       expect(item.querySelector('[id]')).toBeNull();
       expect(list.querySelectorAll(SHORTS_MENU_ITEM)).toHaveLength(1);
+    });
+
+    it('"⋮" menu: YouTube\'s own PiP row is hidden, ours stays', async () => {
+      const { menuButton, dropdown, list } = addShortsMenu();
+      vi.spyOn(dropdown, 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ width: 200, height: 300 })
+      );
+      const ytPip = document.createElement('yt-list-item-view-model');
+      const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      const title = document.createElement('span');
+      title.textContent = EN_MESSAGES.PIP;
+      ytPip.append(icon, title);
+      list.appendChild(ytPip);
+      entryPoints.initialize();
+
+      menuButton.click();
+      await vi.runAllTimersAsync();
+
+      expect(ytPip.style.display).toBe('none');
+      const ours = list.querySelector<HTMLElement>(SHORTS_MENU_ITEM)!;
+      expect(ours.style.display).toBe('');
+      expect(ours.textContent).toBe(EN_MESSAGES.PIP);
+    });
+
+    it('"⋮" menu: waits for a row whose icon is drawn and copies it; without one by the deadline, adds our icon', async () => {
+      const { menuButton, dropdown, list } = addShortsMenu();
+      vi.spyOn(dropdown, 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ width: 200, height: 300 })
+      );
+      list.querySelectorAll('svg').forEach((svg) => svg.remove());
+      entryPoints.initialize();
+
+      menuButton.click();
+      await vi.advanceTimersByTimeAsync(SHORTS_MENU.POLL_MS);
+      expect(list.querySelector(SHORTS_MENU_ITEM)).toBeNull();
+
+      // YouTube draws the second row's icon
+      const rows = list.querySelectorAll('yt-list-item-view-model');
+      rows[1].firstElementChild!.prepend(
+        document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+      );
+      await vi.advanceTimersByTimeAsync(SHORTS_MENU.POLL_MS);
+      const ours = list.querySelector<HTMLElement>(SHORTS_MENU_ITEM)!;
+      expect(ours.querySelector('svg path')).not.toBeNull();
+
+      // Next opening, no icon anywhere until the deadline: our icon is added anyway
+      ours.remove();
+      list.querySelectorAll('svg').forEach((svg) => svg.remove());
+      menuButton.click();
+      await vi.runAllTimersAsync();
+      expect(list.querySelector(`${SHORTS_MENU_ITEM} svg path`)).not.toBeNull();
     });
 
     it('"⋮" menu item: click closes the dropdown and opens PiP; Enter activates it', async () => {

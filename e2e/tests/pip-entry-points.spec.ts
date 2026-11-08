@@ -403,6 +403,20 @@ test.describe('Open PiP from Shorts (controls button, context menu item)', () =>
     await expect(menuItem).toBeVisible({ timeout: E2E_WAIT_TIMEOUT_MS });
     if (labels) await expect(menuItem).toHaveText(labels.menuItem);
     expect(await menuItem.evaluate((i) => i.parentElement?.firstElementChild === i)).toBe(true);
+    // With our icon, and the only PiP row: YouTube's own "Picture-in-picture" row (some accounts) is hidden
+    await expect(menuItem.locator('svg path')).toHaveCount(1);
+    if (labels) {
+      expect(
+        await menuItem.evaluate(
+          (i, label) =>
+            Array.from(
+              i.parentElement?.querySelectorAll<HTMLElement>('yt-list-item-view-model') ?? []
+            ).filter((r) => r.getBoundingClientRect().height > 0 && r.textContent?.trim() === label)
+              .length,
+          labels.button
+        )
+      ).toBe(0);
+    }
     await menuItem.click();
     await closeShortsPiP(page);
 

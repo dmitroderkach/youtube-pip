@@ -98,13 +98,10 @@ export class PiPEntryPoints {
   /** Poll for the opened Shorts "⋮" menu (YouTube renders it into ytd-popup-container after the click). */
   private waitForShortsMenu(deadline: number): void {
     const list = this.shownShortsMenuList();
-    if (list) {
-      this.ensureShortsMenuItem(list);
-      return;
-    }
-    if (Date.now() < deadline) {
-      window.setTimeout(() => this.waitForShortsMenu(deadline), SHORTS_MENU.POLL_MS);
-    }
+    const last = Date.now() >= deadline;
+    // Wait for a row whose icon YouTube has drawn (rows draw their icons after the menu shows), up to the deadline
+    if (list && this.ensureShortsMenuItem(list, last)) return;
+    if (!last) window.setTimeout(() => this.waitForShortsMenu(deadline), SHORTS_MENU.POLL_MS);
   }
 
   /** Parent of the items of the shown Shorts "⋮" menu (`yt-list-item-view-model` rows), or null. */
@@ -123,10 +120,15 @@ export class PiPEntryPoints {
    * Our item at the top of the Shorts "⋮" menu, built from a copy of YouTube's first row (its inner markup in a plain
    * element: a copied view-model element would render itself empty without its data) with our icon and label.
    */
-  private ensureShortsMenuItem(list: HTMLElement): void {
-    if (list.querySelector(`.${ENTRY_POINT_CLASSES.SHORTS_MENU_ITEM}`)) return;
-    const row = list.querySelector<HTMLElement>(SELECTORS.LIST_ITEM);
-    if (!row) return;
+  private ensureShortsMenuItem(list: HTMLElement, anyRow = true): boolean {
+    this.hideYouTubeShortsPiPRows(list);
+    if (list.querySelector(`.${ENTRY_POINT_CLASSES.SHORTS_MENU_ITEM}`)) return true;
+    // Template: a plain row whose icon is drawn already (YouTube draws row icons after the menu shows)
+    const rows = Array.from(list.querySelectorAll<HTMLElement>(SELECTORS.LIST_ITEM)).filter(
+      (r) => r.style.display !== 'none'
+    );
+    const row = rows.find((r) => r.querySelector('svg')) ?? (anyRow ? rows[0] : undefined);
+    if (!row) return false;
     const item = document.createElement('div');
     item.className = `${row.className} ${ENTRY_POINT_CLASSES.SHORTS_MENU_ITEM}`;
     item.setAttribute('role', 'menuitem');
@@ -140,6 +142,7 @@ export class PiPEntryPoints {
     else item.appendChild(document.createTextNode(this.i18n.t('PIP')));
     const svg = item.querySelector('svg');
     if (svg) svg.replaceWith(this.createIcon());
+    else item.prepend(this.createIcon());
     item.querySelectorAll('[id]').forEach((e) => e.removeAttribute('id'));
     item.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -155,6 +158,18 @@ export class PiPEntryPoints {
     });
     list.prepend(item);
     this.logger.debug('PiP item added to the Shorts menu');
+    return true;
+  }
+
+  /** YouTube's own "Picture-in-picture" row of the Shorts "⋮" menu opens its PiP, not ours: hidden (label = our text). */
+  private hideYouTubeShortsPiPRows(list: HTMLElement): void {
+    const label = this.i18n.t('PIP');
+    list.querySelectorAll<HTMLElement>(SELECTORS.LIST_ITEM).forEach((row) => {
+      if (row.style.display !== 'none' && row.textContent?.trim() === label) {
+        row.style.display = 'none';
+        this.logger.debug("YouTube's own PiP row hidden in the Shorts menu");
+      }
+    });
   }
 
   /** Close YouTube's dropdown the way it closes itself (its close(); Escape on it otherwise). */
