@@ -11,6 +11,7 @@ Smart Picture-in-Picture mode for YouTube with full playback controls, SPA navig
 - **[On-call](docs/ONCALL.md)** - After every daily e2e run: results summary, YouTube experiment flag scan, Claude investigation and a Telegram message when something is off
 - **[Manual session in a visible browser](docs/MANUAL_SESSION.md)** - Check a change by hand with the built userscript under a chosen set of YouTube experiment flags
 - **[Greasy Fork auto-update](docs/GREASY_FORK.md)** - The script on Greasy Fork updates itself on every GitHub release (release webhook); one-time setup
+- **[Internationalization (planned)](docs/I18N.md)** - How UI texts of the userscript will get dictionaries per language (today: Ukrainian labels of the PiP entry points only)
 - **[Pre-release](docs/PRERELEASE.md)** - Test build of a release branch as a GitHub pre-release (`vX.Y.Z-rc.N`) to install and check before the release; users and Greasy Fork stay on the stable release
 - **[Dev worker in Telegram](docs/DEV_WORKER.md)** - Claude Code (Opus) on an on-demand ECS task, started / stopped and talked to from the on-call Telegram chat; session kept in S3, 10 min idle stop
 
