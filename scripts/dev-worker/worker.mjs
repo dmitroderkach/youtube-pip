@@ -483,18 +483,25 @@ function describeTool(name, input = {}) {
   return `${name}${detail ? `: ${String(detail).split('\n')[0].slice(0, 120)}` : ''}`;
 }
 
-/** Start tracking a turn (a message from the owner, or a turn Claude starts for a finished background task). */
-/** Tell the watchdog when the last answer went out and whether a turn is running (best effort). */
 let lastAnswerAt = new Date().toISOString();
+/** Uploads of the activity run one after another, so an older state never lands after a newer one. */
+let activityUploads = Promise.resolve();
+
+/** Tell the watchdog when the last answer went out and whether a turn is running (best effort). */
 function publishActivity(turnActive) {
   const body = JSON.stringify({ lastAnswerAt, turnActive });
-  const path = '/tmp/activity.json';
-  writeFileSync(path, body);
-  aws('s3', 'cp', path, `s3://${BUCKET}/${ACTIVITY_KEY}`, '--quiet').catch((error) =>
-    log('publish activity failed', error)
-  );
+  activityUploads = activityUploads.then(async () => {
+    try {
+      const path = '/tmp/activity.json';
+      writeFileSync(path, body);
+      await aws('s3', 'cp', path, `s3://${BUCKET}/${ACTIVITY_KEY}`, '--quiet');
+    } catch (error) {
+      log('publish activity failed', error);
+    }
+  });
 }
 
+/** Start tracking a turn (a message from the owner, or a turn Claude starts for a finished background task). */
 function ensureTurn() {
   if (turn) return turn;
   const current = { progress: null, started: Date.now(), steps: 0, lastEdit: 0 };
@@ -637,6 +644,8 @@ async function keepSession() {
       turn = null;
       backgroundTaskCount = 0;
       backgroundTasks = new Map();
+      // The turn is gone with the session: the watchdog must not take it for one still running
+      publishActivity(false);
       if (resumeId && /no conversation found/i.test(String(error?.message ?? error))) {
         // The saved session is gone (e.g. expired from S3): continue in a new one
         await say('ℹ️ Збережену сесію не знайдено (старша за тиждень?): починаю нову.');
