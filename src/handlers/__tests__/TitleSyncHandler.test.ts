@@ -106,16 +106,45 @@ describe('TitleSyncHandler', () => {
 
   it('stops restoring when something keeps setting its own title (no ping-pong loop)', async () => {
     handler.initialize();
+    // Writes to the <title> element itself are not blocked, only restored
+    const setTitleText = (text: string): void => {
+      const titleEl = document.head.querySelector('title');
+      if (titleEl) titleEl.textContent = text;
+    };
     const fighter = new MutationObserver(() => {
-      if (document.title !== 'YouTube') document.title = 'YouTube';
+      if (document.title !== 'YouTube') setTitleText('YouTube');
     });
     fighter.observe(document.head, { childList: true, subtree: true, characterData: true });
 
-    document.title = 'YouTube';
+    setTitleText('YouTube');
     await new Promise((r) => setTimeout(r, 50));
 
     fighter.disconnect();
     expect(document.title).toBe('YouTube');
+  });
+
+  it('does not apply YouTube writes to document.title while PiP is open (no flicker)', () => {
+    handler.initialize();
+    const applied: string[] = [];
+    const recorder = new MutationObserver(() => applied.push(document.title));
+    recorder.observe(document.head, { childList: true, subtree: true, characterData: true });
+
+    document.title = 'YouTube';
+
+    expect(document.title).toBe('Test Video - YouTube');
+    expect(recorder.takeRecords()).toEqual([]);
+    recorder.disconnect();
+    expect(applied).toEqual([]);
+  });
+
+  it('applies document.title writes again after cleanup', () => {
+    handler.initialize();
+    handler.cleanup();
+
+    document.title = 'Watch page - YouTube';
+
+    expect(document.title).toBe('Watch page - YouTube');
+    expect(Object.getOwnPropertyDescriptor(document, 'title')).toBeUndefined();
   });
 
   it('holdPageTitle keeps the current title while PiP is being opened', async () => {
