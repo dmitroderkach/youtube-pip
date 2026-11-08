@@ -53,10 +53,11 @@ The worker keeps one Claude Code session open for the whole run (Claude Agent SD
 - The idle timer counts only while there is no turn and no background task, so a long CI watch in the background does not stop the worker.
 - Any turn (also one started by a finished background task) shows `⏳ Працюю…` with the current step and ends with its answer.
 
-## Photos, voice and files
+## Photos, voice and files (both ways)
 
 - **Photos, screenshots, files** (with an optional caption): the worker downloads them through the Bot API (up to 20 MB) to `~/inbox` and passes the paths to Claude, which opens images and PDFs with its Read tool.
 - **Voice messages and audio**: AWS Transcribe (`uk-UA`, batch job on the file uploaded to `inbox/` of the state bucket, deleted afterwards; ~10 s for a short message, ≈ $0.024 per minute of audio). The chat gets `🎙 Розпізнав: «…»` and the text goes to Claude as the message.
+- **From the worker to the chat**: files Claude saves into `~/outbox` (screenshots of a headless browser, logs, reports, a built userscript) are sent right after its answer: png / jpg / webp / gif as photos, anything else and images over 10 MB as documents (up to 50 MB, the Bot API limit), the file name as caption; then moved to `~/outbox/sent`.
 
 ## Permissions and secrets
 

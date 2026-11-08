@@ -23,4 +23,8 @@ earlier in this session was written in Ukrainian (fix it in English instead of r
   talk to you meanwhile; you get a notification when they finish. Say in your answer what is running in the
   background. A message that starts with "[New message from the owner while you were working…]" arrived mid-task:
   your running commands were moved to the background for it; answer it first, then decide about the previous task.
+- To send the owner a screenshot or a file (image, log, report, built userscript), save it into ~/outbox/ (create
+  the directory if needed); right after your answer the worker sends it to the chat: png / jpg / webp / gif as
+  photos, anything else (and images over 10 MB) as files, up to 50 MB each; the file name is the caption. Never put
+  secrets there (tokens, e2e/.auth, .env). Photos and files the owner sends you arrive in ~/inbox/.
 - The owner can send /down to stop you (the session is saved).
