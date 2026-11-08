@@ -4,16 +4,18 @@ A Claude Code session (Opus) on an on-demand ECS task that the owner starts, tal
 
 ## Commands and statuses
 
-| In the chat                     | What happens                                                                                                                                                                    |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `/up`                           | `⏳ Піднімаю воркера…` → `🟢 Воркер готовий. Контекст відновлено з сесії від <дата>` (or `🟢 Воркер уже працює`, `🔴 Не вдалося підняти: …`)                                    |
-| `/down`                         | `⏳ Зупиняю, зберігаю контекст…` → `⚪ Воркер зупинено, контекст збережено`                                                                                                     |
-| text, photo, voice, audio, file | to the worker; its answer comes back in the chat (`працюю…` while it works). Not running: `Воркер не запущений. Напиши /up`; starting: `📥 Отримав, передам, щойно підніметься` |
-| (10 min idle)                   | `💤 10 хв без активності: контекст збережено, воркер зупинився`                                                                                                                 |
-| (4 h lifetime)                  | `⏱ Досягнуто ліміту 4 год: контекст збережено, воркер зупинився`                                                                                                                |
-| (unexpected)                    | `🔴 Воркер несподівано зупинився (<причина>). Контекст останнього збереження: <час>`                                                                                            |
+| In the chat                     | What happens                                                                                                                                                                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `/up`                           | `⏳ Піднімаю воркера…` → `🟢 Воркер готовий. Контекст відновлено з сесії від <дата>` (or `🟢 Воркер уже працює`, `🔴 Не вдалося підняти: …`)                                                                                               |
+| `/down`                         | `⏳ Зупиняю, зберігаю контекст…` → `⚪ Воркер зупинено, контекст збережено`                                                                                                                                                                |
+| text, photo, voice, audio, file | to the worker; its answer comes back in the chat (`працюю…` while it works). Not running: the worker is started for it (`⏳ Воркер не був запущений: піднімаю, передам повідомлення…`); starting: `📥 Отримав, передам, щойно підніметься` |
+| (10 min idle)                   | `💤 10 хв без активності: контекст збережено, воркер зупинився`                                                                                                                                                                            |
+| (4 h lifetime)                  | `⏱ Досягнуто ліміту 4 год: контекст збережено, воркер зупинився`                                                                                                                                                                           |
+| (unexpected)                    | `🔴 Воркер несподівано зупинився (<причина>). Контекст останнього збереження: <час>`                                                                                                                                                       |
 
 Idle = no message from the owner and no work in progress for 10 minutes.
+
+A message or `/up` while a stopped worker is still saving its session is not lost and not refused: the message is queued, the bot answers `⏳ Воркер ще зберігає контекст: підніму знову…` and leaves a marker (`state/pending-start.json` in the state bucket); the STOPPED event of that task starts the new worker, so it never restores a session that is still being saved.
 
 ## Architecture
 

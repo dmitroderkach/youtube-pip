@@ -271,6 +271,12 @@ resource "aws_iam_role_policy" "dev_bot" {
         Effect   = "Allow"
         Action   = ["s3:GetObject"]
         Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/meta.json"
+      },
+      {
+        # Start requested while a stopped worker was still saving its session (consumed on its STOPPED event)
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
+        Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/pending-start.json"
       }
     ]
   })
