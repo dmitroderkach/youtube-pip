@@ -12,6 +12,11 @@ Project rules live in `.cursor/` and are shared with Cursor. They are imported h
 
 The Cursor slash commands `.cursor/commands/bump-version.md` and `.cursor/commands/release-flow.md` only point at these rules. Run the flows step by step in the order the rule gives; when a step fails (e.g. PR checks), stop and handle it as the rule says before continuing.
 
+## Language
+
+- Talk to the owner in Ukrainian (this chat, Telegram messages).
+- Everything in the repository and on GitHub is in English: code, comments, docs, commit messages, branch names, PR titles and descriptions, PR / issue comments, CHANGELOG.
+
 ## Commit and PR conventions
 
 - Commit message for a release = first line of `PR_DESCRIPTION.md` (after `# `). `PR_DESCRIPTION.md` is git-ignored and never committed.

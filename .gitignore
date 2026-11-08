@@ -25,3 +25,6 @@ terraform/lambda/layer/python/*
 .cursor/*
 !.cursor/rules/
 !.cursor/commands/
+
+# Python bytecode (Lambda sources)
+__pycache__/

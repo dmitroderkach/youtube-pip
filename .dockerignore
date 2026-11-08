@@ -1,0 +1,4 @@
+# Docker build context = repository root only for the dev worker image (scripts/build-dev-worker-image.sh)
+*
+!scripts/dev-worker/
+!terraform/dev-worker/
