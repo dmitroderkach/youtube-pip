@@ -55,6 +55,14 @@ const FLAG_READER_MIN_ARGS = 20;
 const FLAG_READER_MIN_SERVED_SHARE = 0.15;
 /** Fewer relevant code flags than this share of the baseline means flag reading broke, not that YouTube removed them. */
 const MIN_CODE_FLAGS_SHARE_OF_BASELINE = 0.5;
+/**
+ * Some loads get YouTube's module-set loader (`ytmainappweb.base_module_set…/m=base`, ~1 MB) instead of the full
+ * Kevlar bundle (`ytmainappweb.kevlar_base…/m=kevlar_base_module,kevlar_main_module,…`, ~10 MB): an experiment
+ * bucket whose code arrives later in lazy modules, so the page source holds only a fraction of the flag checks.
+ * The page is loaded again (a new random bucket) until it has the full bundle, at most this many times.
+ */
+const PAGE_ATTEMPTS = 4;
+const FULL_KEVLAR_BUNDLE_RE = /\/ytmainappweb\/_\/js\/k=ytmainappweb\.kevlar_base\./;
 const HEADERS = {
   'User-Agent':
     'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/145.0.0.0 Safari/537.36',
@@ -145,8 +153,19 @@ function codeFlags(source, servedNames) {
 }
 
 mkdirSync(join(outDir, 'js'), { recursive: true });
-const res = await fetch(WATCH_URL, { headers: HEADERS });
-const html = await res.text();
+let res;
+let html;
+let pageAttempts = 0;
+while (pageAttempts < PAGE_ATTEMPTS) {
+  pageAttempts++;
+  res = await fetch(WATCH_URL, { headers: HEADERS });
+  html = await res.text();
+  if (FULL_KEVLAR_BUNDLE_RE.test(html)) break;
+  console.log(
+    `page load ${pageAttempts}: no full Kevlar bundle (module-set loader?), loading again`
+  );
+}
+const fullKevlarBundle = FULL_KEVLAR_BUNDLE_RE.test(html);
 writeFileSync(join(outDir, 'watch.html'), html);
 
 const pageFlags = {};
@@ -237,7 +256,12 @@ const codeRelevant = [...allCodeFlags]
 if (codeRelevant.length < baselineCode.size * MIN_CODE_FLAGS_SHARE_OF_BASELINE) {
   throw new Error(
     `reading flags from the bundles looks broken: ${codeRelevant.length} relevant flags vs ${baselineCode.size} ` +
-      `in the baseline (flag readers: ${flagReaders.join('; ')})`
+      `in the baseline (flag readers: ${flagReaders.join('; ')})` +
+      (fullKevlarBundle
+        ? ''
+        : `; none of ${pageAttempts} page loads had the full Kevlar bundle (ytmainappweb.kevlar_base), only ` +
+          `YouTube's module-set loader (base_module_set, m=base) whose code comes in lazy modules: if that is the rollout ` +
+          `now, the scan has to fetch those modules`)
   );
 }
 const describeCodeFlag = (name) => ({
@@ -257,6 +281,8 @@ const removedCodeFlags = [...baselineCode].filter((name) => !allCodeFlags.has(na
 const result = {
   scannedAt: new Date().toISOString(),
   url: WATCH_URL,
+  pageAttempts,
+  fullKevlarBundle,
   pageFlagCount: Object.keys(pageFlags).length,
   playerFlagCount: Object.keys(playerFlags).length,
   relevantFlagCount: Object.keys(relevant).length,
