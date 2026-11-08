@@ -12,8 +12,8 @@ The script on [Greasy Fork](https://greasyfork.org/en/scripts/564173-youtube-pip
 
 On Greasy Fork:
 
-1. Open the script → **Admin** → **Sync**: sync URL `https://github.com/dmitroderkach/youtube-pip/releases/latest/download/youtube-pip.user.js`, sync type **Webhook**. Save.
-2. Open your profile → **Webhook** (the link in the "Sync" section, or `https://greasyfork.org/users/webhook-info`): it shows the **Payload URL** and the **Secret** (generate one if there is none).
+1. Open the script → **Admin** → **Source Syncing**: "This script's code is set up to sync from" `https://github.com/dmitroderkach/youtube-pip/releases/latest/download/youtube-pip.user.js`, "The script will be synced" **Automatic** (a daily check, the fallback if a webhook delivery is lost). There is no separate webhook sync type: a webhook delivery syncs every script with a matching sync URL.
+2. Follow the link **set up a webhook** in the same section (`https://greasyfork.org/users/webhook-info`): it shows the **Payload URL** and the **Secret** (generate one if there is none).
 
 On GitHub (repository → **Settings** → **Webhooks** → **Add webhook**):
 
