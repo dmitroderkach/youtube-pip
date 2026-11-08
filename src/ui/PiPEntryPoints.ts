@@ -345,6 +345,10 @@ export class PiPEntryPoints {
   private createShortsButton(fullscreen: HTMLElement): HTMLElement {
     const shape = fullscreen.cloneNode(true) as HTMLElement;
     shape.removeAttribute('id');
+    // The slot of the "⋮" button, a neighbour that is always shown: YouTube hides the full screen slot in some
+    // layouts (e.g. a small window), and its class would hide our button with it
+    const menuSlot = fullscreen.parentElement?.querySelector(SELECTORS.SHORTS_MENU_BUTTON_SLOT);
+    if (menuSlot) shape.className = menuSlot.className;
     shape.classList.add(ENTRY_POINT_CLASSES.SHORTS_BUTTON);
     const label = `${this.i18n.t('PIP')} (${PIP_HOTKEY})`;
     const button = shape.querySelector('button') ?? shape;

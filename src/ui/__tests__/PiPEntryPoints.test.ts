@@ -541,6 +541,7 @@ describe('PiPEntryPoints', () => {
       right.id = 'right-controls';
       const menu = document.createElement('div');
       menu.id = 'menu-button';
+      menu.className = 'ytdShortsPlayerControlsMenuButton';
       const fullscreen = document.createElement('div');
       fullscreen.id = 'fullscreen-button-shape';
       fullscreen.className = 'ytdShortsPlayerControlsFullscreenButtonShape';
@@ -565,7 +566,9 @@ describe('PiPEntryPoints', () => {
       const ours = fullscreen.previousElementSibling as HTMLElement;
       expect(ours.matches(SHORTS_BUTTON)).toBe(true);
       expect(ours.id).toBe('');
-      expect(ours.classList.contains('ytdShortsPlayerControlsFullscreenButtonShape')).toBe(true);
+      // Laid out in the "⋮" slot's class (YouTube hides the full screen slot in some layouts)
+      expect(ours.classList.contains('ytdShortsPlayerControlsMenuButton')).toBe(true);
+      expect(ours.classList.contains('ytdShortsPlayerControlsFullscreenButtonShape')).toBe(false);
       const button = ours.querySelector('button')!;
       expect(button.className).toBe('ytSpecButtonShapeNextHost');
       expect(button.title).toBe(`${EN_MESSAGES.PIP} (${PIP_HOTKEY})`);

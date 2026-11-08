@@ -19,6 +19,8 @@ export const SELECTORS = {
   POPUP_DROPDOWN: 'ytd-popup-container tp-yt-iron-dropdown',
   /** Row of a view-model list menu (Shorts "⋮" menu). */
   LIST_ITEM: 'yt-list-item-view-model',
+  /** Slot of the "⋮" button next to the full screen button in the Shorts top controls. */
+  SHORTS_MENU_BUTTON_SLOT: ':scope > #menu-button',
   SHORTS_FULLSCREEN_BUTTON_SHAPE: 'ytd-shorts-player-controls #fullscreen-button-shape',
   /** <video> element inside the player (query relative to player root) */
   PLAYER_VIDEO: 'video',
