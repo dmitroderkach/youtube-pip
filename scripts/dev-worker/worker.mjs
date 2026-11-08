@@ -83,6 +83,20 @@ const ONCALL_MESSAGE_MAX_CHARS = 6000;
 /** At most this many (the newest) unseen reports go into one note; older ones stay in their run artifacts. */
 const ONCALL_REPORTS_MAX = 3;
 const ONCALL_DIR = join(homedir(), 'oncall');
+/** Voice replies (Google Cloud Text-to-Speech, Chirp 3 HD voices): OGG/Opus, sent as Telegram voice messages. */
+const TTS_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
+const TTS_LANGUAGE = 'uk-UA';
+const TTS_VOICE_PREFIX = 'uk-UA-Chirp3-HD-';
+const TTS_DEFAULT_VOICE = env.TTS_VOICE ?? 'Aoede';
+/** Female Chirp 3 HD voices for `/voice samples`. */
+const TTS_SAMPLE_VOICES = ['Aoede', 'Kore', 'Leda', 'Zephyr', 'Despina', 'Sulafat'];
+const TTS_SAMPLE_TEXT =
+  'Привіт! Це голос воркера youtube-pip. PR змерджено, перевірки зелені, можна релізити.';
+/** Spoken text cap (a summary of 20–40 s; a fallback cut of a long answer stays short). */
+const TTS_MAX_CHARS = 900;
+/** Voice reply modes: auto = only to the owner's voice messages, on = to every message, off = never. */
+const VOICE_MODES = ['auto', 'on', 'off'];
+const VOICE_BLOCK_RE = /<voice>([\s\S]*?)<\/voice>/i;
 /** Times shown to the owner (session save time, limit resets). */
 const OWNER_TIME_ZONE = 'Europe/Warsaw';
 const TRANSCRIBE_POLL_MS = 2000;
@@ -518,7 +532,10 @@ async function finishTurn(result) {
     log(`turn superseded: ${result.subtype} ${(result.errors ?? []).join(' ')}`);
     return;
   }
-  await say(answer || (result.errors ?? []).join('\n') || `(${result.subtype})`);
+  const { text, spoken } = splitVoiceBlock(answer);
+  await say(text || (result.errors ?? []).join('\n') || `(${result.subtype})`);
+  if (text && !failed) await replyByVoice(text, spoken);
+  else voiceReplyPending = false;
   await flushOutbox();
   try {
     await save();
@@ -534,6 +551,7 @@ async function runSession(resumeId) {
   const childEnv = { ...env };
   delete childEnv.TELEGRAM_BOT_TOKEN;
   delete childEnv.TELEGRAM_CHAT_ID;
+  delete childEnv.GOOGLE_TTS_API_KEY;
   session = query({
     prompt: userMessages(),
     options: {
@@ -620,6 +638,132 @@ async function keepSession() {
       resumeId = meta?.sessionId ?? resumeId;
     }
   }
+}
+
+// ---------------------------------------------------------------------------------------------- voice replies
+
+/** The answer to the message being worked on goes out as a voice message too (set when it is delivered). */
+let voiceReplyPending = false;
+
+const voiceMode = () => (VOICE_MODES.includes(meta?.voiceMode) ? meta.voiceMode : 'auto');
+const voiceName = () => meta?.voiceName ?? TTS_DEFAULT_VOICE;
+
+/** OGG/Opus audio of `text` in the voice `name` (Chirp 3 HD), or throws. */
+async function synthesize(text, name = voiceName()) {
+  if (!env.GOOGLE_TTS_API_KEY) throw new Error('GOOGLE_TTS_API_KEY is not set');
+  const res = await fetch(`${TTS_URL}?key=${env.GOOGLE_TTS_API_KEY}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      input: { text },
+      voice: { languageCode: TTS_LANGUAGE, name: `${TTS_VOICE_PREFIX}${name}` },
+      audioConfig: { audioEncoding: 'OGG_OPUS' },
+    }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.audioContent) {
+    throw new Error(`Text-to-Speech ${res.status}: ${json.error?.message ?? 'no audio'}`);
+  }
+  return Buffer.from(json.audioContent, 'base64');
+}
+
+async function sendVoice(audio, caption) {
+  const json = await telegramRequest('sendVoice', () => {
+    const form = new FormData();
+    form.append('chat_id', String(env.TELEGRAM_CHAT_ID));
+    if (caption) form.append('caption', caption);
+    form.append('voice', new Blob([audio], { type: 'audio/ogg' }), 'voice.ogg');
+    return form;
+  });
+  if (!json.ok) throw new Error(`sendVoice: ${json.description ?? 'Telegram error'}`);
+}
+
+/** Text to speak when Claude gave no <voice> block: the answer without links, code and markup, cut short. */
+function speakable(text) {
+  const plain = text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]*`/g, ' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/[*_#>|]/g, ' ')
+    .replace(/[ \t]+/g, ' ')
+    .trim();
+  if (plain.length <= TTS_MAX_CHARS) return plain;
+  const cut = plain.slice(0, TTS_MAX_CHARS);
+  return cut.slice(0, Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('\n'), 200) + 1);
+}
+
+/** Note for Claude on a message that gets a voice reply: end the answer with a spoken summary. */
+const VOICE_NOTE =
+  '[Voice reply: end your answer with <voice>…</voice>, a short spoken summary in Ukrainian for the owner to hear ' +
+  '(1–4 natural sentences, 20–40 s, no links, code, paths, ids or lists). The worker removes it from the text and ' +
+  'sends it as a voice message.]';
+
+/** Split the spoken summary off the answer: { text, spoken }. */
+function splitVoiceBlock(answer) {
+  const match = answer.match(VOICE_BLOCK_RE);
+  if (!match) return { text: answer, spoken: null };
+  return { text: answer.replace(VOICE_BLOCK_RE, '').trim(), spoken: match[1].trim() || null };
+}
+
+/** After the text answer: the voice message, when the delivered message asked for one. */
+async function replyByVoice(text, spoken) {
+  if (!voiceReplyPending) return;
+  voiceReplyPending = false;
+  const speech = (spoken ?? speakable(text)).slice(0, TTS_MAX_CHARS * 2);
+  if (!speech) return;
+  try {
+    await sendVoice(await synthesize(speech));
+  } catch (error) {
+    log('voice reply failed', error);
+    await say(
+      `⚠️ Голосову відповідь не вдалося озвучити: ${String(error.message ?? error).slice(0, 300)}`
+    );
+  }
+}
+
+const VOICE_COMMAND = /^\/voice(@\w+)?(\s+(.+))?$/i;
+
+/** `/voice` [auto | on | off | samples | <voice name>]: voice reply settings, answered without a Claude turn. */
+async function voiceCommand(argument) {
+  const arg = (argument ?? '').trim();
+  const status = () =>
+    `🔊 Голосові відповіді: ${voiceMode()} (auto: на твої голосові, on: на все, off: ніколи); голос ${voiceName()}`;
+  if (!arg) {
+    await say(
+      `${status()}\n/voice auto | on | off — режим\n/voice samples — зразки голосів\n/voice <імʼя> — вибрати голос (наприклад /voice Kore)`
+    );
+    return;
+  }
+  if (VOICE_MODES.includes(arg.toLowerCase())) {
+    meta = { ...(meta ?? {}), voiceMode: arg.toLowerCase() };
+    await say(status());
+    return save().catch((error) => log('save failed', error));
+  }
+  if (arg.toLowerCase() === 'samples') {
+    for (const name of TTS_SAMPLE_VOICES) {
+      try {
+        await sendVoice(await synthesize(TTS_SAMPLE_TEXT, name), `${name} — /voice ${name}`);
+      } catch (error) {
+        await say(`⚠️ ${name}: ${String(error.message ?? error).slice(0, 300)}`);
+        return;
+      }
+    }
+    return;
+  }
+  const name = arg.charAt(0).toUpperCase() + arg.slice(1).toLowerCase();
+  if (!/^[A-Z][a-z]+$/.test(name)) {
+    await say('ℹ️ /voice auto | on | off | samples | <імʼя голосу>');
+    return;
+  }
+  try {
+    await sendVoice(await synthesize(`Тепер я говорю голосом ${name}.`, name), name);
+  } catch (error) {
+    await say(`⚠️ Голос ${name} не працює: ${String(error.message ?? error).slice(0, 300)}`);
+    return;
+  }
+  meta = { ...(meta ?? {}), voiceName: name };
+  await say(status());
+  return save().catch((error) => log('save failed', error));
 }
 
 // ---------------------------------------------------------------------------------------------- /context
@@ -816,6 +960,14 @@ async function deliver(message) {
   }
   const oncall = await oncallNote().catch((error) => log('oncall check failed', error));
   if (oncall) text = `${oncall}\n\n${text}`;
+  const spokenByOwner = (message.attachments ?? []).some((a) => a.kind === 'voice');
+  if (
+    env.GOOGLE_TTS_API_KEY &&
+    (voiceMode() === 'on' || (voiceMode() === 'auto' && spokenByOwner))
+  ) {
+    voiceReplyPending = true;
+    text = `${text}\n\n${VOICE_NOTE}`;
+  }
   if (turn && session) {
     // Blocking commands in the foreground go to the background (Ctrl+B), so the turn reaches its next step at once
     let moved = false;
@@ -982,6 +1134,11 @@ async function main() {
         }
         if (BACKGROUND_COMMAND.test(command)) {
           await reportBackground();
+          continue;
+        }
+        const voice = command.match(VOICE_COMMAND);
+        if (voice) {
+          await voiceCommand(voice[3]);
           continue;
         }
         await deliver(message);
