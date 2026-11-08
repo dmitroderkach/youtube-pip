@@ -28,6 +28,9 @@ export const SELECTORS = {
   /** Any player popup (context menu, settings menu); its items handle keys themselves. */
   PLAYER_POPUP: '.ytp-popup',
   MENU_ITEM: '.ytp-menuitem',
+  MENU_ITEM_LABEL: '.ytp-menuitem-label',
+  /** YouTube's own PiP button of the player controls (web_watch_pip). */
+  YT_PIP_BUTTON: '.ytp-pip-button',
   /** Panel inside a player popup (context menu); YouTube sizes it inline together with the popup. */
   PANEL: '.ytp-panel',
   PANEL_MENU: '.ytp-panel-menu',

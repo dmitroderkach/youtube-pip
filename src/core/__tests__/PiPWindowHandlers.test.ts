@@ -10,6 +10,7 @@ import { PiPEventBridgeHandler } from '../../handlers/PiPEventBridgeHandler';
 import { NavigationHandler } from '../NavigationHandler';
 import { DocumentFocusHandler } from '../../handlers/DocumentFocusHandler';
 import { TitleSyncHandler } from '../../handlers/TitleSyncHandler';
+import { PiPHotkeyHandler } from '../../handlers/PiPHotkeyHandler';
 
 describe('PiPWindowHandlers', () => {
   let handlers: PiPWindowHandlers;
@@ -26,6 +27,7 @@ describe('PiPWindowHandlers', () => {
     c.bind(NavigationHandler).toInstance(mocks.navigationHandler);
     c.bind(DocumentFocusHandler).toInstance(mocks.documentFocusHandler);
     c.bind(TitleSyncHandler).toInstance(mocks.titleSyncHandler);
+    c.bind(PiPHotkeyHandler).toInstance(mocks.pipHotkeyHandler);
     c.bind(PiPWindowHandlers).toSelf();
     handlers = c.get(PiPWindowHandlers);
   });
@@ -42,6 +44,7 @@ describe('PiPWindowHandlers', () => {
     expect(mocks.pipEventBridgeHandler.initialize).toHaveBeenCalledOnce();
     expect(mocks.documentFocusHandler.initialize).toHaveBeenCalledOnce();
     expect(mocks.titleSyncHandler.initialize).toHaveBeenCalledOnce();
+    expect(mocks.pipHotkeyHandler.initialize).toHaveBeenCalledOnce();
 
     expect(typeof cleanup).toBe('function');
   });
@@ -54,6 +57,8 @@ describe('PiPWindowHandlers', () => {
     void cleanup();
 
     expect(mocks.titleSyncHandler.stopSync).toHaveBeenCalledOnce();
+
+    expect(mocks.pipHotkeyHandler.cleanup).toHaveBeenCalledOnce();
     expect(mocks.titleSyncHandler.cleanup).not.toHaveBeenCalled();
     expect(mocks.documentFocusHandler.cleanup).toHaveBeenCalledOnce();
     expect(mocks.seekHandler.cleanup).toHaveBeenCalledOnce();

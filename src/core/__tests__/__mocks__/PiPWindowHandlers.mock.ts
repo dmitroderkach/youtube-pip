@@ -7,6 +7,7 @@ import { PiPEventBridgeHandler } from '../../../handlers/PiPEventBridgeHandler';
 import { NavigationHandler } from '../../NavigationHandler';
 import { DocumentFocusHandler } from '../../../handlers/DocumentFocusHandler';
 import { TitleSyncHandler } from '../../../handlers/TitleSyncHandler';
+import { PiPHotkeyHandler } from '../../../handlers/PiPHotkeyHandler';
 
 export interface PiPWindowHandlersMocks {
   resizeTracker: MockProxy<ResizeTracker>;
@@ -17,6 +18,7 @@ export interface PiPWindowHandlersMocks {
   navigationHandler: MockProxy<NavigationHandler>;
   documentFocusHandler: MockProxy<DocumentFocusHandler>;
   titleSyncHandler: MockProxy<TitleSyncHandler>;
+  pipHotkeyHandler: MockProxy<PiPHotkeyHandler>;
 }
 
 export function createPiPWindowHandlersMocks(): PiPWindowHandlersMocks {
@@ -29,5 +31,6 @@ export function createPiPWindowHandlersMocks(): PiPWindowHandlersMocks {
     navigationHandler: mock<NavigationHandler>(),
     documentFocusHandler: mock<DocumentFocusHandler>(),
     titleSyncHandler: mock<TitleSyncHandler>(),
+    pipHotkeyHandler: mock<PiPHotkeyHandler>(),
   };
 }

@@ -19,6 +19,8 @@ import { MediaSessionHandler } from '../handlers/MediaSessionHandler';
 import { PiPEventBridgeHandler } from '../handlers/PiPEventBridgeHandler';
 import { PiPLinkFocusHandler } from '../handlers/PiPLinkFocusHandler';
 import { PiPEntryPoints } from '../ui/PiPEntryPoints';
+import { I18n } from '../i18n/I18n';
+import { PiPHotkeyHandler } from '../handlers/PiPHotkeyHandler';
 
 export function createContainer(): Container {
   const container = new Container();
@@ -36,12 +38,14 @@ export function createContainer(): Container {
   container.bind(SeekHandler).toSelf();
   container.bind(DocumentFocusHandler).toSelf();
   container.bind(TitleSyncHandler).toSelf();
+  container.bind(PiPHotkeyHandler).toSelf();
   container.bind(PiPWindowHandlers).toSelf();
   container.bind(PiPEventBridgeHandler).toSelf();
   container.bind(PiPLinkFocusHandler).toSelf();
   container.bind(PipShortsWindowHandlers).toSelf();
   container.bind(PiPManager).toSelf();
   container.bind(MediaSessionHandler).toSelf();
+  container.bind(I18n).toSelf();
   container.bind(PiPEntryPoints).toSelf();
 
   return container;

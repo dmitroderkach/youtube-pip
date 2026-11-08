@@ -1,6 +1,6 @@
 /**
  * E2E: our own ways to open PiP from the page (src/ui/PiPEntryPoints.ts):
- * - the "Відкрити картинку в картинці" item at the top of the player context menu (watch page and mini player),
+ * - the PiP item (YouTube's own PiP name) at the top of the player context menu (watch page and mini player),
  *   absent from the menu in the PiP window;
  * - the PiP button in the player controls, hidden in the PiP window.
  * Both are opened with real mouse clicks (a real user activation, as for the owner).
@@ -11,8 +11,24 @@ import { expect, test, waitForContextMenuItemVisible } from '../fixtures';
 import { E2E_SELECTORS } from '../selectors';
 
 const MENU_ITEM = '.ytpip-open-menuitem';
-const MENU_ITEM_LABEL = 'Відкрити картинку в картинці';
 const CONTROLS_BUTTON = '.ytpip-open-button';
+const TOOLTIP = '.ytpip-tooltip';
+/**
+ * Our labels for the page languages the e2e runs see (src/i18n/dictionaries.ts); other languages are only checked
+ * for a non-empty label.
+ */
+const LABELS: Readonly<Record<string, { menuItem: string; button: string }>> = {
+  en: { menuItem: 'Picture-in-picture', button: 'Picture-in-picture' },
+  uk: { menuItem: 'Картинка в картинці', button: 'Картинка в картинці' },
+};
+
+/** Our labels for the page's YouTube interface language (`ytcfg` HL), or null for a language not in LABELS. */
+async function expectedLabels(page: Page): Promise<{ menuItem: string; button: string } | null> {
+  const hl = await page.evaluate(() =>
+    (window as Window & { ytcfg?: { get?: (k: string) => unknown } }).ytcfg?.get?.('HL')
+  );
+  return LABELS[String(hl ?? '')] ?? null;
+}
 /** Right-click point inside the player, as a share of its size (away from the controls and the center button). */
 const RIGHT_CLICK_AT = { X: 0.5, Y: 0.3 } as const;
 /** Rounding slack when comparing element rectangles (px). */
@@ -37,6 +53,34 @@ function shownMenuOnPage(page: Page) {
       };
     },
     { menuSel: E2E_SELECTORS.CONTEXT_MENU, itemSel: MENU_ITEM, slack: RECT_SLACK_PX }
+  );
+}
+
+/**
+ * PiP entries of the shown page menu: ours, and YouTube's own (`web_watch_pip_context_menu_button`, label = YouTube's
+ * PiP name) that must be hidden so only ours is offered.
+ */
+function pipItemsInShownMenu(page: Page, youtubeLabel: string) {
+  return page.evaluate(
+    ({ menuSel, itemSel, label }) => {
+      const menu = Array.from(document.querySelectorAll<HTMLElement>(menuSel)).find(
+        (m) => getComputedStyle(m).display !== 'none' && m.getBoundingClientRect().height > 0
+      );
+      const visible = (el: HTMLElement) => el.getBoundingClientRect().height > 0;
+      const items = Array.from(
+        menu?.querySelectorAll<HTMLElement>('.ytp-panel-menu > .ytp-menuitem') ?? []
+      );
+      return {
+        ours: items.filter((i) => i.matches(itemSel) && visible(i)).length,
+        youtube: items.filter(
+          (i) =>
+            !i.matches(itemSel) &&
+            visible(i) &&
+            i.querySelector('.ytp-menuitem-label')?.textContent?.trim() === label
+        ).length,
+      };
+    },
+    { menuSel: E2E_SELECTORS.CONTEXT_MENU, itemSel: MENU_ITEM, label: youtubeLabel }
   );
 }
 
@@ -91,7 +135,13 @@ test.describe('Open PiP from the page (context menu item, controls button)', () 
       .poll(() => shownMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS })
       .toEqual({ hasItem: true, firstIsItem: true, allItemsFit: true });
     const item = page.locator(MENU_ITEM);
-    await expect(item).toHaveText(MENU_ITEM_LABEL);
+    const labels = await expectedLabels(page);
+    if (labels) await expect(item).toHaveText(labels.menuItem);
+    else await expect(item).not.toHaveText('');
+    // Only our PiP entry: YouTube's own item (chromium-yt-pip / all-flags projects) is hidden
+    if (labels) {
+      expect(await pipItemsInShownMenu(page, labels.button)).toEqual({ ours: 1, youtube: 0 });
+    }
 
     await item.click();
     await assertPiPWindowHasPlayer(page);
@@ -128,7 +178,7 @@ test.describe('Open PiP from the page (context menu item, controls button)', () 
     await page.locator(E2E_SELECTORS.MINIPLAYER_HOST).waitFor({ state: 'visible' });
   });
 
-  test('controls button: next to the settings → opens PiP → hidden in the PiP window', async ({
+  test('controls button: next to the settings, YouTube-style tooltip → opens PiP → hidden in the PiP window', async ({
     videoPageReady: page,
     assertPiPWindowHasPlayer,
   }) => {
@@ -139,6 +189,44 @@ test.describe('Open PiP from the page (context menu item, controls button)', () 
     expect(
       await button.evaluate((b) => b.nextElementSibling?.matches('.ytp-settings-button') ?? false)
     ).toBe(true);
+
+    // YouTube-style tooltip above the button, no browser tooltip
+    expect(await button.getAttribute('title')).toBeNull();
+    await button.hover();
+    const tooltip = page.locator(`${E2E_SELECTORS.MOVIE_PLAYER} ${TOOLTIP}`);
+    await expect(tooltip).toBeVisible({ timeout: E2E_WAIT_TIMEOUT_MS });
+    // Visible to the eye too: YouTube's CSS keeps a tooltip transparent unless it is shown the way the player shows it
+    await expect(tooltip).toHaveCSS('opacity', '1', { timeout: E2E_WAIT_TIMEOUT_MS });
+    const labels = await expectedLabels(page);
+    // YouTube's PiP name with the key, as YouTube writes "Full screen (f)"
+    if (labels) await expect(tooltip).toHaveText(`${labels.button} (p)`);
+    else await expect(tooltip).not.toHaveText('');
+    const placement = await page.evaluate(
+      ({ tipSel, btnSel }) => {
+        const tip = document.querySelector(tipSel)!.getBoundingClientRect();
+        const btn = document.querySelector(btnSel)!.getBoundingClientRect();
+        return {
+          above: tip.bottom <= btn.top,
+          centerOffset: Math.abs(tip.x + tip.width / 2 - (btn.x + btn.width / 2)),
+        };
+      },
+      {
+        tipSel: `${E2E_SELECTORS.MOVIE_PLAYER} ${TOOLTIP}`,
+        btnSel: `${E2E_SELECTORS.MOVIE_PLAYER} ${CONTROLS_BUTTON}`,
+      }
+    );
+    expect(placement.above).toBe(true);
+    expect(placement.centerOffset).toBeLessThanOrEqual(RECT_SLACK_PX);
+    await page.mouse.move(0, 0);
+    await expect(tooltip).toBeHidden({ timeout: E2E_WAIT_TIMEOUT_MS });
+
+    // Only our PiP button: YouTube's own (web_watch_pip) is hidden
+    expect(
+      await page.evaluate(() => {
+        const b = document.querySelector<HTMLElement>('#movie_player .ytp-pip-button');
+        return b ? b.getBoundingClientRect().width > 0 : false;
+      })
+    ).toBe(false);
 
     await button.click();
     await assertPiPWindowHasPlayer(page);
@@ -152,5 +240,34 @@ test.describe('Open PiP from the page (context menu item, controls button)', () 
     await closePiPAndWait(page);
     await player.hover();
     await expect(button).toBeVisible({ timeout: E2E_WAIT_TIMEOUT_MS });
+  });
+
+  test('hotkey: "p" on the page opens PiP, "p" in the PiP window closes it; ignored while typing', async ({
+    videoPageReady: page,
+    assertPiPWindowHasPlayer,
+  }) => {
+    // Typing "p" in the search box does not open PiP
+    const search = page.locator('input[name="search_query"], yt-searchbox input').first();
+    if (await search.isVisible().catch(() => false)) {
+      await search.click();
+      await page.keyboard.press('p');
+      expect(await page.evaluate(() => window.documentPictureInPicture?.window == null)).toBe(true);
+      await search.fill('');
+    }
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+
+    await page.keyboard.press('p');
+    await assertPiPWindowHasPlayer(page);
+
+    const pipPage = page
+      .context()
+      .pages()
+      .find((p) => p !== page);
+    expect(pipPage).toBeDefined();
+    await pipPage!.keyboard.press('p');
+    await page.waitForFunction(() => window.documentPictureInPicture?.window == null, {
+      timeout: E2E_WAIT_TIMEOUT_MS,
+    });
+    await page.locator(E2E_SELECTORS.MOVIE_PLAYER).waitFor({ state: 'visible' });
   });
 });

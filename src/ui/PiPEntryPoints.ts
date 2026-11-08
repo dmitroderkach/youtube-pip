@@ -4,11 +4,14 @@ import { PiPManager } from '../core/PiPManager';
 import { PipWindowProvider } from '../core/PipWindowProvider';
 import {
   ENTRY_POINT_CLASSES,
-  ENTRY_POINT_LABELS,
   KEY_CODES,
   KEYS,
+  PIP_HOTKEY,
   PIP_ICON_PATH,
+  PLAYER_TOOLTIP,
 } from '../constants';
+import { isTypingTarget, isPlainKey } from '../utils/hotkeys';
+import { I18n } from '../i18n/I18n';
 import { SELECTORS } from '../selectors';
 import type { Nullable } from '../types/app';
 import { inject, injectable } from '../di';
@@ -16,9 +19,11 @@ import { inject, injectable } from '../di';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /**
- * Extra ways to open our PiP from the page (experimental, Ukrainian labels only):
- * - an item at the top of the player's context menu (watch page and mini player), never in the PiP window;
- * - a button in the player controls next to the settings button (hidden in the PiP window by styles.css).
+ * Extra ways to open our PiP from the page (experimental), labelled in the YouTube interface language (I18n):
+ * - an item at the top of the player's context menu (watch page, mini player and Shorts), never in the PiP window;
+ * - the PIP_HOTKEY key on the page (closing PiP with it in the PiP window is PiPHotkeyHandler);
+ * - a button in the player controls next to the settings button, with a tooltip like YouTube's own buttons (hidden in
+ *   the PiP window by styles.css).
  *
  * YouTube sizes the context menu when it opens (inline heights of popup / panel / menu), counting the items that are
  * in it at that moment. The item stays in the menu once added, so later openings are sized with it; when it is
@@ -31,6 +36,8 @@ export class PiPEntryPoints {
   private readonly logger: Logger;
   private menuItem: Nullable<HTMLElement> = null;
   private button: Nullable<HTMLButtonElement> = null;
+  /** Our tooltip of the button, built like the player's `.ytp-tooltip` (YouTube's CSS styles it). */
+  private tooltip: Nullable<HTMLElement> = null;
   /** Element the last context menu on the page was opened for. */
   private lastContextTarget: Nullable<Element> = null;
   private readonly observedMenus = new WeakSet<HTMLElement>();
@@ -43,28 +50,40 @@ export class PiPEntryPoints {
   constructor(
     @inject(LoggerFactory) loggerFactory: LoggerFactory,
     @inject(PiPManager) private readonly pipManager: PiPManager,
-    @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider
+    @inject(PipWindowProvider) private readonly pipWindowProvider: PipWindowProvider,
+    @inject(I18n) private readonly i18n: I18n
   ) {
     this.logger = loggerFactory.create('PiPEntryPoints');
   }
 
   public initialize(): void {
     document.addEventListener('contextmenu', this.onContextMenu, true);
+    document.addEventListener('keydown', this.onKeyDown);
     // The controls are shown on pointer movement over the player: a cheap check that our button is still there
     document.addEventListener('pointermove', this.ensureControlsButton, {
       capture: true,
       passive: true,
     });
     this.ensureControlsButton();
+    this.hideYouTubePiPButton();
     this.logger.debug('PiP entry points initialized');
   }
 
   /** Remove the listeners and stop watching the menus (the added item and button stay). */
   public stop(): void {
     document.removeEventListener('contextmenu', this.onContextMenu, true);
+    document.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('pointermove', this.ensureControlsButton, true);
     this.menuObserver.disconnect();
   }
+
+  /** PIP_HOTKEY on the page opens PiP, unless the user is typing or YouTube already handled the key. */
+  private onKeyDown = (e: KeyboardEvent): void => {
+    if (e.defaultPrevented || !isPlainKey(e, PIP_HOTKEY) || isTypingTarget(e.target)) return;
+    if (this.pipWindowProvider.getWindow() !== null) return;
+    e.preventDefault();
+    this.openPiP('hotkey');
+  };
 
   /** Capture phase, before YouTube opens the menu: remember the target and watch the menus. */
   private onContextMenu = (e: MouseEvent): void => {
@@ -88,13 +107,14 @@ export class PiPEntryPoints {
     });
   }
 
-  /** The item belongs to a shown menu of the page's watch / mini player while PiP is closed. */
+  /** The item belongs to a shown menu of the page's watch / mini player / Shorts player while PiP is closed. */
   private wantsItem(menu: HTMLElement): boolean {
+    const target = this.lastContextTarget;
     return (
       this.pipWindowProvider.getWindow() === null &&
       menu.ownerDocument === document &&
-      this.lastContextTarget?.closest(SELECTORS.MOVIE_PLAYER) != null &&
-      this.lastContextTarget.ownerDocument === document
+      target?.ownerDocument === document &&
+      target.closest(`${SELECTORS.MOVIE_PLAYER}, ${SELECTORS.SHORTS_PLAYER}`) != null
     );
   }
 
@@ -102,6 +122,7 @@ export class PiPEntryPoints {
     if (menu.style.display === 'none') return;
     const list = menu.querySelector<HTMLElement>(SELECTORS.PANEL_MENU);
     if (!list) return;
+    this.hideYouTubePiPItems(menu, list);
     const item = this.menuItem;
     const present = item !== null && item.parentElement === list;
     const wanted = this.wantsItem(menu);
@@ -115,6 +136,23 @@ export class PiPEntryPoints {
       item.remove();
       this.resizeMenu(menu, -height);
       this.logger.debug('PiP item removed from the context menu');
+    }
+  }
+
+  /**
+   * YouTube's own "Picture-in-picture" item (`web_watch_pip_context_menu_button`) opens YouTube's PiP, not ours, and
+   * would sit next to our item: hidden. Recognized by its label, YouTube's name of PiP in the page language, which is
+   * our PIP text (taken from the same player strings).
+   */
+  private hideYouTubePiPItems(menu: HTMLElement, list: HTMLElement): void {
+    const label = this.i18n.t('PIP');
+    for (const item of Array.from(list.children) as HTMLElement[]) {
+      if (item === this.menuItem || item.style.display === 'none') continue;
+      if (item.querySelector(SELECTORS.MENU_ITEM_LABEL)?.textContent?.trim() !== label) continue;
+      const height = item.offsetHeight;
+      item.style.display = 'none';
+      this.resizeMenu(menu, -height);
+      this.logger.debug("YouTube's own PiP item hidden in the context menu");
     }
   }
 
@@ -142,7 +180,7 @@ export class PiPEntryPoints {
     icon.appendChild(this.createIcon());
     const label = document.createElement('div');
     label.className = 'ytp-menuitem-label';
-    label.textContent = ENTRY_POINT_LABELS.MENU_ITEM;
+    label.textContent = this.i18n.t('PIP');
     const content = document.createElement('div');
     content.className = 'ytp-menuitem-content';
     item.append(icon, label, content);
@@ -175,6 +213,18 @@ export class PiPEntryPoints {
     }
   }
 
+  /**
+   * YouTube's own PiP button of the controls (`web_watch_pip`) opens YouTube's PiP, not ours, and would sit next to our
+   * button: hidden on the page by a style rule (YouTube toggles its inline display itself).
+   */
+  private hideYouTubePiPButton(): void {
+    if (document.getElementById(ENTRY_POINT_CLASSES.PAGE_STYLE)) return;
+    const style = document.createElement('style');
+    style.id = ENTRY_POINT_CLASSES.PAGE_STYLE;
+    style.textContent = `${SELECTORS.MOVIE_PLAYER} ${SELECTORS.YT_PIP_BUTTON} { display: none !important; }`;
+    (document.head ?? document.documentElement).appendChild(style);
+  }
+
   /** Our button before the settings button of the page's player; re-added when YouTube rebuilt the controls. */
   private ensureControlsButton = (): void => {
     if (this.button?.isConnected) return;
@@ -190,15 +240,70 @@ export class PiPEntryPoints {
   private createButton(): HTMLButtonElement {
     const button = document.createElement('button');
     button.className = `ytp-button ${ENTRY_POINT_CLASSES.BUTTON}`;
-    button.setAttribute('aria-label', ENTRY_POINT_LABELS.BUTTON);
-    button.title = ENTRY_POINT_LABELS.BUTTON;
+    // No `title`: the browser's own tooltip would show next to ours
+    button.setAttribute('aria-label', this.i18n.t('PIP'));
+    button.setAttribute('aria-keyshortcuts', PIP_HOTKEY);
     button.appendChild(this.createIcon());
     button.addEventListener('click', (e) => {
       e.stopPropagation();
+      this.hideTooltip();
       this.openPiP('controls button');
     });
+    button.addEventListener('mouseenter', () => this.showTooltip(button));
+    button.addEventListener('focus', () => this.showTooltip(button));
+    button.addEventListener('mouseleave', this.hideTooltip);
+    button.addEventListener('blur', this.hideTooltip);
     this.button = button;
     return button;
+  }
+
+  /**
+   * Show our tooltip above `button` the way the player shows its own: `.ytp-tooltip.ytp-bottom` inside the player,
+   * centered over the button, PLAYER_TOOLTIP.GAP_PX above it, kept PLAYER_TOOLTIP.EDGE_PX inside the player.
+   */
+  private showTooltip(button: HTMLElement): void {
+    const player = button.closest<HTMLElement>(SELECTORS.MOVIE_PLAYER);
+    if (!player) return;
+    const tooltip = this.tooltip ?? this.createTooltip();
+    if (tooltip.parentElement !== player) player.appendChild(tooltip);
+    tooltip.style.display = '';
+    const playerBox = player.getBoundingClientRect();
+    const buttonBox = button.getBoundingClientRect();
+    const width = tooltip.offsetWidth;
+    const centered = buttonBox.left - playerBox.left + buttonBox.width / 2 - width / 2;
+    const maxLeft = playerBox.width - width - PLAYER_TOOLTIP.EDGE_PX;
+    const left = Math.max(PLAYER_TOOLTIP.EDGE_PX, Math.min(centered, maxLeft));
+    const top = buttonBox.top - playerBox.top - tooltip.offsetHeight - PLAYER_TOOLTIP.GAP_PX;
+    tooltip.style.left = `${Math.round(left)}px`;
+    tooltip.style.top = `${Math.round(top)}px`;
+  }
+
+  private hideTooltip = (): void => {
+    if (this.tooltip) this.tooltip.style.display = 'none';
+  };
+
+  private createTooltip(): HTMLElement {
+    const tooltip = document.createElement('div');
+    tooltip.className = `ytp-tooltip ytp-bottom ${ENTRY_POINT_CLASSES.TOOLTIP}`;
+    tooltip.setAttribute('data-layer', PLAYER_TOOLTIP.LAYER);
+    // As YouTube's: the text wrapper is hidden from screen readers (the button has the label); `aria-hidden` on the
+    // tooltip itself would make YouTube's CSS keep it transparent
+    tooltip.setAttribute('aria-live', 'polite');
+    tooltip.style.maxWidth = `${PLAYER_TOOLTIP.MAX_WIDTH_PX}px`;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'ytp-tooltip-text-wrapper';
+    wrapper.setAttribute('aria-hidden', 'true');
+    const bottom = document.createElement('div');
+    bottom.className = 'ytp-tooltip-bottom-text';
+    const text = document.createElement('span');
+    text.className = 'ytp-tooltip-text';
+    // With the key, as YouTube writes "Full screen (f)"
+    text.textContent = `${this.i18n.t('PIP')} (${PIP_HOTKEY})`;
+    bottom.appendChild(text);
+    wrapper.appendChild(bottom);
+    tooltip.appendChild(wrapper);
+    this.tooltip = tooltip;
+    return tooltip;
   }
 
   private createIcon(): SVGSVGElement {

@@ -3,6 +3,7 @@ import { PiPEventBridgeHandler } from '../handlers/PiPEventBridgeHandler';
 import { PiPLinkFocusHandler } from '../handlers/PiPLinkFocusHandler';
 import { DocumentFocusHandler } from '../handlers/DocumentFocusHandler';
 import type { PiPCleanupCallback } from '../types/app';
+import { PiPHotkeyHandler } from '../handlers/PiPHotkeyHandler';
 import { inject, injectable } from '../di';
 import { TitleSyncHandler } from '../handlers/TitleSyncHandler';
 
@@ -16,7 +17,8 @@ export class PipShortsWindowHandlers {
     @inject(PiPEventBridgeHandler) private readonly pipEventBridgeHandler: PiPEventBridgeHandler,
     @inject(PiPLinkFocusHandler) private readonly pipLinkFocusHandler: PiPLinkFocusHandler,
     @inject(DocumentFocusHandler) private readonly documentFocusHandler: DocumentFocusHandler,
-    @inject(TitleSyncHandler) private readonly titleSyncHandler: TitleSyncHandler
+    @inject(TitleSyncHandler) private readonly titleSyncHandler: TitleSyncHandler,
+    @inject(PiPHotkeyHandler) private readonly pipHotkeyHandler: PiPHotkeyHandler
   ) {}
 
   public async initialize(): Promise<PiPCleanupCallback> {
@@ -25,10 +27,12 @@ export class PipShortsWindowHandlers {
     this.pipLinkFocusHandler.initialize();
     this.documentFocusHandler.initialize(true);
     this.titleSyncHandler.initialize(true);
+    this.pipHotkeyHandler.initialize();
     return () => {
       this.contextMenuHandler.stop();
       this.pipEventBridgeHandler.stop();
       this.pipLinkFocusHandler.stop();
+      this.pipHotkeyHandler.cleanup();
       this.documentFocusHandler.cleanup();
       // The page title stays held until the player is back (PiPManager)
       this.titleSyncHandler.stopSync();

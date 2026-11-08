@@ -7,6 +7,7 @@ import { NavigationHandler } from '../core/NavigationHandler';
 import { DocumentFocusHandler } from '../handlers/DocumentFocusHandler';
 import { TitleSyncHandler } from '../handlers/TitleSyncHandler';
 import type { PiPCleanupCallback } from '../types/app';
+import { PiPHotkeyHandler } from '../handlers/PiPHotkeyHandler';
 import { inject, injectable } from '../di';
 
 /**
@@ -22,7 +23,8 @@ export class PiPWindowHandlers {
     @inject(PiPEventBridgeHandler) private readonly pipEventBridgeHandler: PiPEventBridgeHandler,
     @inject(NavigationHandler) private readonly navigationHandler: NavigationHandler,
     @inject(DocumentFocusHandler) private readonly documentFocusHandler: DocumentFocusHandler,
-    @inject(TitleSyncHandler) private readonly titleSyncHandler: TitleSyncHandler
+    @inject(TitleSyncHandler) private readonly titleSyncHandler: TitleSyncHandler,
+    @inject(PiPHotkeyHandler) private readonly pipHotkeyHandler: PiPHotkeyHandler
   ) {}
 
   public async initialize(miniplayer: Element): Promise<PiPCleanupCallback> {
@@ -34,10 +36,12 @@ export class PiPWindowHandlers {
     this.pipEventBridgeHandler.initialize();
     this.documentFocusHandler.initialize();
     this.titleSyncHandler.initialize();
+    this.pipHotkeyHandler.initialize();
 
     return () => {
       // The page title stays held until the player is back (PiPManager)
       this.titleSyncHandler.stopSync();
+      this.pipHotkeyHandler.cleanup();
       this.documentFocusHandler.cleanup();
       this.seekHandler.cleanup();
       this.pipEventBridgeHandler.stop();

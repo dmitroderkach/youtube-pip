@@ -29,18 +29,27 @@ export const KEY_CODES = {
   ESCAPE: 27,
 } as const;
 
-/**
- * Our ways to open PiP from the page (PiPEntryPoints). Experimental: Ukrainian labels only, whatever the page language.
- */
-export const ENTRY_POINT_LABELS = {
-  MENU_ITEM: 'Відкрити картинку в картинці',
-  BUTTON: 'Картинка в картинці (YouTube PiP)',
-} as const;
+/** Key that opens our PiP on the page and closes it in the PiP window (plain, no modifiers; YouTube uses only Shift+P). */
+export const PIP_HOTKEY = 'p';
 
-/** Classes of our entry points (styles.css hides the button in the PiP window). */
+/** Classes of our entry points (styles.css hides the button and its tooltip in the PiP window). */
 export const ENTRY_POINT_CLASSES = {
   MENU_ITEM: 'ytpip-open-menuitem',
   BUTTON: 'ytpip-open-button',
+  TOOLTIP: 'ytpip-tooltip',
+  /** id of our style element on the page (hides YouTube's own PiP button). */
+  PAGE_STYLE: 'ytpip-page-style',
+} as const;
+
+/** Placement of the player's control tooltips (`.ytp-tooltip.ytp-bottom`), as YouTube shows them. */
+export const PLAYER_TOOLTIP = {
+  /** Space between the tooltip and the top of the button. */
+  GAP_PX: 22,
+  /** Smallest distance from the tooltip to the player's left / right edge. */
+  EDGE_PX: 12,
+  MAX_WIDTH_PX: 300,
+  /** `data-layer` YouTube gives its tooltip. */
+  LAYER: '4',
 } as const;
 
 /** Picture-in-picture icon (Material "picture_in_picture_alt", 24×24). */

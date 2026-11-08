@@ -5,7 +5,9 @@ import { createPiPEntryPointsMocks } from './__mocks__/PiPEntryPoints.mock';
 import { PiPEntryPoints } from '../PiPEntryPoints';
 import { PiPManager } from '../../core/PiPManager';
 import { PipWindowProvider } from '../../core/PipWindowProvider';
-import { ENTRY_POINT_CLASSES, ENTRY_POINT_LABELS, KEYS } from '../../constants';
+import { ENTRY_POINT_CLASSES, KEYS, PIP_HOTKEY, PLAYER_TOOLTIP } from '../../constants';
+import { I18n } from '../../i18n/I18n';
+import { EN_MESSAGES } from '../../i18n/messages';
 import { SELECTORS } from '../../selectors';
 
 /** Height of a menu item, as YouTube renders it. */
@@ -72,6 +74,7 @@ describe('PiPEntryPoints', () => {
     const c = createTestContainer();
     c.bind(PiPManager).toInstance(mocks.pipManager);
     c.bind(PipWindowProvider).toInstance(mocks.pipWindowProvider);
+    c.bind(I18n).toInstance(mocks.i18n);
     c.bind(PiPEntryPoints).toSelf();
     entryPoints = c.get(PiPEntryPoints);
   });
@@ -88,7 +91,8 @@ describe('PiPEntryPoints', () => {
       entryPoints.initialize();
       const button = document.querySelector<HTMLButtonElement>(BUTTON);
       expect(button?.nextElementSibling).toBe(settings);
-      expect(button?.getAttribute('aria-label')).toBe(ENTRY_POINT_LABELS.BUTTON);
+      expect(button?.getAttribute('aria-label')).toBe(EN_MESSAGES.PIP);
+      expect(button?.hasAttribute('title')).toBe(false);
       expect(button?.querySelector('svg path')).not.toBeNull();
     });
 
@@ -128,6 +132,101 @@ describe('PiPEntryPoints', () => {
     });
   });
 
+  describe('controls button tooltip', () => {
+    const TOOLTIP = `.${ENTRY_POINT_CLASSES.TOOLTIP}`;
+    /** Player and button boxes (px), relative to the viewport; the tooltip renders TOOLTIP_SIZE. */
+    const PLAYER_BOX = { left: 100, top: 50, width: 800, height: 450 } as const;
+    const BUTTON_BOX = { left: 720, top: 447, width: 48, height: 48 } as const;
+    const TOOLTIP_SIZE = { width: 106, height: 25 } as const;
+
+    function rect(box: { left: number; top: number; width: number; height: number }): DOMRect {
+      return DOMRect.fromRect({ x: box.left, y: box.top, width: box.width, height: box.height });
+    }
+
+    function setupBoxes(
+      player: HTMLElement,
+      button: HTMLElement,
+      buttonLeft: number = BUTTON_BOX.left
+    ): void {
+      vi.spyOn(player, 'getBoundingClientRect').mockReturnValue(rect(PLAYER_BOX));
+      vi.spyOn(button, 'getBoundingClientRect').mockReturnValue(
+        rect({ ...BUTTON_BOX, left: buttonLeft })
+      );
+      vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(TOOLTIP_SIZE.width);
+      vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(TOOLTIP_SIZE.height);
+    }
+
+    it('shows a player-style tooltip centered above the button on hover and hides it on leave', () => {
+      const { player } = addPlayer();
+      entryPoints.initialize();
+      const button = document.querySelector<HTMLButtonElement>(BUTTON)!;
+      setupBoxes(player, button);
+
+      button.dispatchEvent(new MouseEvent('mouseenter'));
+      const tooltip = player.querySelector<HTMLElement>(TOOLTIP)!;
+      expect(tooltip.classList.contains('ytp-tooltip')).toBe(true);
+      expect(tooltip.classList.contains('ytp-bottom')).toBe(true);
+      expect(tooltip.textContent).toBe(`${EN_MESSAGES.PIP} (${PIP_HOTKEY})`);
+      // aria-hidden on the tooltip itself keeps it transparent in YouTube's CSS
+      expect(tooltip.hasAttribute('aria-hidden')).toBe(false);
+      expect(tooltip.style.display).toBe('');
+      const center = BUTTON_BOX.left - PLAYER_BOX.left + BUTTON_BOX.width / 2;
+      expect(tooltip.style.left).toBe(`${Math.round(center - TOOLTIP_SIZE.width / 2)}px`);
+      expect(tooltip.style.top).toBe(
+        `${BUTTON_BOX.top - PLAYER_BOX.top - TOOLTIP_SIZE.height - PLAYER_TOOLTIP.GAP_PX}px`
+      );
+
+      button.dispatchEvent(new MouseEvent('mouseleave'));
+      expect(tooltip.style.display).toBe('none');
+    });
+
+    it('keeps the tooltip inside the player near its right and left edges', () => {
+      const { player } = addPlayer();
+      entryPoints.initialize();
+      const button = document.querySelector<HTMLButtonElement>(BUTTON)!;
+
+      setupBoxes(player, button, PLAYER_BOX.left + PLAYER_BOX.width - BUTTON_BOX.width);
+      button.dispatchEvent(new FocusEvent('focus'));
+      const tooltip = player.querySelector<HTMLElement>(TOOLTIP)!;
+      expect(tooltip.style.left).toBe(
+        `${PLAYER_BOX.width - TOOLTIP_SIZE.width - PLAYER_TOOLTIP.EDGE_PX}px`
+      );
+      button.dispatchEvent(new FocusEvent('blur'));
+      expect(tooltip.style.display).toBe('none');
+
+      vi.restoreAllMocks();
+      setupBoxes(player, button, PLAYER_BOX.left);
+      button.dispatchEvent(new MouseEvent('mouseenter'));
+      expect(tooltip.style.left).toBe(`${PLAYER_TOOLTIP.EDGE_PX}px`);
+      expect(player.querySelectorAll(TOOLTIP)).toHaveLength(1);
+    });
+
+    it('is hidden when the button is clicked', () => {
+      const { player } = addPlayer();
+      mocks.pipManager.open.mockResolvedValue();
+      entryPoints.initialize();
+      const button = document.querySelector<HTMLButtonElement>(BUTTON)!;
+      setupBoxes(player, button);
+      button.dispatchEvent(new MouseEvent('mouseenter'));
+
+      button.click();
+
+      expect(player.querySelector<HTMLElement>(TOOLTIP)!.style.display).toBe('none');
+    });
+
+    it('is not shown for a button outside the player, and leave without a tooltip is harmless', () => {
+      addPlayer();
+      entryPoints.initialize();
+      const button = document.querySelector<HTMLButtonElement>(BUTTON)!;
+      document.body.appendChild(button);
+
+      button.dispatchEvent(new MouseEvent('mouseleave'));
+      button.dispatchEvent(new MouseEvent('mouseenter'));
+
+      expect(document.querySelector(TOOLTIP)).toBeNull();
+    });
+  });
+
   describe('context menu item', () => {
     it('is added first to the menu opened on the player, and the menu grows by its height', async () => {
       const { video } = addPlayer();
@@ -140,7 +239,7 @@ describe('PiPEntryPoints', () => {
 
       const item = list.firstElementChild;
       expect(item?.matches(MENU_ITEM)).toBe(true);
-      expect(item?.textContent).toBe(ENTRY_POINT_LABELS.MENU_ITEM);
+      expect(item?.textContent).toBe(EN_MESSAGES.PIP);
       for (const part of [menu, panel, list]) {
         expect(part.style.height).toBe(`${MENU_HEIGHT + ITEM_HEIGHT}px`);
       }
@@ -307,6 +406,148 @@ describe('PiPEntryPoints', () => {
 
       expect(list.querySelector(MENU_ITEM)).toBeNull();
       expect(SELECTORS.CONTEXT_MENU).toContain('ytp-contextmenu');
+    });
+  });
+
+  describe('hotkey', () => {
+    function press(target: EventTarget, init: KeyboardEventInit = {}): KeyboardEvent {
+      const e = new KeyboardEvent('keydown', {
+        key: PIP_HOTKEY,
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      });
+      target.dispatchEvent(e);
+      return e;
+    }
+
+    it('plain key on the page opens PiP and is consumed', () => {
+      mocks.pipWindowProvider.getWindow.mockReturnValue(null);
+      mocks.pipManager.open.mockResolvedValue();
+      entryPoints.initialize();
+      const e = press(document.body);
+      expect(mocks.pipManager.open).toHaveBeenCalledTimes(1);
+      expect(e.defaultPrevented).toBe(true);
+    });
+
+    it('upper case works too (Caps Lock)', () => {
+      mocks.pipWindowProvider.getWindow.mockReturnValue(null);
+      mocks.pipManager.open.mockResolvedValue();
+      entryPoints.initialize();
+      press(document.body, { key: PIP_HOTKEY.toUpperCase() });
+      expect(mocks.pipManager.open).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ['Shift (YouTube: previous video)', { shiftKey: true }],
+      ['Ctrl (print)', { ctrlKey: true }],
+      ['Alt', { altKey: true }],
+      ['Meta', { metaKey: true }],
+      ['a held key', { repeat: true }],
+      ['another key', { key: 'o' }],
+    ])('ignores %s', (_name, init) => {
+      mocks.pipWindowProvider.getWindow.mockReturnValue(null);
+      entryPoints.initialize();
+      press(document.body, init);
+      expect(mocks.pipManager.open).not.toHaveBeenCalled();
+    });
+
+    it.each(['input', 'textarea'])('ignores typing in a %s', (tag) => {
+      mocks.pipWindowProvider.getWindow.mockReturnValue(null);
+      entryPoints.initialize();
+      const field = document.createElement(tag);
+      document.body.appendChild(field);
+      press(field);
+      expect(mocks.pipManager.open).not.toHaveBeenCalled();
+    });
+
+    it('ignores typing in editable content (comments)', () => {
+      mocks.pipWindowProvider.getWindow.mockReturnValue(null);
+      entryPoints.initialize();
+      const editor = document.createElement('div');
+      editor.setAttribute('contenteditable', 'true');
+      const text = document.createElement('span');
+      editor.appendChild(text);
+      document.body.appendChild(editor);
+      press(text);
+      expect(mocks.pipManager.open).not.toHaveBeenCalled();
+    });
+
+    it('ignores a key YouTube already handled and a key while PiP is open', () => {
+      entryPoints.initialize();
+      const handled = (e: Event) => e.preventDefault();
+      document.body.addEventListener('keydown', handled);
+      mocks.pipWindowProvider.getWindow.mockReturnValue(null);
+      press(document.body);
+      document.body.removeEventListener('keydown', handled);
+
+      mocks.pipWindowProvider.getWindow.mockReturnValue(
+        createFakeWindow({ document: document.implementation.createHTMLDocument() })
+      );
+      press(document.body);
+
+      expect(mocks.pipManager.open).not.toHaveBeenCalled();
+    });
+
+    it('the button announces the key', () => {
+      addPlayer();
+      entryPoints.initialize();
+      expect(document.querySelector(BUTTON)?.getAttribute('aria-keyshortcuts')).toBe(PIP_HOTKEY);
+    });
+  });
+
+  describe("YouTube's own PiP entry points", () => {
+    it("YouTube's PiP item is hidden and the menu shrinks by its height", async () => {
+      const { video } = addPlayer();
+      const { menu, list } = addMenu();
+      const ytItem = document.createElement('div');
+      ytItem.className = 'ytp-menuitem';
+      const ytLabel = document.createElement('div');
+      ytLabel.className = 'ytp-menuitem-label';
+      ytLabel.textContent = EN_MESSAGES.PIP;
+      ytItem.appendChild(ytLabel);
+      list.appendChild(ytItem);
+      mocks.pipWindowProvider.getWindow.mockReturnValue(null);
+      entryPoints.initialize();
+
+      rightClick(video);
+      await afterContextMenu();
+
+      expect(ytItem.style.display).toBe('none');
+      // + our item, − YouTube's
+      expect(menu.style.height).toBe(`${MENU_HEIGHT}px`);
+      // A later opening does not shrink it again
+      rightClick(video);
+      await afterContextMenu();
+      expect(menu.style.height).toBe(`${MENU_HEIGHT}px`);
+    });
+
+    it("YouTube's PiP button is hidden by one page style rule", () => {
+      entryPoints.initialize();
+      entryPoints.stop();
+      entryPoints.initialize();
+      const styles = document.querySelectorAll(`style#${ENTRY_POINT_CLASSES.PAGE_STYLE}`);
+      expect(styles).toHaveLength(1);
+      expect(styles[0].textContent).toContain(SELECTORS.YT_PIP_BUTTON);
+      document.head.querySelectorAll('style').forEach((s) => s.remove());
+    });
+  });
+
+  describe('Shorts', () => {
+    it('context menu opened on the Shorts player gets the item', async () => {
+      const shortsPlayer = document.createElement('div');
+      shortsPlayer.id = SELECTORS.SHORTS_PLAYER.slice(1);
+      const video = document.createElement('video');
+      shortsPlayer.appendChild(video);
+      document.body.appendChild(shortsPlayer);
+      const { list } = addMenu();
+      mocks.pipWindowProvider.getWindow.mockReturnValue(null);
+      entryPoints.initialize();
+
+      rightClick(video);
+      await afterContextMenu();
+
+      expect(list.firstElementChild?.matches(MENU_ITEM)).toBe(true);
     });
   });
 });
