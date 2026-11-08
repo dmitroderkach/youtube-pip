@@ -758,10 +758,34 @@ describe('PiPEntryPoints', () => {
       expect(container.classList.contains('ytListItemViewModelHovered')).toBe(true);
       item.dispatchEvent(new MouseEvent('mouseleave'));
       expect(container.classList.contains('ytListItemViewModelHovered')).toBe(false);
+      // Focus YouTube gives the first row when the menu opens (not keyboard focus): no highlight
+      vi.spyOn(item, 'matches').mockImplementation(
+        (sel: string) => sel !== ':focus-visible' && Element.prototype.matches.call(item, sel)
+      );
+      item.dispatchEvent(new FocusEvent('focus'));
+      expect(container.classList.contains('ytListItemViewModelHovered')).toBe(false);
+      // Keyboard focus: highlighted
+      vi.mocked(item.matches).mockImplementation(
+        (sel: string) => sel === ':focus-visible' || Element.prototype.matches.call(item, sel)
+      );
       item.dispatchEvent(new FocusEvent('focus'));
       expect(container.classList.contains('ytListItemViewModelHovered')).toBe(true);
       item.dispatchEvent(new FocusEvent('blur'));
       expect(container.classList.contains('ytListItemViewModelHovered')).toBe(false);
+    });
+
+    it('"⋮" menu item does not keep the hovered class of a copied row', async () => {
+      const { menuButton, dropdown, list } = addShortsMenu();
+      vi.spyOn(dropdown, 'getBoundingClientRect').mockReturnValue(
+        DOMRect.fromRect({ width: 200, height: 300 })
+      );
+      list
+        .querySelectorAll('yt-list-item-view-model > div')
+        .forEach((d) => d.classList.add('ytListItemViewModelHovered'));
+      entryPoints.initialize();
+      menuButton.click();
+      await vi.runAllTimersAsync();
+      expect(list.querySelector(`${SHORTS_MENU_ITEM} .ytListItemViewModelHovered`)).toBeNull();
     });
 
     it('"⋮" menu item: click closes the dropdown and opens PiP; Enter activates it', async () => {

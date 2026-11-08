@@ -417,6 +417,14 @@ test.describe('Open PiP from Shorts (controls button, context menu item)', () =>
         )
       ).toBe(0);
     }
+    // Not highlighted while the pointer is elsewhere (YouTube focuses the first row when the menu opens)
+    expect(
+      await menuItem.evaluate(
+        (i) =>
+          i.matches('.ytListItemViewModelHovered') ||
+          !!i.querySelector('.ytListItemViewModelHovered')
+      )
+    ).toBe(false);
     // Highlighted on hover like YouTube's rows (its CSS paints rows with the hovered class)
     await menuItem.hover();
     await expect

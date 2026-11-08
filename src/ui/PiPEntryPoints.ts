@@ -150,9 +150,15 @@ export class PiPEntryPoints {
     // copy does not get: toggle it ourselves on the row's tappable container, on hover and keyboard focus
     const highlighted = item.querySelector<HTMLElement>(SELECTORS.LIST_ITEM_TAPPABLE) ?? item;
     const highlight = (on: boolean) => highlighted.classList.toggle(LIST_ITEM_HOVERED_CLASS, on);
+    // A copied row may carry the class of a row that was hovered when copied
+    item
+      .querySelectorAll(`.${LIST_ITEM_HOVERED_CLASS}`)
+      .forEach((e) => e.classList.remove(LIST_ITEM_HOVERED_CLASS));
+    item.classList.remove(LIST_ITEM_HOVERED_CLASS);
     item.addEventListener('mouseenter', () => highlight(true));
     item.addEventListener('mouseleave', () => highlight(false));
-    item.addEventListener('focus', () => highlight(true));
+    // YouTube focuses the menu's first row when it opens (ours): highlight only keyboard focus, like its rows
+    item.addEventListener('focus', () => highlight(item.matches(':focus-visible')));
     item.addEventListener('blur', () => highlight(false));
     item.addEventListener('click', (e) => {
       e.stopPropagation();
