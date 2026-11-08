@@ -25,9 +25,10 @@ export class PipShortsWindowHandlers {
     this.contextMenuHandler.initialize(true);
     this.pipEventBridgeHandler.initialize();
     this.pipLinkFocusHandler.initialize();
+    // Before DocumentFocusHandler, which forwards and stops every key in PiP
+    this.pipHotkeyHandler.initialize();
     this.documentFocusHandler.initialize(true);
     this.titleSyncHandler.initialize(true);
-    this.pipHotkeyHandler.initialize();
     return () => {
       this.contextMenuHandler.stop();
       this.pipEventBridgeHandler.stop();

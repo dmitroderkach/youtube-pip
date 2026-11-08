@@ -33,24 +33,40 @@ describe('PiPHotkeyHandler', () => {
     close = vi.fn<() => void>();
   });
 
-  it('the key in the PiP window closes it', () => {
+  it('the key in the PiP window brings the video tab to the front, then closes the window', () => {
     pipWindowProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc, close }));
+    const focus = vi.spyOn(window, 'focus').mockImplementation(() => undefined);
     handler.initialize();
     const e = press(pipDoc.body);
+    expect(focus).toHaveBeenCalledOnce();
     expect(close).toHaveBeenCalledOnce();
+    expect(focus.mock.invocationCallOrder[0]).toBeLessThan(close.mock.invocationCallOrder[0]);
+    focus.mockRestore();
     expect(e.defaultPrevented).toBe(true);
   });
 
-  it('ignores modifiers, typing and keys the page already handled', () => {
+  it('sees the key before a capture listener registered later stops it (DocumentFocusHandler)', () => {
+    pipWindowProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc, close }));
+    handler.initialize();
+    pipDoc.addEventListener(
+      'keydown',
+      (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      },
+      true
+    );
+    press(pipDoc.body);
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('ignores modifiers and typing', () => {
     pipWindowProvider.getWindow.mockReturnValue(createFakeWindow({ document: pipDoc, close }));
     handler.initialize();
     press(pipDoc.body, { shiftKey: true });
     const input = pipDoc.createElement('input');
     pipDoc.body.appendChild(input);
     press(input);
-    const handled = (e: Event) => e.preventDefault();
-    pipDoc.body.addEventListener('keydown', handled);
-    press(pipDoc.body);
     expect(close).not.toHaveBeenCalled();
   });
 

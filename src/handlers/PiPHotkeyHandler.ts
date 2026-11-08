@@ -7,8 +7,8 @@ import type { Nullable } from '../types/app';
 import { inject, injectable } from '../di';
 
 /**
- * PIP_HOTKEY in the PiP window closes it (the page's key opens PiP: PiPEntryPoints). Closing the window runs the
- * usual return of the player (PiPManager listens to its pagehide).
+ * PIP_HOTKEY in the PiP window closes it and brings the video's tab to the front (the page's key opens PiP:
+ * PiPEntryPoints). Closing the window runs the usual return of the player (PiPManager listens to its pagehide).
  */
 @injectable()
 export class PiPHotkeyHandler {
@@ -24,11 +24,13 @@ export class PiPHotkeyHandler {
 
   public initialize(): void {
     this.pipWindow = this.pipWindowProvider.getWindow();
-    this.pipWindow?.document.addEventListener('keydown', this.onKeyDown);
+    // Capture phase, registered before DocumentFocusHandler: it forwards every key in PiP to the player / ytd-app and
+    // stops the event, so a later or bubbling listener would never see the key
+    this.pipWindow?.document.addEventListener('keydown', this.onKeyDown, true);
   }
 
   public cleanup(): void {
-    this.pipWindow?.document.removeEventListener('keydown', this.onKeyDown);
+    this.pipWindow?.document.removeEventListener('keydown', this.onKeyDown, true);
     this.pipWindow = null;
   }
 
@@ -36,6 +38,9 @@ export class PiPHotkeyHandler {
     if (e.defaultPrevented || !isPlainKey(e, PIP_HOTKEY) || isTypingTarget(e.target)) return;
     e.preventDefault();
     this.logger.log('Closing PiP from the hotkey');
+    // Bring the video's tab to the front first, like the PiP window's own "back to tab" button: Chrome lets a PiP
+    // window focus its opener with the key press's user activation (our code runs in the opener, `window`)
+    window.focus();
     this.pipWindow?.close();
   };
 }

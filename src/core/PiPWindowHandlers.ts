@@ -34,9 +34,10 @@ export class PiPWindowHandlers {
     this.contextMenuHandler.initialize();
     this.seekHandler.initialize();
     this.pipEventBridgeHandler.initialize();
+    // Before DocumentFocusHandler, which forwards and stops every key in PiP
+    this.pipHotkeyHandler.initialize();
     this.documentFocusHandler.initialize();
     this.titleSyncHandler.initialize();
-    this.pipHotkeyHandler.initialize();
 
     return () => {
       // The page title stays held until the player is back (PiPManager)

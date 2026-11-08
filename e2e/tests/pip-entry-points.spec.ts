@@ -312,7 +312,7 @@ function shortsControlsState(page: Page): Promise<string> {
 test.describe('Open PiP from Shorts (controls button, context menu item)', () => {
   test.use({ authState: true });
 
-  test('Shorts: context menu has only our PiP item; the button left of full screen and the "⋮" menu item open PiP', async ({
+  test('Shorts: context menu has only our PiP item; the button left of full screen, the "⋮" menu item and key p open PiP', async ({
     shortsPageReady: page,
   }) => {
     await waitForShortsPlayerVisibleInMain(page);
@@ -373,5 +373,21 @@ test.describe('Open PiP from Shorts (controls button, context menu item)', () =>
     expect(await menuItem.evaluate((i) => i.parentElement?.firstElementChild === i)).toBe(true);
     await menuItem.click();
     await closeShortsPiP(page);
+
+    // Key p: opens Shorts PiP on the page, closes it in the PiP window (keys there are forwarded to ytd-app)
+    await page.mouse.click(reel.x + reel.width / 2, reel.y + reel.height / 2);
+    await page.keyboard.press('p');
+    await waitForShortsPlayerVisibleInPip(page);
+    const pipPage = page
+      .context()
+      .pages()
+      .filter((p) => p !== page && !p.isClosed())
+      .pop();
+    await pipPage!.keyboard.down('p').catch(() => undefined);
+    await pipPage!.keyboard.up('p').catch(() => undefined);
+    await page.waitForFunction(() => window.documentPictureInPicture?.window == null, {
+      timeout: E2E_WAIT_TIMEOUT_MS,
+    });
+    await waitForShortsPlayerVisibleInMain(page);
   });
 });
