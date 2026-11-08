@@ -326,8 +326,10 @@ function ensureTurn() {
   if (turn) return turn;
   const current = { progress: null, started: Date.now(), steps: 0, lastEdit: 0 };
   turn = current;
-  void telegram('sendMessage', { text: '⏳ Працюю…' }).then((progress) => {
+  // Kept as a promise: a fast turn can end before Telegram has returned the message to edit
+  current.progressSent = telegram('sendMessage', { text: '⏳ Працюю…' }).then((progress) => {
     current.progress = progress;
+    return progress;
   });
   return current;
 }
@@ -347,6 +349,8 @@ function onToolUse(what) {
 async function finishTurn(result) {
   const current = turn ?? { progress: null, started: Date.now(), steps: 0 };
   turn = null;
+  // Wait for "⏳ Працюю…" to exist, so it is edited to the final status instead of being left behind the answer
+  if (!current.progress && current.progressSent) await current.progressSent.catch(() => null);
   foregroundToolIds.clear();
   const failed = result.subtype !== 'success' || result.is_error;
   const answer = typeof result.result === 'string' ? result.result.trim() : '';
