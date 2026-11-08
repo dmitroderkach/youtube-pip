@@ -27,7 +27,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Claude Code refuses --dangerously-skip-permissions as root: run as a regular user
 RUN useradd -m -d /home/worker -s /bin/bash worker
-COPY --chown=worker:worker scripts/dev-worker/worker.mjs scripts/dev-worker/system-prompt.md /opt/dev-worker/
+COPY --chown=worker:worker scripts/dev-worker/worker.mjs scripts/dev-worker/system-prompt.md \
+     scripts/dev-worker/english-only-hook.mjs /opt/dev-worker/
+# User settings: the PreToolUse hook that keeps text sent to GitHub / git history in English
+COPY --chown=worker:worker scripts/dev-worker/claude-settings.json /home/worker/.claude/settings.json
 COPY terraform/dev-worker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
