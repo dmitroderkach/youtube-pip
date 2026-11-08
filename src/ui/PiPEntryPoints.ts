@@ -333,22 +333,31 @@ export class PiPEntryPoints {
    */
   private ensureShortsButtons(): void {
     document
-      .querySelectorAll<HTMLElement>(SELECTORS.SHORTS_FULLSCREEN_BUTTON_SHAPE)
-      .forEach((fullscreen) => {
-        const previous = fullscreen.previousElementSibling;
-        if (previous?.classList.contains(ENTRY_POINT_CLASSES.SHORTS_BUTTON)) return;
-        fullscreen.before(this.createShortsButton(fullscreen));
+      .querySelectorAll<HTMLElement>(SELECTORS.SHORTS_MENU_BUTTON_SLOT)
+      .forEach((menuSlot) => {
+        const next = menuSlot.nextElementSibling;
+        if (next?.classList.contains(ENTRY_POINT_CLASSES.SHORTS_BUTTON)) return;
+        const fullscreen = menuSlot.parentElement?.querySelector<HTMLElement>(
+          SELECTORS.SHORTS_FULLSCREEN_SLOT
+        );
+        menuSlot.after(this.createShortsButton(menuSlot, fullscreen ?? null));
         this.logger.debug('PiP button added to the Shorts player controls');
       });
   }
 
-  private createShortsButton(fullscreen: HTMLElement): HTMLElement {
-    const shape = fullscreen.cloneNode(true) as HTMLElement;
+  /**
+   * Right after the "⋮" slot, i.e. left of the full screen button. Laid out in the "⋮" slot's class: YouTube always
+   * shows that slot, while it hides the full screen slot in some layouts (small window) or does not render it
+   * (`web_shorts_hide_fullscreen_and_captions_for_ask`). The button inside is a copy of the full screen button (same
+   * style), or of the "⋮" button without one.
+   */
+  private createShortsButton(
+    menuSlot: HTMLElement,
+    fullscreen: Nullable<HTMLElement>
+  ): HTMLElement {
+    const shape = (fullscreen ?? menuSlot).cloneNode(true) as HTMLElement;
     shape.removeAttribute('id');
-    // The slot of the "⋮" button, a neighbour that is always shown: YouTube hides the full screen slot in some
-    // layouts (e.g. a small window), and its class would hide our button with it
-    const menuSlot = fullscreen.parentElement?.querySelector(SELECTORS.SHORTS_MENU_BUTTON_SLOT);
-    if (menuSlot) shape.className = menuSlot.className;
+    shape.className = menuSlot.className;
     shape.classList.add(ENTRY_POINT_CLASSES.SHORTS_BUTTON);
     const label = `${this.i18n.t('PIP')} (${PIP_HOTKEY})`;
     const button = shape.querySelector('button') ?? shape;

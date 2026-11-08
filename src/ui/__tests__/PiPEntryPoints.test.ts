@@ -563,8 +563,10 @@ describe('PiPEntryPoints', () => {
       entryPoints.initialize();
       document.dispatchEvent(new Event('pointermove'));
 
+      // Between "⋮" and full screen
       const ours = fullscreen.previousElementSibling as HTMLElement;
       expect(ours.matches(SHORTS_BUTTON)).toBe(true);
+      expect(ours.previousElementSibling?.id).toBe('menu-button');
       expect(ours.id).toBe('');
       // Laid out in the "⋮" slot's class (YouTube hides the full screen slot in some layouts)
       expect(ours.classList.contains('ytdShortsPlayerControlsMenuButton')).toBe(true);
@@ -691,16 +693,22 @@ describe('PiPEntryPoints', () => {
       expect(list.querySelector(SHORTS_MENU_ITEM)).toBeNull();
     });
 
-    it('a full screen shape without a button or icon still gets a working button', () => {
+    it('without a full screen button (not rendered) our button copies the "⋮" slot and goes after it', () => {
       const controls = document.createElement('ytd-shorts-player-controls');
-      const fullscreen = document.createElement('div');
-      fullscreen.id = 'fullscreen-button-shape';
-      controls.appendChild(fullscreen);
+      const right = document.createElement('div');
+      right.id = 'right-controls';
+      const menu = document.createElement('div');
+      menu.id = 'menu-button';
+      menu.className = 'ytdShortsPlayerControlsMenuButton';
+      right.appendChild(menu);
+      controls.appendChild(right);
       document.body.appendChild(controls);
       entryPoints.initialize();
 
-      const ours = fullscreen.previousElementSibling as HTMLElement;
+      const ours = menu.nextElementSibling as HTMLElement;
       expect(ours.matches(SHORTS_BUTTON)).toBe(true);
+      expect(ours.id).toBe('');
+      // No button inside the copied slot: the slot itself is the button
       expect(ours.querySelector('svg')).not.toBeNull();
       expect(ours.getAttribute('title')).toBe(`${EN_MESSAGES.PIP} (${PIP_HOTKEY})`);
     });

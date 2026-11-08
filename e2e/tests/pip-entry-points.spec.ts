@@ -348,9 +348,12 @@ test.describe('Open PiP from Shorts (controls button, context menu item)', () =>
       .catch(async (error: unknown) => {
         throw new Error(`${String(error)}\nShorts controls: ${await shortsControlsState(page)}`);
       });
-    expect(await button.evaluate((b) => b.parentElement?.nextElementSibling?.id ?? '')).toBe(
-      'fullscreen-button-shape'
-    );
+    // Right after "⋮", i.e. left of full screen (when YouTube renders it)
+    expect(
+      await button.evaluate(
+        (b) => b.closest('.ytpip-shorts-button')?.previousElementSibling?.id ?? ''
+      )
+    ).toBe('menu-button');
     if (labels) expect(await button.getAttribute('title')).toBe(`${labels.button} (p)`);
     await button.click();
     await closeShortsPiP(page);
