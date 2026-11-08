@@ -35,6 +35,8 @@ ONCALL_SECRET_ARN = os.environ["ONCALL_SECRET_ARN"]
 DEV_SECRET_ARN = os.environ["DEV_SECRET_ARN"]
 # Exit code of a failure the worker has already reported (scripts/dev-worker/worker.mjs)
 REPORTED_EXIT_CODES = {0, 10}
+# Text of a replied-to message passed to the worker (an on-call report is up to ~4000 chars per Telegram message)
+REPLY_MAX_CHARS = 8000
 STARTED_BY = "telegram"
 META_KEY = "state/meta.json"
 # Start requested while a stopped worker was still saving: consumed by the STOPPED event of that task
@@ -197,6 +199,33 @@ def attachments_of(message):
     return found
 
 
+def context_of(message):
+    """What the message answers or carries over: the replied-to message (and the quoted part) and a forward's origin."""
+    context = {}
+    reply = message.get("reply_to_message")
+    if reply:
+        context["reply_to"] = {
+            "text": (reply.get("text") or reply.get("caption") or "")[:REPLY_MAX_CHARS],
+            "from_bot": bool((reply.get("from") or {}).get("is_bot")),
+            "date": reply.get("date", 0),
+            "attachments": [a["kind"] for a in attachments_of(reply)],
+        }
+        quote = (message.get("quote") or {}).get("text")
+        if quote:
+            context["reply_to"]["quote"] = quote[:REPLY_MAX_CHARS]
+    origin = message.get("forward_origin")
+    if origin:
+        sender = origin.get("sender_user") or {}
+        context["forwarded_from"] = (
+            " ".join(filter(None, [sender.get("first_name"), sender.get("last_name")]))
+            + (" (bot)" if sender.get("is_bot") else "")
+            or origin.get("sender_user_name")
+            or (origin.get("chat") or {}).get("title")
+            or origin.get("type", "unknown")
+        )
+    return context
+
+
 def forward(message, text, attachments):
     tasks = worker_tasks()
     if not tasks:
@@ -215,7 +244,9 @@ def forward(message, text, attachments):
         announced = False
     sqs.send_message(
         QueueUrl=QUEUE_URL,
-        MessageBody=json.dumps({"text": text, "attachments": attachments, "date": message.get("date", 0)}),
+        MessageBody=json.dumps(
+            {"text": text, "attachments": attachments, "date": message.get("date", 0), **context_of(message)}
+        ),
         MessageGroupId=str(message["chat"]["id"]),
         MessageDeduplicationId=str(message["message_id"]),
     )

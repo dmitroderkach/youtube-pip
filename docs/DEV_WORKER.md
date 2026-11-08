@@ -61,6 +61,11 @@ The worker keeps one Claude Code session open for the whole run (Claude Agent SD
 - **Voice messages and audio**: AWS Transcribe (`uk-UA`, batch job on the file uploaded to `inbox/` of the state bucket, deleted afterwards; ~10 s for a short message, ≈ $0.024 per minute of audio). The chat gets `🎙 Розпізнав: «…»` and the text goes to Claude as the message.
 - **From the worker to the chat**: files Claude saves into `~/outbox` (screenshots of a headless browser, logs, reports, a built userscript) are sent right after its answer: png / jpg / webp / gif as photos, anything else and images over 10 MB as documents (up to 50 MB, the Bot API limit), the file name as caption; then moved to `~/outbox/sent`.
 
+## Replies, forwards and on-call reports
+
+- **Replies and forwards**: the dev-bot Lambda passes the replied-to message (its text or caption, whether the bot or the owner wrote it, its attachments' kinds, the quoted part) and a forward's origin with the message; the worker puts them before the owner's text as a quote. So the owner can reply to an earlier answer, an on-call report or their own message, or forward one, instead of copying it.
+- **On-call reports**: the on-call agent ([ONCALL.md](ONCALL.md)) posts through the same bot, and Telegram does not deliver a bot's own messages to its webhook, so a report never starts the worker. With each owner message (checked at most once a minute) the worker looks for **Manual E2E** runs of the last 48 h whose on-call job sent a report (`Send to Telegram` or `Report on-call failure` succeeded) and that this session has not seen (`oncallHandled` in `state/meta.json`). The newest 3 are downloaded (artifact `oncall` → `~/oncall/<run id>`) and go to Claude before the owner's text: the message the owner got, the run link and where the files are. The chat gets `📎 Підвантажив звіт онколу: <time>`. So "берись за фікс" after a report is enough; an older report: reply to it.
+
 ## Permissions and secrets
 
 | What                       | Where                                                                                                                                                                                      |
