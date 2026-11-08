@@ -8,6 +8,8 @@ The script on [Greasy Fork](https://greasyfork.org/en/scripts/564173-youtube-pip
 2. The release is created as a **draft** with the assets `youtube-pip.user.js` and `userscript.js`, then **published** in a separate step (`gh release edit --draft=false --latest`). Publishing only after the assets are attached matters: the `release` webhook fires on publish, and Greasy Fork downloads the asset right away (a release published before its assets are uploaded gives "No scripts found for this release").
 3. GitHub sends the `release` event to Greasy Fork; Greasy Fork fetches the script from its sync URL and publishes the new version (the `@version` must be higher than the current one, which the bump flow guarantees).
 
+Pre-releases (`vX.Y.Z-rc.N`, [PRERELEASE.md](PRERELEASE.md)) also send the `release` webhook, but they are never the latest release: Greasy Fork fetches `releases/latest/download/youtube-pip.user.js`, gets the current stable version and changes nothing.
+
 ## One-time setup
 
 On Greasy Fork:

@@ -33,6 +33,17 @@ git push -u origin <current-branch>
 gh pr create --title "<title>" --body-file PR_DESCRIPTION.md --base main --head <current-branch>
 ```
 
+## 3a. Pre-release (when the owner asks for one or will test before the release)
+
+When the user asks for a pre-release ("предреліз", "pre-release"), or the release is prepared without a local build the owner can test (e.g. the dev worker), publish a pre-release of the branch once the checks are green (`docs/PRERELEASE.md`):
+
+```bash
+gh workflow run prerelease.yml --ref <current-branch>
+```
+
+- Wait for the run, then give the user the pre-release link and the userscript URL (`releases/download/vX.Y.Z-rc.N/youtube-pip.user.js`).
+- **Do not merge** until the user confirms the test. A new commit on the branch → run the workflow again (`rc.N+1`).
+
 ## 4. Merge PR
 
 - Merge when **status checks are green**
@@ -71,4 +82,5 @@ npm run release:tag
 
 - `PR_DESCRIPTION.md` is **not** committed — used only for PR title/body
 - Version must already be bumped in `package.json` and `CHANGELOG.md` before this flow
+- Pre-releases `vX.Y.Z-rc.N` are deleted by `release.yml` when `vX.Y.Z` is released
 - Requires `gh` CLI and `gh auth login` to be done

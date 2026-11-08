@@ -4,6 +4,8 @@ name: Build Check
 # merge (ruleset "Protect main branch", strict status checks), so the merge commit has exactly the tree checked here.
 # A run on the push to main would only start another runner for the same result; the daily Manual E2E covers main
 # and release.yml builds the tagged version.
+# The full check (`build`) runs only when the PR changes product code or tests (job `changes`); other PRs get lint and
+# Prettier on a GitHub-hosted runner, and the skipped `build` counts as passed for the ruleset.
 on:
   pull_request:
     branches: [main, master]
@@ -15,7 +17,67 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Which kind of change the PR makes. Product code, unit / e2e tests and their build / test config need the full
+  # check below (self-hosted runner, e2e against YouTube); docs, rules, terraform, scripts and other workflows do not.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+        with:
+          # The PR merge commit and its first parent (the base branch): their diff is the PR's change
+          fetch-depth: 2
+
+      - name: Changed files
+        id: diff
+        run: |
+          git diff --name-only HEAD^1 HEAD | tee changed.txt
+          if grep -qE '^(src/|e2e/|playwright\.config\.ts$|vite\.config\.ts$|vitest\.config\.ts$|tsconfig[^/]*\.json$|eslint\.config\.js$|package(-lock)?\.json$|\.github/workflows/build\.yml$)' changed.txt; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "Product code or tests changed: full build check"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "No product code or tests changed: build check (e2e) skipped, lint and Prettier only"
+          fi
+
+  # PRs without product code changes: lint and formatting on a GitHub-hosted runner (no self-hosted runner, no e2e)
+  lint:
+    needs: changes
+    if: needs.changes.outputs.code == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Cache npm
+        uses: actions/cache@v5
+        with:
+          path: ~/.npm
+          key: ${{ runner.os }}-npm-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run Prettier check
+        run: npm run prettier
+
+  # Required by the ruleset. Skipped (a skipped job reports success) only when `changes` found no product code or
+  # tests; if `changes` itself fails, the full check runs rather than letting the PR through unchecked.
   build:
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.code != 'false' }}
     runs-on: [self-hosted, fargate]
 
     steps:
