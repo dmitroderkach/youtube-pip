@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  backgroundRestoreHtml,
+  backgroundRestoreKeyboard,
   CALLBACK_DATA_MAX,
   EFFORT_LEVELS,
   effortKeyboard,
@@ -224,4 +226,50 @@ test('voice keyboard: modes, voices three per row, samples; current ones marked'
     ]
   );
   assert.match(voiceText('on', 'Kore'), /<b>on<\/b> · голос <b>Kore<\/b>/);
+});
+
+test('background restore offer: tasks with command / prompt and purpose; toggles and decisions', () => {
+  const records = [
+    {
+      taskType: 'local_bash',
+      tool: 'Bash',
+      description: 'Watch <CI>',
+      command: 'gh run watch 1',
+      purpose: 'fix',
+      startedAt: '2026-11-09T15:00:00Z',
+    },
+    {
+      taskType: 'local_agent',
+      description: 'Review',
+      prompt: 'Review the worker',
+      subagentType: 'general-purpose',
+    },
+  ];
+  const html = backgroundRestoreHtml(records, { timeZone: 'Europe/Warsaw' });
+  assert.match(
+    html,
+    /<b>1\.<\/b> 💻 Bash · Watch &lt;CI&gt;\n<pre>gh run watch 1<\/pre>\nМета \(твоє повідомлення\): «fix»\nЗапущено: 09\.11, 16:00/
+  );
+  assert.match(
+    html,
+    /<b>2\.<\/b> 🤖 субагент general-purpose · Review\nЗавдання: <i>Review the worker<\/i>/
+  );
+  const decided = backgroundRestoreHtml(records, { picked: new Set([1]), decision: 'restore' });
+  assert.match(decided, /✗ <b>1\.<\/b>/);
+  assert.match(decided, /✓ <b>2\.<\/b>/);
+  assert.doesNotMatch(decided, /Відновити\?/);
+  const rows = backgroundRestoreKeyboard('id1', records, new Set([0])).inline_keyboard;
+  assert.deepEqual(
+    rows.map((row) => row.map((b) => [b.text, b.callback_data])),
+    [
+      [['☑️ 1. Watch <CI>', 'bg:id1:0']],
+      [['⬜ 2. Review', 'bg:id1:1']],
+      [['✅ Відновити вибрані (1)', 'bg:id1:picked']],
+      [
+        ['♻️ Відновити всі', 'bg:id1:all'],
+        ['🚫 Жодної', 'bg:id1:none'],
+      ],
+    ]
+  );
+  assert.equal(backgroundRestoreKeyboard('id1', records).inline_keyboard.length, 3);
 });

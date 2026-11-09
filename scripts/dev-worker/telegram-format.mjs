@@ -475,3 +475,68 @@ export function effortKeyboard(levels, current) {
     ],
   };
 }
+
+/** Background tasks of the previous run offered for restoring: what each was, why and when it started. */
+export function backgroundRestoreHtml(
+  records,
+  { picked = new Set(), decision = null, timeZone } = {}
+) {
+  const clip = (text, max) => {
+    const value = String(text ?? '').trim();
+    return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+  };
+  const head = {
+    null: '⏸ <b>Фонові задачі попереднього запуску не завершились</b> (воркер або сесія зупинились):',
+    restore: '♻️ <b>Відновлюю фонові задачі</b> (позначені ✓):',
+    none: '🚫 <b>Фонові задачі не відновлюю:</b>',
+  }[decision ?? 'null'];
+  const items = records.map((record, i) => {
+    const agent = record.taskType === 'local_agent' || Boolean(record.prompt && !record.command);
+    const mark = decision === 'restore' ? (picked.has(i) ? '✓ ' : '✗ ') : '';
+    const kind = agent
+      ? `🤖 субагент${record.subagentType ? ` ${escapeHtml(record.subagentType)}` : ''}`
+      : `💻 ${escapeHtml(record.tool ?? 'команда')}`;
+    const lines = [
+      `${mark}<b>${i + 1}.</b> ${kind} · ${escapeHtml(clip(record.description, 120))}`,
+    ];
+    if (record.command) lines.push(`<pre>${escapeHtml(clip(record.command, 400))}</pre>`);
+    else if (record.prompt) lines.push(`Завдання: <i>${escapeHtml(clip(record.prompt, 300))}</i>`);
+    if (record.purpose)
+      lines.push(`Мета (твоє повідомлення): «${escapeHtml(clip(record.purpose, 300))}»`);
+    if (record.startedAt) {
+      const started = new Date(record.startedAt).toLocaleString('uk-UA', {
+        ...(timeZone ? { timeZone } : {}),
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      lines.push(`Запущено: ${started}`);
+    }
+    return lines.join('\n');
+  });
+  const tail = decision ? '' : '\n\nВідновити? Позначай задачі кнопками або вибери все / нічого.';
+  return `${head}\n\n${items.join('\n\n')}${tail}`;
+}
+
+/** Buttons of the restore offer: one toggle per task, then restore the picked ones, all, or none. */
+export function backgroundRestoreKeyboard(id, records, picked = new Set()) {
+  const rows = records.map((record, i) => [
+    {
+      text: `${picked.has(i) ? '☑️' : '⬜'} ${i + 1}. ${String(record.description || record.command || 'задача').slice(0, 40)}`,
+      callback_data: callbackData('bg', id, String(i)),
+    },
+  ]);
+  if (picked.size)
+    rows.push([
+      {
+        text: `✅ Відновити вибрані (${picked.size})`,
+        callback_data: callbackData('bg', id, 'picked'),
+      },
+    ]);
+  rows.push([
+    { text: '♻️ Відновити всі', callback_data: callbackData('bg', id, 'all') },
+    { text: '🚫 Жодної', callback_data: callbackData('bg', id, 'none') },
+  ]);
+  return { inline_keyboard: rows };
+}

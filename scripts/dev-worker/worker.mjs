@@ -7,7 +7,8 @@
  * A message that arrives while Claude is working moves its running commands to the background (they keep running,
  * like Ctrl+B) and is delivered at the turn's next step (priority 'next', right away once nothing blocks). Background tasks survive between turns; their
  * completion starts a turn of its own. Every turn's progress and final answer go to Telegram; the state is saved to
- * S3 after every answer. Stops by itself after IDLE_TIMEOUT_SECONDS without activity (no turn and no background task)
+ * S3 after every answer and every few minutes of a long turn (the transcript as its epoch since the last compaction,
+ * session-state.mjs); background tasks are recorded in S3 while they run and offered for restoring after a restart. Stops by itself after IDLE_TIMEOUT_SECONDS without activity (no turn and no background task)
  * (the dev-bot Lambda warns in the chat when a run stays up long after the last answer, docs/DEV_WORKER.md), and on SIGTERM (`/down`, ECS StopTask); every stop it initiates is reported in
  * the chat and ends with exit code 0 or REPORTED_EXIT_CODE, which the dev-bot Lambda does not report again.
  *
@@ -17,6 +18,15 @@
  */
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import {
+  backgroundRecord,
+  epochProject,
+  latestEpochKey,
+  restoreNote,
+  transcriptEpoch,
+} from './session-state.mjs';
+import {
+  backgroundRestoreHtml,
+  backgroundRestoreKeyboard,
   DEFAULT_MODE,
   EFFORT_LEVELS,
   MODES,
@@ -87,6 +97,16 @@ const WORKSPACE_KEY = 'state/workspace.tar.gz';
  */
 const ACTIVITY_KEY = 'state/activity.json';
 const PROJECTS_PREFIX = 'claude/projects/';
+/**
+ * The session's transcript, one object per epoch (since its last compaction):
+ * `claude/transcripts/<project>/<session id>/<epoch>.jsonl`. The current epoch is uploaded on every save, earlier
+ * ones stop changing and expire with the `claude/` lifecycle rule; a restore downloads only the newest.
+ */
+const TRANSCRIPTS_PREFIX = 'claude/transcripts/';
+/** Live background tasks of the session, one JSON record each (session-state.mjs backgroundRecord). */
+const BACKGROUND_PREFIX = 'state/background/';
+/** Saves while a turn runs, so a crash in a long turn loses at most this much of it. */
+const PERIODIC_SAVE_MS = 5 * 60 * 1000;
 /** Plans from plan mode (Markdown, one object per version, the owner's decision appended); never expire. */
 const PLANS_PREFIX = 'plans/';
 /** Claude Code writes the plan of plan mode here (when ExitPlanMode's input has no `plan`). */
@@ -349,19 +369,92 @@ async function restore() {
   }
   await sh('git', ['-C', REPO_DIR, 'fetch', '--prune', 'origin']);
   mkdirSync(CLAUDE_PROJECTS_DIR, { recursive: true });
-  await aws('s3', 'sync', `s3://${BUCKET}/${PROJECTS_PREFIX}`, CLAUDE_PROJECTS_DIR, '--quiet');
+  const sessionId = meta?.sessionId ?? null;
+  const epochKey = sessionId ? latestEpochKey(await s3Keys(TRANSCRIPTS_PREFIX), sessionId) : null;
+  // With an epoch saved, the session's whole transcript of the old layout is not needed (it expires by itself)
+  const legacy = epochKey ? ['--exclude', `*/${sessionId}.jsonl`] : [];
+  await aws(
+    's3',
+    'sync',
+    `s3://${BUCKET}/${PROJECTS_PREFIX}`,
+    CLAUDE_PROJECTS_DIR,
+    ...legacy,
+    '--quiet'
+  );
+  if (epochKey) {
+    const dir = join(CLAUDE_PROJECTS_DIR, epochProject(epochKey));
+    mkdirSync(dir, { recursive: true });
+    await aws('s3', 'cp', `s3://${BUCKET}/${epochKey}`, join(dir, `${sessionId}.jsonl`), '--quiet');
+  }
   mkdirSync(PLANS_DIR, { recursive: true });
   await aws('s3', 'sync', `s3://${BUCKET}/${PLANS_PREFIX}`, PLANS_DIR, '--quiet');
   log(`restored: session=${meta?.sessionId ?? 'none'} workspace=${workspace}`);
   return { workspace };
 }
 
-async function save() {
+/** Keys under an S3 prefix. */
+async function s3Keys(prefix) {
+  const out = await aws(
+    's3api',
+    'list-objects-v2',
+    '--bucket',
+    BUCKET,
+    '--prefix',
+    prefix,
+    '--query',
+    'Contents[].Key',
+    '--output',
+    'json'
+  );
+  return JSON.parse(out.trim() || 'null') ?? [];
+}
+
+/** The transcript of a session: { project, path }, or null. */
+function sessionTranscript(sessionId) {
+  if (!sessionId || !existsSync(CLAUDE_PROJECTS_DIR)) return null;
+  for (const project of readdirSync(CLAUDE_PROJECTS_DIR)) {
+    const path = join(CLAUDE_PROJECTS_DIR, project, `${sessionId}.jsonl`);
+    if (existsSync(path)) return { project, path };
+  }
+  return null;
+}
+
+/** Upload the session's current transcript epoch (from its last compaction on). */
+async function saveTranscript(sessionId) {
+  const transcript = sessionTranscript(sessionId);
+  if (!transcript) return;
+  const text = readFileSync(transcript.path, 'utf8');
+  const epoch = transcriptEpoch(text);
+  writeFileSync('/tmp/transcript-epoch.jsonl', text.slice(epoch.start));
+  const key = `${TRANSCRIPTS_PREFIX}${transcript.project}/${sessionId}/${epoch.name}`;
+  await aws('s3', 'cp', '/tmp/transcript-epoch.jsonl', `s3://${BUCKET}/${key}`, '--quiet');
+}
+
+/** Saves run one after another (after answers, periodic ones and the last one on stop). */
+let saving = Promise.resolve();
+
+function save() {
+  const run = saving.then(saveNow);
+  saving = run.catch(() => {});
+  return run;
+}
+
+async function saveNow() {
   const excludes = WORKSPACE_EXCLUDES.flatMap((dir) => ['--exclude', `./${dir}`]);
   await sh('tar', ['czf', '/tmp/workspace.tar.gz', ...excludes, '-C', REPO_DIR, '.']);
   await aws('s3', 'cp', '/tmp/workspace.tar.gz', `s3://${BUCKET}/${WORKSPACE_KEY}`, '--quiet');
-  // One object per transcript: the bucket's lifecycle rule expires sessions untouched for a week
-  await aws('s3', 'sync', CLAUDE_PROJECTS_DIR, `s3://${BUCKET}/${PROJECTS_PREFIX}`, '--quiet');
+  const sessionId = meta?.sessionId ?? null;
+  await saveTranscript(sessionId);
+  // Subagents, tool results and memory of all projects; the session's own transcript went up as its epoch
+  const own = sessionId ? ['--exclude', `*/${sessionId}.jsonl`] : [];
+  await aws(
+    's3',
+    'sync',
+    CLAUDE_PROJECTS_DIR,
+    `s3://${BUCKET}/${PROJECTS_PREFIX}`,
+    ...own,
+    '--quiet'
+  );
   meta = { ...(meta ?? {}), sessionId: meta?.sessionId ?? null, savedAt: new Date().toISOString() };
   writeFileSync('/tmp/meta.json', JSON.stringify(meta));
   await aws('s3', 'cp', '/tmp/meta.json', `s3://${BUCKET}/${META_KEY}`, '--quiet');
@@ -537,6 +630,66 @@ let backgroundTaskCount = 0;
 let backgroundTasks = new Map();
 /** Tool calls of the current turn still waiting for their result (blocking commands in the foreground). */
 const foregroundToolIds = new Set();
+/** Recent tool calls of the session: tool_use id → { name, input } (the command / prompt of a background task). */
+const toolCalls = new Map();
+const TOOL_CALLS_KEPT = 300;
+/** `task_started` messages: task_id → message (its tool_use id and prompt). */
+const taskStarts = new Map();
+/** The owner's message the current work serves: the purpose recorded with the background tasks it starts. */
+let turnPurpose = null;
+/** Background tasks recorded in S3 (BACKGROUND_PREFIX): task_id → record. */
+const recordedTasks = new Map();
+/** S3 writes of the records run one after another. */
+let recordUploads = Promise.resolve();
+
+/** Record new live background tasks in S3 and drop the finished ones (tasks of the main thread only). */
+function syncBackgroundRecords(tasks) {
+  // Stopping: the tasks die with the worker and stay recorded, to be offered for restoring at the next start
+  if (stopping) return;
+  const live = tasks.filter((task) => !task.ambient && !task.parent_task_id);
+  const liveIds = new Set(live.map((task) => task.task_id));
+  for (const task of live) {
+    if (recordedTasks.has(task.task_id)) continue;
+    const start = taskStarts.get(task.task_id);
+    let call = start?.tool_use_id ? toolCalls.get(start.tool_use_id) : null;
+    // A shell task without its tool_use id: the newest background call with the same description
+    call ??= [...toolCalls.values()]
+      .reverse()
+      .find((c) => c.input?.run_in_background && c.input?.description === task.description);
+    const record = backgroundRecord(task, {
+      start,
+      call,
+      purpose: turnPurpose,
+      sessionId: meta?.sessionId,
+    });
+    recordedTasks.set(task.task_id, record);
+    queueRecordWrite(task.task_id, record);
+  }
+  for (const id of [...recordedTasks.keys()]) {
+    if (liveIds.has(id)) continue;
+    recordedTasks.delete(id);
+    queueRecordWrite(id, null);
+  }
+}
+
+/** Write (record) or delete (null) the S3 record of a task. */
+function queueRecordWrite(taskId, record) {
+  const key = `${BACKGROUND_PREFIX}${taskId}.json`;
+  recordUploads = recordUploads.then(async () => {
+    try {
+      if (!record) {
+        await aws('s3', 'rm', `s3://${BUCKET}/${key}`, '--quiet');
+        return;
+      }
+      const path = `/tmp/background-${taskId}.json`;
+      writeFileSync(path, JSON.stringify(record));
+      await aws('s3', 'cp', path, `s3://${BUCKET}/${key}`, '--quiet');
+      rmSync(path, { force: true });
+    } catch (error) {
+      log('background record failed', error);
+    }
+  });
+}
 /** A message from the owner was delivered during the current turn (its end may be the cut-off of that turn). */
 let deliveredMidTurn = false;
 /** Plan rate-limit windows from the last `rate_limit_event` of the session: { five_hour, seven_day } → { utilization 0-1, resetsAt unix s }. */
@@ -713,6 +866,8 @@ async function runSession(resumeId) {
       for (const item of message.message?.content ?? []) {
         if (item.type !== 'tool_use') continue;
         foregroundToolIds.add(item.id);
+        toolCalls.set(item.id, { name: item.name, input: item.input ?? {} });
+        if (toolCalls.size > TOOL_CALLS_KEPT) toolCalls.delete(toolCalls.keys().next().value);
         onToolUse(describeTool(item.name, item.input));
       }
     } else if (message.type === 'user' && Array.isArray(message.message?.content)) {
@@ -732,6 +887,7 @@ async function runSession(resumeId) {
       message.type === 'system' &&
       (message.subtype === 'task_started' || message.subtype === 'task_notification')
     ) {
+      if (message.subtype === 'task_started') taskStarts.set(message.task_id, message);
       onTaskEvent(message);
     } else if (message.type === 'system' && message.subtype === 'init') {
       sessionModel = message.model ?? sessionModel;
@@ -748,6 +904,7 @@ async function runSession(resumeId) {
           },
         ])
       );
+      syncBackgroundRecords(message.tasks ?? []);
     } else if (message.type === 'result') {
       await finishTurn(message);
     }
@@ -769,6 +926,14 @@ async function keepSession() {
       turn = null;
       backgroundTaskCount = 0;
       backgroundTasks = new Map();
+      // Its background tasks ended with the Claude Code process: offer them for restoring in the new one
+      const lost = [...recordedTasks.values()];
+      recordedTasks.clear();
+      if (lost.length)
+        void offerRestore(
+          lost,
+          lost.map((record) => record.taskId)
+        );
       for (const entry of [...pending.values()]) entry.resolve({ aborted: true });
       compacting = null;
       agents.clear();
@@ -1282,6 +1447,10 @@ async function onCallback(callback) {
   if (kind === 'agents') {
     await onAgentsButton(Number(id));
     await editHtml(callback.message_id, agentsHtml(), agentsKeyboard());
+    return;
+  }
+  if (kind === 'bg') {
+    await onRestoreButton(callback.message_id, id, value);
     return;
   }
   if (kind === 'voice') {
@@ -1845,6 +2014,84 @@ async function reportContext() {
   await say(lines.join('\n'));
 }
 
+// ---------------------------------------------------------------------------------------------- restoring background tasks
+
+/** Restore offers waiting for the owner's buttons: id → { records, keys (S3 records to drop), picked, messageId }. */
+const restoreOffers = new Map();
+
+/** Records of the background tasks of earlier runs (state/background/), with their keys. */
+async function savedBackgroundTasks() {
+  const records = [];
+  for (const key of await s3Keys(BACKGROUND_PREFIX)) {
+    try {
+      const record = JSON.parse(await aws('s3', 'cp', `s3://${BUCKET}/${key}`, '-', '--quiet'));
+      records.push({ ...record, key });
+    } catch (error) {
+      log(`background record ${key} unreadable`, error);
+    }
+  }
+  return records.sort((a, b) => String(a.startedAt).localeCompare(String(b.startedAt)));
+}
+
+/** Show tasks that ended unfinished, with buttons to restore all, some or none of them. */
+async function offerRestore(records, taskIds) {
+  const id = newPendingId();
+  const offer = { records, taskIds, picked: new Set(), messageId: null };
+  restoreOffers.set(id, offer);
+  const sent = await sayHtml(
+    backgroundRestoreHtml(records, { timeZone: OWNER_TIME_ZONE }),
+    backgroundRestoreKeyboard(id, records)
+  ).catch((error) => log('restore offer failed', error));
+  offer.messageId = sent?.message_id ?? null;
+}
+
+/** A button of a restore offer: toggle a task, or decide (picked / all / none). */
+async function onRestoreButton(messageId, id, value) {
+  const offer = restoreOffers.get(id);
+  if (!offer) {
+    await editButtons(messageId);
+    await say('ℹ️ Це питання вже неактуальне');
+    return;
+  }
+  if (/^\d+$/.test(value)) {
+    const index = Number(value);
+    if (offer.picked.has(index)) offer.picked.delete(index);
+    else if (index < offer.records.length) offer.picked.add(index);
+    await editHtml(
+      messageId,
+      backgroundRestoreHtml(offer.records, { picked: offer.picked, timeZone: OWNER_TIME_ZONE }),
+      backgroundRestoreKeyboard(id, offer.records, offer.picked)
+    );
+    return;
+  }
+  if (value === 'all') offer.records.forEach((_, i) => offer.picked.add(i));
+  if (value === 'none') offer.picked.clear();
+  if (value === 'picked' && !offer.picked.size) return;
+  restoreOffers.delete(id);
+  const chosen = offer.records.filter((_, i) => offer.picked.has(i));
+  await editHtml(
+    messageId,
+    backgroundRestoreHtml(offer.records, {
+      picked: offer.picked,
+      decision: chosen.length ? 'restore' : 'none',
+      timeZone: OWNER_TIME_ZONE,
+    })
+  );
+  // The offered records are settled: the restored tasks are recorded again when they start
+  for (const taskId of offer.taskIds) queueRecordWrite(taskId, null);
+  if (!chosen.length) return;
+  turnPurpose = [...new Set(chosen.map((record) => record.purpose).filter(Boolean))].join(
+    '\n---\n'
+  );
+  const note = restoreNote(chosen);
+  if (turn) {
+    sendToClaude(note, 'next');
+  } else {
+    sendToClaude(note);
+    ensureTurn();
+  }
+}
+
 // ---------------------------------------------------------------------------------------------- /background
 
 const BACKGROUND_COMMAND = /^\/background(@\w+)?$/i;
@@ -1967,6 +2214,7 @@ async function deliver(message) {
       `📨 Для 🤖 ${agents.get(viewing.taskId)?.description ?? 'субагента'} (передає основний агент)`
     );
   }
+  turnPurpose = text;
   const oncall = await oncallNote().catch((error) => log('oncall check failed', error));
   if (oncall) text = `${oncall}\n\n${text}`;
   const spokenByOwner = (message.attachments ?? []).some((a) => a.kind === 'voice');
@@ -2140,12 +2388,27 @@ async function main() {
       modeNote
   );
 
+  // Background tasks the previous run left unfinished (read before this run records its own)
+  const unfinished = await savedBackgroundTasks().catch((error) => {
+    log('background records failed', error);
+    return [];
+  });
+  if (unfinished.length)
+    await offerRestore(
+      unfinished,
+      unfinished.map((record) => record.taskId)
+    );
+
   lastActivity = Date.now();
   // The ready message counts as an answer for the watchdog
   lastAnswerAt = new Date().toISOString();
   publishActivity(false);
   void keepSession();
   setInterval(checkLimits, LIMITS_CHECK_MS).unref();
+  // A long turn is saved every few minutes too, not only after its answer
+  setInterval(() => {
+    if (turn && !stopping) save().catch((error) => log('periodic save failed', error));
+  }, PERIODIC_SAVE_MS).unref();
 
   let skipped = 0;
   while (!stopReason) {
