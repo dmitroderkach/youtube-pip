@@ -326,7 +326,7 @@ def telegram_update(event):
     elif command == "/start":
         say(
             "Команди: /up — підняти воркера, /down — зупинити. Поки він працює, пиши йому сюди; "
-            "/mode — режим (bypass, auto, manual, plan), /model, /effort, /plans — збережені плани, "
+            "/mode — режим (bypass, auto, manual, plan), /model, /effort, /agents — субагенти, /plans — збережені плани, "
             "/compact — стиснути контекст."
         )
     else:

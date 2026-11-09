@@ -4,7 +4,7 @@
  * - generates the webhook secret token if `youtube-pip-dev-worker` has none (kept in that secret, never printed);
  * - points the on-call bot's webhook at the dev-bot Lambda URL with that secret (`message` updates and
  *   `callback_query` for the worker's buttons, one connection at a time so commands and messages arrive in order);
- * - sets the bot's command menu (/up, /down, /mode, /model, /effort, /plans, /compact, /context, /background, /voice).
+ * - sets the bot's command menu (/up, /down, /mode, /model, /effort, /agents, /plans, /compact, /context, /background, /voice).
  *
  * Safe to re-run (e.g. after a menu change): the secret is kept and the webhook set again.
  *
@@ -87,6 +87,7 @@ await bot('setMyCommands', {
     { command: 'mode', description: 'Режим: bypass, auto, manual, plan' },
     { command: 'model', description: 'Модель Claude (зберігається між сесіями)' },
     { command: 'effort', description: 'Effort: low … max (зберігається між сесіями)' },
+    { command: 'agents', description: 'Агенти: основний і субагенти, чиї повідомлення дивитись' },
     { command: 'plans', description: 'Збережені плани (режим plan)' },
     { command: 'compact', description: 'Стиснути контекст сесії [інструкція]' },
     { command: 'context', description: 'Контекст сесії і ліміти Claude (5 год, тиждень)' },
@@ -95,7 +96,7 @@ await bot('setMyCommands', {
   ],
 });
 console.log(
-  'commands: /up, /down, /mode, /model, /effort, /plans, /compact, /context, /background, /voice'
+  'commands: /up, /down, /mode, /model, /effort, /agents, /plans, /compact, /context, /background, /voice'
 );
 const info = await bot('getWebhookInfo', {});
 console.log(

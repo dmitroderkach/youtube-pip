@@ -645,6 +645,17 @@ async function finishTurn(result) {
     return;
   }
   const { text, spoken } = splitVoiceBlock(answer);
+  if (viewing && text && !failed) {
+    // A subagent is shown: the main agent's answer waits for the switch back (like Claude Code's agent view)
+    heldAnswers.push(text);
+    await say('💬 Основний агент відповів: /agents → 🧠 Основний агент');
+    lastAnswerAt = new Date().toISOString();
+    publishActivity(false);
+    voiceReplyPending = false;
+    await flushOutbox();
+    await save().catch((error) => log('save failed', error));
+    return;
+  }
   // Outside the default mode every answer says which mode Claude is in
   const label =
     currentMode() === DEFAULT_MODE ? '' : `${MODES[currentMode()].emoji} ${currentMode()}\n`;
@@ -715,6 +726,11 @@ async function runSession(resumeId) {
       }
     } else if (message.type === 'rate_limit_event') {
       onRateLimit(message.rate_limit_info);
+    } else if (
+      message.type === 'system' &&
+      (message.subtype === 'task_started' || message.subtype === 'task_notification')
+    ) {
+      onTaskEvent(message);
     } else if (message.type === 'system' && message.subtype === 'init') {
       sessionModel = message.model ?? sessionModel;
     } else if (message.type === 'system' && message.subtype === 'background_tasks_changed') {
@@ -753,6 +769,8 @@ async function keepSession() {
       backgroundTasks = new Map();
       for (const entry of [...pending.values()]) entry.resolve({ aborted: true });
       compacting = null;
+      agents.clear();
+      if (viewing) await switchView(null);
       // The turn is gone with the session: the watchdog must not take it for one still running
       publishActivity(false);
       if (resumeId && /no conversation found/i.test(String(error?.message ?? error))) {
@@ -1231,6 +1249,11 @@ async function onCallback(callback) {
     );
     return;
   }
+  if (kind === 'agents') {
+    await onAgentsButton(Number(id));
+    await editHtml(callback.message_id, agentsHtml(), agentsKeyboard());
+    return;
+  }
   if (kind === 'plans') {
     await sendPlan(Number(id));
     return;
@@ -1350,6 +1373,251 @@ async function effortCommand(argument) {
   }
   if (await setEffort(level))
     await say(`🎚 Effort: ${level === 'default' ? 'за замовчуванням моделі' : level}`);
+}
+
+// ---------------------------------------------------------------------------------------------- /agents
+
+/**
+ * `/agents` (like Claude Code's agent view): the main agent and the running subagents as buttons; picking a
+ * subagent streams its messages to the chat (read from its transcript, `<session>/subagents/agent-<id>.jsonl`) and
+ * holds the main agent's answers until the owner switches back. Questions and permission prompts always come through.
+ */
+const AGENTS_COMMAND = /^\/agents(@\w+)?$/i;
+const AGENT_POLL_MS = 3000;
+const AGENT_TEXT_MAX = 3500;
+/** Subagents of the session: task_id → { description, type, toolUseId, since, ended }. */
+const agents = new Map();
+/** The list `/agents` showed last (button index - 1). */
+let agentsListed = [];
+/** The subagent shown in the chat: { taskId, path, offset, partial, steps, stepsMessage } or null (main). */
+let viewing = null;
+let viewTimer = null;
+/** Main agent answers held while a subagent is shown. */
+const heldAnswers = [];
+
+/** A `system` message about tasks: keep track of the session's subagents. */
+function onTaskEvent(message) {
+  if (
+    message.subtype === 'task_started' &&
+    (message.task_type === 'local_agent' || message.subagent_type)
+  ) {
+    agents.set(message.task_id, {
+      description: message.description || '(без опису)',
+      type: message.subagent_type ?? 'agent',
+      toolUseId: message.tool_use_id ?? null,
+      since: Date.now(),
+      ended: false,
+    });
+  } else if (message.subtype === 'task_notification' && agents.has(message.task_id)) {
+    agents.get(message.task_id).ended = message.status;
+    // Let the last lines of its transcript arrive, then go back to the main agent
+    if (viewing?.taskId === message.task_id)
+      setTimeout(() => void endView(message.status, message.task_id), AGENT_POLL_MS + 500);
+  }
+}
+
+/** Transcript of a subagent: the meta file with its tool_use id, else agent-<task id>.jsonl. */
+function agentTranscript(taskId) {
+  const agent = agents.get(taskId);
+  if (!meta?.sessionId || !existsSync(CLAUDE_PROJECTS_DIR)) return null;
+  for (const project of readdirSync(CLAUDE_PROJECTS_DIR)) {
+    const dir = join(CLAUDE_PROJECTS_DIR, project, meta.sessionId, 'subagents');
+    if (!existsSync(dir)) continue;
+    const direct = join(dir, `agent-${taskId}.jsonl`);
+    if (existsSync(direct)) return direct;
+    for (const name of readdirSync(dir).filter((n) => n.endsWith('.meta.json'))) {
+      try {
+        const info = JSON.parse(readFileSync(join(dir, name), 'utf8'));
+        if (agent?.toolUseId && info.toolUseId === agent.toolUseId) {
+          return join(dir, name.replace(/\.meta\.json$/, '.jsonl'));
+        }
+      } catch {
+        // a meta file being written
+      }
+    }
+  }
+  return null;
+}
+
+/** The subagent's meta file says it has finished (foreground subagents may end without a task notification). */
+function agentFinished(taskId) {
+  const path = agentTranscript(taskId)?.replace(/\.jsonl$/, '.meta.json');
+  try {
+    return Boolean(path && existsSync(path) && JSON.parse(readFileSync(path, 'utf8')).finished);
+  } catch {
+    return false;
+  }
+}
+
+const runningAgents = () =>
+  [...agents.entries()].filter(([taskId, agent]) => {
+    if (!agent.ended && agentFinished(taskId)) agent.ended = 'completed';
+    return !agent.ended;
+  });
+
+function agentsKeyboard() {
+  agentsListed = runningAgents().map(([taskId]) => taskId);
+  const mark = (on) => (on ? '✓ ' : '');
+  return {
+    inline_keyboard: [
+      [{ text: `${mark(!viewing)}🧠 Основний агент`, callback_data: 'agents:0' }],
+      ...agentsListed.map((taskId, i) => {
+        const agent = agents.get(taskId);
+        const label = `${mark(viewing?.taskId === taskId)}🤖 ${agent.description} · ${elapsedText(agent.since)}`;
+        return [
+          {
+            text: label.length > 60 ? `${label.slice(0, 59)}…` : label,
+            callback_data: `agents:${i + 1}`,
+          },
+        ];
+      }),
+    ],
+  };
+}
+
+const agentsHtml = () => {
+  const shown = viewing ? agents.get(viewing.taskId) : null;
+  return [
+    `Агенти: зараз у чаті <b>${shown ? `🤖 ${escapeHtml(shown.description)}` : '🧠 основний'}</b>`,
+    agentsListed.length ? '' : '\nСубагентів зараз немає',
+    shown
+      ? '<i>Відповіді основного агента притримую, доки не перемкнешся назад; питання й дозволи приходять завжди.</i>'
+      : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+};
+
+async function reportAgents() {
+  const keyboard = agentsKeyboard();
+  await sayHtml(agentsHtml(), keyboard);
+}
+
+/** One transcript entry → what the chat shows: { texts: [...], steps: [...] }. */
+function transcriptEntry(line) {
+  let entry;
+  try {
+    entry = JSON.parse(line);
+  } catch {
+    return { texts: [], steps: [] };
+  }
+  const texts = [];
+  const steps = [];
+  if (entry.type === 'assistant') {
+    for (const item of entry.message?.content ?? []) {
+      if (item.type === 'text' && item.text?.trim()) texts.push(item.text.trim());
+      if (item.type === 'tool_use') steps.push(describeTool(item.name, item.input));
+    }
+  }
+  return { texts, steps };
+}
+
+/** Send what the shown subagent wrote since the last poll. */
+async function pollView() {
+  const view = viewing;
+  if (!view) return;
+  view.path ??= agentTranscript(view.taskId);
+  if (!view.path || !existsSync(view.path)) return;
+  const content = readFileSync(view.path);
+  if (content.length <= view.offset) {
+    const agent = agents.get(view.taskId);
+    if (!agent?.ended && agentFinished(view.taskId)) {
+      agent.ended = 'completed';
+      await endView('completed');
+    }
+    return;
+  }
+  const chunk = view.partial + content.subarray(view.offset).toString('utf8');
+  view.offset = content.length;
+  const lines = chunk.split('\n');
+  view.partial = lines.pop() ?? '';
+  const name = agents.get(view.taskId)?.description ?? 'субагент';
+  for (const line of lines) {
+    if (viewing !== view) return;
+    const { texts, steps } = transcriptEntry(line);
+    for (const text of texts) {
+      view.stepsMessage = null;
+      view.steps = [];
+      await say(
+        `🤖 ${name}:\n${text.slice(0, AGENT_TEXT_MAX)}${text.length > AGENT_TEXT_MAX ? '…' : ''}`
+      );
+    }
+    if (!steps.length) continue;
+    // Tool calls go into one message edited in place (a new one after each text)
+    view.steps.push(...steps);
+    const body = `🔧 ${name}\n${view.steps.slice(-8).join('\n')}${view.steps.length > 8 ? `\n(кроків: ${view.steps.length})` : ''}`;
+    if (view.stepsMessage) await edit(view.stepsMessage.message_id, body);
+    else view.stepsMessage = await telegram('sendMessage', { text: body });
+  }
+}
+
+/** Show a subagent (taskId) or the main agent (null) in the chat. */
+async function switchView(taskId) {
+  clearInterval(viewTimer);
+  viewTimer = null;
+  if (!taskId) {
+    viewing = null;
+    const held = heldAnswers.splice(0);
+    await say(
+      held.length
+        ? `🧠 Основний агент. Відповіді, поки ти дивився субагента: ${held.length}`
+        : '🧠 Основний агент'
+    );
+    for (const answer of held) await say(answer);
+    return;
+  }
+  const agent = agents.get(taskId);
+  const path = agentTranscript(taskId);
+  // Start at the last few messages, like opening the agent's view
+  let offset = 0;
+  if (path && existsSync(path)) {
+    const lines = readFileSync(path, 'utf8').split('\n');
+    const withText = lines
+      .map((line, i) => [i, transcriptEntry(line).texts.length])
+      .filter(([, n]) => n);
+    const from = withText.length > 2 ? withText[withText.length - 2][0] : 0;
+    offset = Buffer.byteLength(lines.slice(0, from).join('\n') + (from ? '\n' : ''));
+  }
+  viewing = { taskId, path, offset, partial: '', steps: [], stepsMessage: null };
+  await say(
+    `👁 Тепер у чаті 🤖 ${agent?.description ?? taskId} (${agent?.type ?? 'agent'}). Твої повідомлення передаю йому. /agents — перемкнути`
+  );
+  await pollView().catch((error) => log('agent view failed', error));
+  viewTimer = setInterval(
+    () => void pollView().catch((error) => log('agent view failed', error)),
+    AGENT_POLL_MS
+  );
+  viewTimer.unref();
+}
+
+async function endView(status, taskId = viewing?.taskId) {
+  if (!viewing || viewing.taskId !== taskId) return;
+  await pollView().catch(() => {});
+  const name = agents.get(viewing.taskId)?.description ?? 'субагент';
+  await say(
+    `${status === 'completed' ? '✅' : '⚪'} ${name}: ${status === 'completed' ? 'завершив' : status}`
+  );
+  await switchView(null);
+}
+
+async function onAgentsButton(index) {
+  if (index === 0) {
+    if (viewing) await switchView(null);
+  } else {
+    const taskId = agentsListed[index - 1];
+    if (!taskId || agents.get(taskId)?.ended) {
+      await say('ℹ️ Цей субагент уже завершив: /agents');
+      return;
+    }
+    if (viewing?.taskId !== taskId) await switchView(taskId);
+  }
+}
+
+/** A message from the owner while a subagent is shown: for that subagent (relayed by the main agent). */
+function forShownAgent(text) {
+  if (!viewing) return text;
+  const agent = agents.get(viewing.taskId);
+  return `[The owner is viewing your subagent "${agent?.description}" (agent id ${viewing.taskId}) in the chat and wrote this to it. Relay it to that subagent with SendMessage (to: "${viewing.taskId}") unless it is clearly meant for you, then keep waiting for it as before.]\n\n${text}`;
 }
 
 // ---------------------------------------------------------------------------------------------- /plans
@@ -1645,6 +1913,7 @@ async function deliver(message) {
     await say('ℹ️ Нічого передати: порожнє повідомлення');
     return;
   }
+  text = forShownAgent(text);
   const oncall = await oncallNote().catch((error) => log('oncall check failed', error));
   if (oncall) text = `${oncall}\n\n${text}`;
   const spokenByOwner = (message.attachments ?? []).some((a) => a.kind === 'voice');
@@ -1876,6 +2145,10 @@ async function main() {
         const effort = command.match(EFFORT_COMMAND);
         if (effort) {
           await effortCommand(effort[3]);
+          continue;
+        }
+        if (AGENTS_COMMAND.test(command)) {
+          await reportAgents();
           continue;
         }
         if (PLANS_COMMAND.test(command)) {
