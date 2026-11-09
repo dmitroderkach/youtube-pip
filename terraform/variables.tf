@@ -185,3 +185,9 @@ variable "dev_worker_git_user_email" {
   type        = string
   default     = "14731091+dmitroderkach@users.noreply.github.com"
 }
+
+variable "dev_ops_test_principal_arn" {
+  description = "Temporarily lets this principal (e.g. the owner's IAM user) assume the worker's task role, tf-plan and tf-apply to check their rights locally (docs/DEV_WORKER.md). Empty: no one but their services."
+  type        = string
+  default     = ""
+}

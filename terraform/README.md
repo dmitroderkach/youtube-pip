@@ -54,14 +54,9 @@ Then deploy:
 
 ```bash
 cd terraform
-rm -rf lambda/layer/python/*
-mkdir -p lambda/layer/python
-# Install Linux x86_64 wheels (matches Fargate/Lambda); do not use macOS `pip -t lambda/python`.
-docker run --rm --platform linux/amd64 \
-  -v "$(pwd)/lambda/requirements.txt:/req.txt:ro" \
-  -v "$(pwd)/lambda/layer/python:/out" \
-  python:3.12-slim-bookworm \
-  bash -c "pip install --no-cache-dir -r /req.txt -t /out"
+# Lambda dependencies layer: pinned Linux x86_64 wheels for python3.12, no bytecode, so the zip (and its hash) is the
+# same on every machine, CodeBuild's tf-plan included (docs/DEV_WORKER.md, "Infrastructure and images")
+bash lambda/build-layer.sh
 terraform init
 terraform apply
 ```

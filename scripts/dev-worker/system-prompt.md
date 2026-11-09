@@ -14,12 +14,24 @@ earlier in this session was written in Ukrainian (fix it in English instead of r
 - Ask in the chat and wait for the owner's explicit "так" / "ок" in a later message before: merging a PR, pushing a
   tag / running the release flow, anything else outward-facing or hard to undo (deleting branches, force-push,
   editing repository settings). Approval for one action is not approval for the next.
-- You have no AWS rights besides your own state; never try `terraform apply` or AWS changes: say what to run instead.
-- Checks of terraform/ and its Lambdas are available here: `terraform -chdir=terraform fmt -check -recursive`,
-  `terraform -chdir=terraform init -backend=false` then `validate` (no plan: it needs AWS); Python 3.12 (the Lambda
-  runtime) with boto3: `python3 -m py_compile terraform/lambda/*.py` and tests of the handlers with stubbed AWS clients.
-  Run them before pushing a change there. A PR that changes infrastructure says the owner has to run `terraform plan`
-  and `apply`.
+- AWS: you can read this project's resources (`youtube-pip-*`: `terraform plan`, CloudWatch logs of its Lambdas, ECS
+  tasks and builds, S3 objects) but change nothing and read no secret values. Changes go through `dev-ops`
+  (docs/DEV_WORKER.md, "Infrastructure and images"), and the owner approves them with a button in Telegram:
+  `dev-ops plan` (terraform plan of main in CodeBuild; the owner gets it with ✅ Apply, and only that plan is applied),
+  `dev-ops build <runner|dev-worker> [ref]` (builds an image from a branch into a candidates repository, no approval
+  needed), `dev-ops publish <runner|dev-worker>` (asks the owner to publish :latest from main), `dev-ops runs` /
+  `dev-ops status <id>` (results). Only merged main is ever planned for apply or published: merge first (with the
+  owner's "так"), then `dev-ops plan`. A plan that touches the gate itself (dev_worker_ops.tf, the worker's and
+  dev-bot's roles, dev_bot.py) gets no button: tell the owner to apply it locally. Never try other ways around this.
+  What a gated apply may manage: resources named `${local.name_prefix}-…` (`youtube-pip-*`) of the services already in
+  the stack (Lambda, S3, SQS, ECR, ECS, CloudWatch logs, EventBridge, Scheduler, budgets; EC2 by the Project tag);
+  every new or changed IAM role needs `permissions_boundary = aws_iam_policy.project_boundary.arn` (no button
+  otherwise). A new AWS service needs aws_iam_policy.project_apply / project_read extended: a gate change, so say in
+  the PR that the owner applies it locally first.
+- Checks of terraform/ and its Lambdas: `terraform -chdir=terraform fmt -check -recursive`, `validate`, and `plan`
+  (real state, read-only; `bash terraform/lambda/build-layer.sh` first, the Lambda layer is not in git); Python 3.12
+  (the Lambda runtime) with boto3: `python3 -m py_compile terraform/lambda/*.py` and tests of the handlers with stubbed
+  AWS clients. Run them before pushing a change there; put the plan's summary in the PR.
 - E2E: run the full suite only on a PR (CI). Locally run narrowed tests only (one spec, `--project=chromium`), a
   handful of times at most: many YouTube loads from one IP trigger Google's CAPTCHA. The test account session
   (e2e/.auth/storageState.json) is not here, so auth-backed specs (like-dislike, Shorts) are skipped locally.

@@ -137,17 +137,24 @@ resource "aws_iam_role_policy" "dev_worker_execution_secrets" {
   })
 }
 
-# The worker's own AWS rights: its state bucket, its queue and AWS Transcribe for voice messages, nothing else.
+# The worker's own AWS rights: its state bucket, its queue, AWS Transcribe for voice messages, reads of this project's
+# resources (terraform plan, logs; aws_iam_policy.project_read) and the dev-ops Lambda (dev_worker_ops.tf). No changes
+# to the infrastructure and no secret values (but the budget alert e-mail a plan reads): those go through the owner.
 resource "aws_iam_role" "dev_worker_task" {
   name = "${local.name_prefix}-dev-worker-task-role"
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
+    Statement = concat([{
       Effect    = "Allow"
       Principal = { Service = "ecs-tasks.amazonaws.com" }
       Action    = "sts:AssumeRole"
-    }]
+    }], local.dev_ops_test_trust)
   })
+}
+
+resource "aws_iam_role_policy_attachment" "dev_worker_task_read" {
+  role       = aws_iam_role.dev_worker_task.name
+  policy_arn = aws_iam_policy.project_read.arn
 }
 
 resource "aws_iam_role_policy" "dev_worker_task" {
@@ -176,6 +183,18 @@ resource "aws_iam_role_policy" "dev_worker_task" {
         Effect   = "Allow"
         Action   = ["transcribe:StartTranscriptionJob", "transcribe:GetTranscriptionJob", "transcribe:DeleteTranscriptionJob"]
         Resource = "*"
+      },
+      {
+        # Plans of main, image builds and publish requests (dev-ops CLI)
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = aws_lambda_function.dev_ops.arn
+      },
+      {
+        # Whatever else gets attached: no secret values
+        Effect      = "Deny"
+        Action      = ["secretsmanager:GetSecretValue", "secretsmanager:BatchGetSecretValue"]
+        NotResource = data.aws_secretsmanager_secret.project_budget_alert_email.arn
       }
     ]
   })
@@ -208,7 +227,11 @@ resource "aws_ecs_task_definition" "dev_worker" {
         { name = "GIT_USER_NAME", value = var.dev_worker_git_user_name },
         { name = "GIT_USER_EMAIL", value = var.dev_worker_git_user_email },
         # The test account session is not in the worker: auth-backed e2e specs are skipped there
-        { name = "SKIP_AUTH_E2E_ON_CI", value = "true" }
+        { name = "SKIP_AUTH_E2E_ON_CI", value = "true" },
+        # dev-ops CLI (scripts/dev-worker/dev-ops.sh, dev_worker_ops.tf)
+        { name = "DEV_OPS_FUNCTION", value = aws_lambda_function.dev_ops.function_name },
+        { name = "OPS_BUCKET", value = aws_s3_bucket.dev_ops.bucket },
+        { name = "DEV_OPS_PROJECTS", value = join(",", [aws_codebuild_project.tf_plan.name, aws_codebuild_project.tf_apply.name, aws_codebuild_project.image_build.name, aws_codebuild_project.image_publish.name]) }
       ]
       secrets = [
         { name = "CLAUDE_CODE_OAUTH_TOKEN", valueFrom = "${data.aws_secretsmanager_secret.oncall.arn}:claude_code_oauth_token::" },
@@ -302,6 +325,23 @@ resource "aws_iam_role_policy" "dev_bot" {
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
         Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/pending-start.json"
+      },
+      {
+        # Gate (dev_worker_ops.tf): what the owner is asked to approve, and the answer, written once
+        Effect   = "Allow"
+        Action   = "s3:GetObject"
+        Resource = "${aws_s3_bucket.dev_ops.arn}/gate/*"
+      },
+      {
+        Effect   = "Allow"
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.dev_ops.arn}/gate/*.decision.json"
+      },
+      {
+        # Only on the owner's ✅
+        Effect   = "Allow"
+        Action   = "codebuild:StartBuild"
+        Resource = [aws_codebuild_project.tf_apply.arn, aws_codebuild_project.image_publish.arn]
       }
     ]
   })
@@ -311,6 +351,8 @@ data "archive_file" "dev_bot" {
   type        = "zip"
   source_file = "${path.module}/lambda/dev_bot.py"
   output_path = "${path.module}/lambda/dev_bot.zip"
+  # Same zip (and hash) on every machine: a plan in CodeBuild matches one made locally
+  output_file_mode = "0666"
 }
 
 resource "aws_lambda_function" "dev_bot" {
@@ -325,16 +367,19 @@ resource "aws_lambda_function" "dev_bot" {
 
   environment {
     variables = {
-      CLUSTER_ARN         = aws_ecs_cluster.dev_worker.arn
-      TASK_DEFINITION_ARN = aws_ecs_task_definition.dev_worker.arn_without_revision
-      CONTAINER_NAME      = local.dev_worker_container
-      SUBNET_IDS          = aws_subnet.public.id
-      SECURITY_GROUP_IDS  = aws_security_group.runner.id
-      QUEUE_URL           = aws_sqs_queue.dev_worker_inbox.id
-      STATE_BUCKET        = aws_s3_bucket.dev_worker_state.bucket
-      ONCALL_SECRET_ARN   = data.aws_secretsmanager_secret.oncall.arn
-      DEV_SECRET_ARN      = data.aws_secretsmanager_secret.dev_worker.arn
-      IDLE_ALERT_MINUTES  = tostring(var.dev_worker_idle_alert_minutes)
+      CLUSTER_ARN           = aws_ecs_cluster.dev_worker.arn
+      TASK_DEFINITION_ARN   = aws_ecs_task_definition.dev_worker.arn_without_revision
+      CONTAINER_NAME        = local.dev_worker_container
+      SUBNET_IDS            = aws_subnet.public.id
+      SECURITY_GROUP_IDS    = aws_security_group.runner.id
+      QUEUE_URL             = aws_sqs_queue.dev_worker_inbox.id
+      STATE_BUCKET          = aws_s3_bucket.dev_worker_state.bucket
+      ONCALL_SECRET_ARN     = data.aws_secretsmanager_secret.oncall.arn
+      DEV_SECRET_ARN        = data.aws_secretsmanager_secret.dev_worker.arn
+      IDLE_ALERT_MINUTES    = tostring(var.dev_worker_idle_alert_minutes)
+      OPS_BUCKET            = aws_s3_bucket.dev_ops.bucket
+      TF_APPLY_PROJECT      = aws_codebuild_project.tf_apply.name
+      IMAGE_PUBLISH_PROJECT = aws_codebuild_project.image_publish.name
     }
   }
 }

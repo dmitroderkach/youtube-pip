@@ -273,6 +273,8 @@ resource "aws_ecs_cluster_capacity_providers" "runner" {
 
 resource "aws_iam_role" "task_execution" {
   name = "${local.name_prefix}-task-execution-role"
+  # Changeable by a gated apply of the dev worker (dev_worker_ops.tf), which needs the boundary on every role it changes
+  permissions_boundary = aws_iam_policy.project_boundary.arn
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -314,6 +316,8 @@ resource "aws_iam_role_policy" "task_execution_secrets" {
 
 resource "aws_iam_role" "task_role" {
   name = "${local.name_prefix}-task-role"
+  # Changeable by a gated apply of the dev worker (dev_worker_ops.tf), which needs the boundary on every role it changes
+  permissions_boundary = aws_iam_policy.project_boundary.arn
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -416,6 +420,8 @@ resource "aws_ecs_task_definition" "runner_oncall" {
 
 resource "aws_iam_role" "lambda" {
   name = "${local.name_prefix}-dispatcher-lambda-role"
+  # Changeable by a gated apply of the dev worker (dev_worker_ops.tf), which needs the boundary on every role it changes
+  permissions_boundary = aws_iam_policy.project_boundary.arn
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -500,6 +506,8 @@ resource "aws_iam_role_policy" "lambda" {
 
 resource "aws_iam_role" "runner_nat_lifecycle" {
   name = "${local.name_prefix}-runner-nat-lifecycle-role"
+  # Changeable by a gated apply of the dev worker (dev_worker_ops.tf), which needs the boundary on every role it changes
+  permissions_boundary = aws_iam_policy.project_boundary.arn
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -555,15 +563,17 @@ resource "aws_sqs_queue" "runner_dispatch" {
 }
 
 data "archive_file" "lambda" {
-  type        = "zip"
-  source_file = "${path.module}/lambda/handler.py"
-  output_path = "${path.module}/lambda/handler.zip"
+  type             = "zip"
+  source_file      = "${path.module}/lambda/handler.py"
+  output_path      = "${path.module}/lambda/handler.zip"
+  output_file_mode = "0666"
 }
 
 data "archive_file" "lambda_worker" {
-  type        = "zip"
-  source_file = "${path.module}/lambda/worker.py"
-  output_path = "${path.module}/lambda/worker.zip"
+  type             = "zip"
+  source_file      = "${path.module}/lambda/worker.py"
+  output_path      = "${path.module}/lambda/worker.zip"
+  output_file_mode = "0666"
 }
 
 # Layer zip must have `python/` at the archive root (AWS Lambda Python layer layout).
@@ -571,6 +581,8 @@ data "archive_file" "lambda_deps_layer" {
   type        = "zip"
   source_dir  = "${path.module}/lambda/layer"
   output_path = "${path.module}/lambda/deps-layer.zip"
+  # Same zip on every machine (with lambda/build-layer.sh): a plan in CodeBuild matches one made locally
+  output_file_mode = "0666"
 }
 
 resource "aws_lambda_layer_version" "lambda_deps" {
@@ -671,9 +683,10 @@ resource "aws_lambda_permission" "dispatcher_function_invoke_via_url" {
 }
 
 data "archive_file" "runner_nat_lifecycle_lambda" {
-  type        = "zip"
-  source_file = "${path.module}/lambda/nat_lifecycle.py"
-  output_path = "${path.module}/lambda/runner_nat_lifecycle.zip"
+  type             = "zip"
+  source_file      = "${path.module}/lambda/nat_lifecycle.py"
+  output_path      = "${path.module}/lambda/runner_nat_lifecycle.zip"
+  output_file_mode = "0666"
 }
 
 resource "aws_lambda_function" "runner_nat_lifecycle" {

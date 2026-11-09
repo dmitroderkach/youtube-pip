@@ -1,6 +1,7 @@
 # Dev worker image (docs/DEV_WORKER.md): Claude Code driven from Telegram. Build context = repository root:
-#   scripts/build-dev-worker-image.sh
-FROM node:24-bookworm-slim
+#   scripts/build-dev-worker-image.sh (or CodeBuild image-build / image-publish, terraform/dev_worker_ops.tf)
+# Docker official images from their ECR Public mirror: CodeBuild's shared addresses hit Docker Hub's pull limits
+FROM public.ecr.aws/docker/library/node:24-bookworm-slim
 
 # Keep in sync with @playwright/test in package-lock.json (browsers for narrowed local e2e runs).
 ARG PLAYWRIGHT_VERSION=1.58.2
@@ -23,8 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && npx -y playwright@${PLAYWRIGHT_VERSION} install --with-deps --only-shell chromium \
     && rm -rf /var/lib/apt/lists/* /root/.npm
 
-# Terraform for checks of terraform/ (fmt, init -backend=false, validate). The worker has no AWS rights: no plan /
-# apply. Keep close to the owner's local version.
+# Terraform for checks of terraform/ (fmt, validate, plan with the worker's read-only rights; apply goes through the
+# owner's button, dev-ops). Keep close to the owner's local version and to dev_ops_terraform_version
+# (terraform/dev_worker_ops.tf).
 ARG TERRAFORM_VERSION=1.15.4
 RUN cd /tmp \
     && curl -fsSLO https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip \
@@ -39,9 +41,9 @@ RUN cd /tmp \
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libbz2-1.0 libffi8 libgdbm6 liblzma5 libncursesw6 libreadline8 libsqlite3-0 libssl3 libuuid1 zlib1g \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=python:3.12-slim-bookworm /usr/local/bin/python3.12 /usr/local/bin/python3.12
-COPY --from=python:3.12-slim-bookworm /usr/local/lib/python3.12 /usr/local/lib/python3.12
-COPY --from=python:3.12-slim-bookworm /usr/local/lib/libpython3.12.so.1.0 /usr/local/lib/
+COPY --from=public.ecr.aws/docker/library/python:3.12-slim-bookworm /usr/local/bin/python3.12 /usr/local/bin/python3.12
+COPY --from=public.ecr.aws/docker/library/python:3.12-slim-bookworm /usr/local/lib/python3.12 /usr/local/lib/python3.12
+COPY --from=public.ecr.aws/docker/library/python:3.12-slim-bookworm /usr/local/lib/libpython3.12.so.1.0 /usr/local/lib/
 RUN ldconfig \
     && ln -s python3.12 /usr/local/bin/python3 && ln -s python3.12 /usr/local/bin/python \
     && python3 -m pip install --no-cache-dir --root-user-action=ignore boto3
@@ -59,7 +61,9 @@ COPY --chown=worker:worker scripts/dev-worker/worker.mjs scripts/dev-worker/tele
 # User settings: the PreToolUse hook that keeps text sent to GitHub / git history in English
 COPY --chown=worker:worker scripts/dev-worker/claude-settings.json /home/worker/.claude/settings.json
 COPY terraform/dev-worker/entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
+# Terraform plans of main and Docker images through CodeBuild (docs/DEV_WORKER.md, "Infrastructure and images")
+COPY scripts/dev-worker/dev-ops.sh /usr/local/bin/dev-ops
+RUN chmod +x /entrypoint.sh /usr/local/bin/dev-ops
 
 USER worker
 WORKDIR /home/worker
