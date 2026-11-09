@@ -380,12 +380,21 @@ async function restore() {
   const epochKey = sessionId ? latestEpochKey(await s3Keys(TRANSCRIPTS_PREFIX), sessionId) : null;
   // With an epoch saved, the session's whole transcript of the old layout is not needed (it expires by itself)
   const legacy = epochKey ? ['--exclude', `*/${sessionId}.jsonl`] : [];
+  // A project with memory under memory/ takes it only from there: the old copy under claude/projects/<project>/memory/
+  // is no longer updated, so restoring it would bring back memory files Claude has deleted since (until it expires).
+  // A project without it yet gets the old copy once; the next save moves it to memory/.
+  const memoryProjects = new Set(
+    (await s3Keys(MEMORY_PREFIX)).map((key) => key.split('/')[1]).filter(Boolean)
+  );
+  // `--exclude=…`: project names start with "-", which the CLI would read as an option
+  const oldMemory = [...memoryProjects].map((project) => `--exclude=${project}/memory/*`);
   await aws(
     's3',
     'sync',
     `s3://${BUCKET}/${PROJECTS_PREFIX}`,
     CLAUDE_PROJECTS_DIR,
     ...legacy,
+    ...oldMemory,
     '--quiet'
   );
   if (epochKey) {
@@ -393,8 +402,6 @@ async function restore() {
     mkdirSync(dir, { recursive: true });
     await aws('s3', 'cp', `s3://${BUCKET}/${epochKey}`, join(dir, `${sessionId}.jsonl`), '--quiet');
   }
-  // Memory over its copy of the old layout (claude/projects/<project>/memory/, restored above until it expires)
-  const memoryProjects = new Set((await s3Keys(MEMORY_PREFIX)).map((key) => key.split('/')[1]));
   for (const project of memoryProjects) {
     await aws(
       's3',
