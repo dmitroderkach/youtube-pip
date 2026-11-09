@@ -11,9 +11,9 @@
  * (the dev-bot Lambda warns in the chat when a run stays up long after the last answer, docs/DEV_WORKER.md), and on SIGTERM (`/down`, ECS StopTask); every stop it initiates is reported in
  * the chat and ends with exit code 0 or REPORTED_EXIT_CODE, which the dev-bot Lambda does not report again.
  *
- * Env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, QUEUE_URL, STATE_BUCKET, CLAUDE_CODE_OAUTH_TOKEN, GH_TOKEN,
- *      GITHUB_REPO, UP_AT (unix seconds of /up), IDLE_TIMEOUT_SECONDS, CLAUDE_MODEL,
- *      TRANSCRIBE_LANGUAGE.
+ * Env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, QUEUE_URL, STATE_BUCKET, CLAUDE_CODE_OAUTH_TOKEN, GH_TOKEN (the task's
+ *      GITHUB_TOKEN, renamed by entrypoint.sh), GITHUB_REPO, UP_AT (unix seconds of /up), IDLE_TIMEOUT_SECONDS,
+ *      CLAUDE_MODEL, TRANSCRIBE_LANGUAGE, GOOGLE_TTS_API_KEY, TTS_VOICE.
  */
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { execFile } from 'node:child_process';
