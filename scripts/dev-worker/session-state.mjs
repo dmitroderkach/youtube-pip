@@ -2,110 +2,323 @@
  * Pure helpers of the dev worker's state in S3 (no I/O): the part of a Claude Code transcript that resuming needs,
  * and the background task records shown for restoring after a restart.
  *
- * A transcript (`~/.claude/projects/<project>/<session id>.jsonl`) is one JSON object per line, chained by
- * `parentUuid`. A compaction writes a `compact_boundary` line with no parent followed by the summary of everything
- * before it: resuming walks back from the newest line and stops at the boundary, so the lines above the last
- * boundary (except the messages the compaction preserved) are never read again; Claude Code itself loads a large
- * transcript from its last compaction the same way. The worker uploads only the current epoch (from the last boundary on) as its own
- * object; earlier epochs stop changing and the bucket's lifecycle rule expires them.
+ * A transcript (`~/.claude/projects/<project>/<session id>.jsonl`) is one JSON object per line. A compaction writes a
+ * `compact_boundary` line followed by the summary of everything before it, so the conversation above the last
+ * boundary is never sent to the model again. The worker uploads only the current epoch (the last boundary on, plus
+ * what Claude Code still needs from above it) as its own object; earlier epochs stop changing and the bucket's
+ * lifecycle rule expires them.
+ *
+ * `transcriptEpoch` is a port of Claude Code 2.1.319's own transcript compaction (the plan it builds before
+ * rewriting a transcript file after a compaction; the version bundled with the worker's Agent SDK): which rows of
+ * each type survive, the preserved messages and the rows tied to them, the parents of rows after the boundary, and
+ * the order the kept metadata rows are written in. Update it with the SDK.
  */
 
-const BOUNDARY_MARK = '"compact_boundary"';
+/** Claude Code's row types: how a compaction treats a row above the last boundary (unknown types: accumulate). */
+const ROW_KINDS = {
+  user: 'transcript',
+  assistant: 'transcript',
+  system: 'transcript',
+  attachment: 'transcript',
+  progress: 'boundary-cleared',
+  'file-history-snapshot': 'boundary-cleared',
+  'file-history-delta': 'boundary-cleared',
+  'last-prompt': 'boundary-cleared',
+  'continued-in': 'boundary-cleared',
+  'resume-head-vouch': 'boundary-cleared',
+  'content-replacement': 'accumulate',
+  'api-request-shape': 'boundary-cleared',
+  'api-request-blob': 'boundary-cleared',
+  'api-request': 'boundary-cleared',
+  'fork-context-ref': 'accumulate',
+  'frame-link': 'accumulate',
+  summary: 'last-wins',
+  'custom-title': 'last-wins',
+  'ended-by-model': 'last-wins',
+  'ai-title': 'last-wins',
+  tag: 'last-wins',
+  relocated: 'last-wins',
+  'agent-name': 'last-wins',
+  'agent-color': 'last-wins',
+  'agent-setting': 'last-wins',
+  'pr-link': 'last-wins',
+  'artifact-comment-monitor': 'accumulate',
+  'artifact-autoreact-ledger': 'last-wins',
+  'bridge-session': 'last-wins',
+  'history-suppression': 'last-wins',
+  'attribution-snapshot': 'last-wins',
+  mode: 'last-wins',
+  'permission-mode': 'last-wins',
+  'isolation-latch': 'last-wins',
+  'session-owner': 'last-wins',
+  'dev-mods': 'last-wins',
+  'memory-mode': 'accumulate',
+  'atis-latch': 'last-wins',
+  'tools-used': 'last-wins',
+  'worktree-state': 'last-wins',
+  'cost-state': 'last-wins',
+  'queue-operation': 'last-wins',
+  'observer-ref': 'last-wins',
+};
 
-function parseLine(line) {
+/** Last-wins types whose older rows are dropped even below the boundary. */
+const SUPERSEDED_TYPES = new Set(['attribution-snapshot', 'artifact-autoreact-ledger']);
+const LEDGER = 'artifact-autoreact-ledger';
+
+const rowKind = (type) => (type === 'repl-mode' ? 'last-wins' : (ROW_KINDS[type] ?? 'accumulate'));
+
+/** A line without its leading NUL bytes (left by a torn write). */
+const withoutNul = (line) => line.replace(/^\0+/, '');
+
+function parseRow(line) {
+  if (!line) return undefined;
   try {
-    return JSON.parse(line);
+    return JSON.parse(withoutNul(line));
   } catch {
-    return null;
+    return undefined;
   }
 }
 
-/** Start offset of the line at `index` in `text`. */
-const lineStart = (text, index) => text.lastIndexOf('\n', index) + 1;
+/** Last-wins rows are one per type and session (summaries: per leaf). */
+const lastWinsKey = (row) =>
+  `${row.type}:${(row.type === 'summary' ? row.leafUuid : row.sessionId) ?? ''}`;
 
-/**
- * The first line before `before` that holds `needle`, parsed, when `matches` accepts it: `{ from, entry }` or null.
- * An id first appears in the line it was created with, so the first occurrence is that line.
- */
-function firstLine(text, needle, before, matches) {
-  const at = text.indexOf(needle);
-  if (at < 0 || at >= before) return null;
-  const from = lineStart(text, at);
-  const end = text.indexOf('\n', at);
-  const entry = parseLine(text.slice(from, end < 0 ? undefined : end));
-  return entry && matches(entry) ? { from, entry } : null;
-}
+const COST_LIMIT = 1e15;
+const COST_FIELDS = [
+  'totalAPIDuration',
+  'totalAPIDurationWithoutRetries',
+  'totalToolDuration',
+  'totalLinesAdded',
+  'totalLinesRemoved',
+  'totalDuration',
+  'startTime',
+];
+const USAGE_FIELDS = [
+  'inputTokens',
+  'outputTokens',
+  'cacheReadInputTokens',
+  'cacheCreationInputTokens',
+  'webSearchRequests',
+  'costUSD',
+];
+const USAGE_OPTIONAL = [
+  'thinkingTokens',
+  'cacheCreationEphemeral5mInputTokens',
+  'cacheCreationEphemeral1hInputTokens',
+];
+const USAGE_SUMMED = [
+  'inputTokens',
+  'outputTokens',
+  'cacheReadInputTokens',
+  'cacheCreationInputTokens',
+];
 
-/**
- * The uuids of the messages a compaction kept as they were, the way Claude Code's own loader reads them:
- * `preservedMessages.uuids` (`{ anchorUuid, uuids, allUuids }`; a plain list in older transcripts), else the
- * `preservedSegment` head … tail.
- */
-export function preservedUuids(meta = {}) {
-  const listed = Array.isArray(meta.preservedMessages)
-    ? meta.preservedMessages
-    : meta.preservedMessages?.uuids;
-  const uuids = Array.isArray(listed)
-    ? listed
-    : [meta.preservedSegment?.headUuid, meta.preservedSegment?.tailUuid];
-  return uuids.filter((uuid) => typeof uuid === 'string');
-}
+const amount = (value, max = COST_LIMIT) =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= max;
 
-/**
- * A compaction can keep the newest messages as they were: they are written before the boundary and relinked after
- * its summary on resume, so the epoch starts at the first of them, or at an earlier line of the same API message
- * (Claude Code writes an answer's thinking and text as separate lines and loads them together). Returns `from` when
- * there are none (or they are not in the file).
- */
-function preservedStart(text, boundary, from) {
-  let start = from;
-  for (const uuid of preservedUuids(boundary.compactMetadata)) {
-    const found = firstLine(text, `"uuid":"${uuid}"`, from, (entry) => entry.uuid === uuid);
-    if (!found) continue;
-    start = Math.min(start, found.from);
-    const messageId = found.entry.message?.id;
-    if (typeof messageId !== 'string') continue;
-    const sibling = firstLine(
-      text,
-      `"id":"${messageId}"`,
-      from,
-      (entry) => entry.message?.id === messageId
-    );
-    if (sibling) start = Math.min(start, sibling.from);
+/** Claude Code's cost-state schema: a row that fails it is kept like an accumulate row. */
+function validCostState(row) {
+  if (typeof row.sessionId !== 'string' || !amount(row.totalCostUSD, 1e9)) return false;
+  if (!COST_FIELDS.every((field) => amount(row[field]))) return false;
+  if (row.hasUnknownModelCost !== undefined && typeof row.hasUnknownModelCost !== 'boolean')
+    return false;
+  const usage = row.modelUsage;
+  if (typeof usage !== 'object' || usage === null || Array.isArray(usage)) return false;
+  const models = Object.entries(usage);
+  for (const [model, entry] of models) {
+    if (!/^[^\p{Cc}\p{Cf}]+$/u.test(model)) return false;
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) return false;
+    if (!USAGE_FIELDS.every((field) => amount(entry[field]))) return false;
+    if (!USAGE_OPTIONAL.every((field) => entry[field] === undefined || amount(entry[field])))
+      return false;
   }
-  return start;
+  return USAGE_SUMMED.every(
+    (field) => models.reduce((sum, [, entry]) => sum + entry[field], 0) <= COST_LIMIT
+  );
 }
 
 /**
- * The current epoch of a transcript: `{ start, name }`, where `start` is the offset of the last compaction boundary
- * line, or of the first message it preserved (0 without one), and `name` the object name of the epoch, `<first timestamp>-<boundary uuid 8>.jsonl`, which
- * sorts by time (the epoch before the first compaction is named after the first line of the file).
+ * The plan of Claude Code's transcript compaction for `lines`: `{ kind: 'plan', plan }`, `{ kind: 'skip' }` (no
+ * boundary) or `{ kind: 'abort', reason }` (Claude Code would leave the file as it is).
+ */
+function compactionPlan(lines) {
+  let boundaryIdx = -1;
+  let boundaryMeta;
+  let lastNonPreservedBoundaryIdx = -1;
+  const byUuid = new Map();
+  const snapshots = new Map();
+  const deltas = new Map();
+  const keep = new Set();
+  const lastMeta = new Map();
+  const superseded = new Set();
+  for (const [idx, line] of lines.entries()) {
+    const row = parseRow(line);
+    if (!row) {
+      // Not JSON (a torn write): kept as it is
+      if (line) {
+        if (withoutNul(line).startsWith(`{"type":"${LEDGER}"`))
+          return { kind: 'abort', reason: 'ledger' };
+        keep.add(idx);
+      }
+      continue;
+    }
+    if (row.type === 'file-history-snapshot') snapshots.set(row.messageId, idx);
+    else if (row.type === 'file-history-delta') {
+      const list = deltas.get(row.messageId);
+      if (list) list.push(idx);
+      else deltas.set(row.messageId, [idx]);
+    }
+    const kind = rowKind(row.type);
+    if (kind === 'transcript') {
+      byUuid.set(row.uuid, { parent: row.parentUuid, idx });
+      if (row.type === 'system' && row.subtype === 'compact_boundary') {
+        boundaryIdx = idx;
+        boundaryMeta = row.compactMetadata;
+        if (!row.compactMetadata?.preservedSegment && !row.compactMetadata?.preservedMessages)
+          lastNonPreservedBoundaryIdx = idx;
+      }
+    } else if (kind === 'accumulate') keep.add(idx);
+    else if (kind === 'last-wins') {
+      if (row.type === 'cost-state' && !validCostState(row)) keep.add(idx);
+      else {
+        // The worker never writes artifact ledgers (Claude Code merges them): keep such a transcript whole
+        if (row.type === LEDGER) return { kind: 'abort', reason: 'ledger' };
+        const key = lastWinsKey(row);
+        const previous = lastMeta.get(key);
+        if (previous && SUPERSEDED_TYPES.has(row.type)) superseded.add(previous.idx);
+        lastMeta.set(key, { idx, line, type: row.type });
+      }
+    }
+  }
+  if (boundaryIdx < 0) return { kind: 'skip' };
+  const keepWith = (uuid, idx) => {
+    keep.add(idx);
+    const snapshot = snapshots.get(uuid);
+    if (snapshot !== undefined) keep.add(snapshot);
+    for (const delta of deltas.get(uuid) ?? []) keep.add(delta);
+  };
+  if (boundaryMeta?.preservedMessages) {
+    for (const uuid of boundaryMeta.preservedMessages.uuids) {
+      const row = byUuid.get(uuid);
+      if (!row) return { kind: 'abort', reason: 'preserved_uuid_missing' };
+      keepWith(uuid, row.idx);
+    }
+  } else if (boundaryMeta?.preservedSegment) {
+    const segment = boundaryMeta.preservedSegment;
+    const seen = new Set();
+    let uuid = segment.tailUuid;
+    while (uuid && !seen.has(uuid)) {
+      seen.add(uuid);
+      const row = byUuid.get(uuid);
+      if (row) {
+        keepWith(uuid, row.idx);
+        if (uuid === segment.headUuid) break;
+      }
+      uuid = row?.parent;
+    }
+    if (uuid !== segment.headUuid) return { kind: 'abort', reason: 'preserved_walk_broken' };
+  }
+  // Rows after the boundary keep their parent from above it (Claude Code relinks them)
+  const parents = new Set();
+  for (const { parent, idx } of byUuid.values()) {
+    if (!parent || idx < boundaryIdx) continue;
+    const row = byUuid.get(parent);
+    if (row && row.idx < boundaryIdx && !keep.has(row.idx)) parents.add(row.idx);
+  }
+  for (const idx of parents) keep.add(idx);
+  return {
+    kind: 'plan',
+    plan: { boundaryIdx, lastNonPreservedBoundaryIdx, keep, superseded, lastMeta },
+  };
+}
+
+/** The rows Claude Code's compaction writes, in its order: kept rows, then after the boundary the last-wins rows from above it. */
+function compactedLines(lines, plan) {
+  const kept = (idx) =>
+    (idx >= plan.boundaryIdx || plan.keep.has(idx)) && !plan.superseded.has(idx);
+  const movedBelow = ({ idx, type }) =>
+    idx < plan.boundaryIdx &&
+    (type !== 'attribution-snapshot' || idx > plan.lastNonPreservedBoundaryIdx);
+  const out = [];
+  for (const [idx, line] of lines.entries()) {
+    if (kept(idx)) out.push(withoutNul(line));
+    if (idx === plan.boundaryIdx) {
+      for (const meta of plan.lastMeta.values())
+        if (movedBelow(meta)) out.push(withoutNul(meta.line));
+    }
+  }
+  return out;
+}
+
+/**
+ * Why an epoch would not resume like the whole file, or null: the boundary must be in it, every message the
+ * compaction preserved, every row from the boundary on, and the parent of every message below the boundary
+ * (Claude Code's own invariants after compacting a file). A port that misses one falls back to the whole file.
+ */
+function epochProblem(lines, plan, epochText) {
+  const out = epochText.split('\n').filter(Boolean);
+  const kept = new Set(out);
+  const uuids = new Set();
+  for (const line of out) {
+    const row = parseRow(line);
+    if (row?.uuid) uuids.add(row.uuid);
+  }
+  const boundary = parseRow(lines[plan.boundaryIdx]);
+  if (!uuids.has(boundary?.uuid)) return 'boundary_missing';
+  const meta = boundary.compactMetadata ?? {};
+  const preserved = meta.preservedMessages?.uuids ?? [];
+  if (preserved.some((uuid) => !uuids.has(uuid))) return 'preserved_missing';
+  for (let idx = plan.boundaryIdx; idx < lines.length; idx++) {
+    if (plan.superseded.has(idx) || !lines[idx]) continue;
+    if (!kept.has(lines[idx].replace(/^\0+/, ''))) return 'row_missing';
+    const row = parseRow(lines[idx]);
+    if (rowKind(row?.type) === 'transcript' && row.parentUuid && !uuids.has(row.parentUuid))
+      return 'parent_missing';
+  }
+  return null;
+}
+
+/**
+ * The current epoch of a transcript: `{ text, name, kind, reason }`. `text` is what Claude Code's own compaction
+ * would leave of the file's complete lines (a line still being written is left for the next save, as Claude Code
+ * does); the whole file when there is no boundary yet, when Claude Code would not compact it, or when the result
+ * fails the resume check (`epochProblem`). `name` is `<boundary timestamp>-<boundary uuid 8>.jsonl` (sorts by time;
+ * before the first compaction: the first row's time and `start`).
  */
 export function transcriptEpoch(text) {
-  let start = 0;
+  const complete = text.slice(0, text.lastIndexOf('\n') + 1);
+  const lines = complete.split('\n');
+  lines.pop();
+  const result = compactionPlan(lines);
   let boundary = null;
-  for (let at = text.lastIndexOf(BOUNDARY_MARK); at >= 0; ) {
-    const from = lineStart(text, at);
-    const end = text.indexOf('\n', at);
-    const entry = parseLine(text.slice(from, end < 0 ? undefined : end));
-    if (entry?.type === 'system' && entry.subtype === 'compact_boundary') {
-      start = Math.min(from, preservedStart(text, entry, from));
-      boundary = entry;
-      break;
-    }
-    // The mark inside a message (e.g. this very code in a tool result): look further up
-    at = from > 0 ? text.lastIndexOf(BOUNDARY_MARK, from - 1) : -1;
+  let epochText = complete;
+  let kind = result.kind;
+  let reason = result.reason;
+  if (result.kind === 'plan') {
+    boundary = parseRow(lines[result.plan.boundaryIdx]);
+    const out = compactedLines(lines, result.plan);
+    const compacted = out.length ? `${out.join('\n')}\n` : '';
+    const problem = epochProblem(lines, result.plan, compacted);
+    if (problem) {
+      kind = 'abort';
+      reason = `check_${problem}`;
+    } else epochText = compacted;
   }
   let stamp = boundary?.timestamp;
   if (!stamp) {
-    for (const line of text.slice(start, start + 200_000).split('\n')) {
-      stamp = parseLine(line)?.timestamp;
+    for (const line of lines) {
+      stamp = parseRow(line)?.timestamp;
       if (stamp) break;
     }
   }
   const time = String(stamp ?? '0000-00-00T00:00:00.000Z').replace(/[:.]/g, '-');
   const id = String(boundary?.uuid ?? 'start').slice(0, 8);
-  return { start, name: `${time}-${id}.jsonl` };
+  return {
+    text: epochText,
+    name: `${time}-${id}.jsonl`,
+    kind,
+    ...(reason ? { reason } : {}),
+  };
 }
 
 /** The newest epoch key of `sessionId` among `claude/transcripts/<project>/<session id>/<name>` keys, or null. */

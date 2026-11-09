@@ -6,45 +6,126 @@ import {
   epochProject,
   latestEpochKey,
   restoreNote,
-  preservedUuids,
   transcriptEpoch,
 } from './session-state.mjs';
 
 const line = (entry) => JSON.stringify(entry);
 
-test('transcript epoch: from the last compaction boundary, named by its time and uuid', () => {
-  const lines = [
-    line({ type: 'user', uuid: 'u1', timestamp: '2026-11-08T10:00:00.000Z' }),
-    line({
-      type: 'system',
-      subtype: 'compact_boundary',
-      uuid: 'b1aaaaaaaa',
-      timestamp: '2026-11-08T12:00:00.000Z',
-    }),
-    line({ type: 'user', uuid: 'u2', timestamp: '2026-11-08T12:00:01.000Z' }),
-    line({
-      type: 'system',
-      subtype: 'compact_boundary',
-      uuid: 'b2bbbbbbbb',
-      timestamp: '2026-11-09T01:02:03.456Z',
-    }),
-    line({ type: 'user', isCompactSummary: true, uuid: 'u3' }),
-    // The mark inside a message is not a boundary
-    line({ type: 'user', uuid: 'u4', message: { content: 'grep "compact_boundary" file' } }),
-  ];
-  const text = `${lines.join('\n')}\n`;
+const boundary = (uuid, timestamp, compactMetadata) =>
+  line({
+    type: 'system',
+    subtype: 'compact_boundary',
+    uuid,
+    parentUuid: null,
+    timestamp,
+    compactMetadata,
+  });
+const rows = (text) =>
+  text
+    .trim()
+    .split('\n')
+    .map((l) => JSON.parse(l));
+
+test('transcript epoch: the last boundary on, named by its time and uuid; a mark inside a message is no boundary', () => {
+  const text =
+    [
+      line({ type: 'user', uuid: 'u1', timestamp: '2026-11-08T10:00:00.000Z' }),
+      boundary('b1aaaaaaaa', '2026-11-08T12:00:00.000Z'),
+      line({ type: 'user', uuid: 'u2', parentUuid: null }),
+      boundary('b2bbbbbbbb', '2026-11-09T01:02:03.456Z'),
+      line({ type: 'user', isCompactSummary: true, uuid: 'u3', parentUuid: 'b2bbbbbbbb' }),
+      line({
+        type: 'user',
+        uuid: 'u4',
+        parentUuid: 'u3',
+        message: { content: 'grep "compact_boundary" f' },
+      }),
+    ].join('\n') + '\n';
   const epoch = transcriptEpoch(text);
-  assert.ok(text.slice(epoch.start).startsWith(lines[3]));
+  assert.equal(epoch.kind, 'plan');
+  assert.deepEqual(
+    rows(epoch.text).map((r) => r.uuid),
+    ['b2bbbbbbbb', 'u3', 'u4']
+  );
   assert.equal(epoch.name, '2026-11-09T01-02-03-456Z-b2bbbbbb.jsonl');
 });
 
-test('transcript epoch: no compaction yet → whole file, named after its first line', () => {
+test('transcript epoch: no compaction yet → whole file, named after its first row', () => {
   const text = `${line({ type: 'summary' })}\n${line({ type: 'user', timestamp: '2026-11-07T08:00:00.000Z' })}\n`;
   assert.deepEqual(transcriptEpoch(text), {
-    start: 0,
+    text,
     name: '2026-11-07T08-00-00-000Z-start.jsonl',
+    kind: 'skip',
   });
   assert.equal(transcriptEpoch('').name, '0000-00-00T00-00-00-000Z-start.jsonl');
+});
+
+test('transcript epoch: rows above the boundary kept like Claude Code 2.1.319 compacts the file', () => {
+  const s = 'sess';
+  const text =
+    [
+      line({ type: 'user', uuid: 'old', parentUuid: null }),
+      line({ type: 'custom-title', sessionId: s, customTitle: 'first' }),
+      line({ type: 'custom-title', sessionId: s, customTitle: 'second' }),
+      line({ type: 'pr-link', sessionId: s, prNumber: 1 }),
+      line({ type: 'content-replacement', sessionId: s, n: 1 }),
+      line({ type: 'some-new-type', sessionId: s }),
+      line({ type: 'progress', sessionId: s }),
+      line({ type: 'cost-state', sessionId: s, broken: true }),
+      line({ type: 'assistant', uuid: 'think', parentUuid: 'old', message: { id: 'm1' } }),
+      line({ type: 'assistant', uuid: 'answer', parentUuid: 'think', message: { id: 'm1' } }),
+      line({ type: 'file-history-snapshot', messageId: 'answer' }),
+      line({ type: 'queue-operation', sessionId: s, operation: 'enqueue' }),
+      line({ type: 'user', uuid: 'next', parentUuid: 'answer' }),
+      boundary('bbbbbbbbbb', '2026-11-09T03:00:00.000Z', {
+        // The list wins over the segment, like in Claude Code's loader
+        preservedSegment: { headUuid: 'next', tailUuid: 'next' },
+        preservedMessages: {
+          anchorUuid: 'sum',
+          uuids: ['answer', 'next'],
+          allUuids: ['answer', 'next'],
+        },
+      }),
+      line({ type: 'user', uuid: 'sum', parentUuid: 'bbbbbbbbbb', isCompactSummary: true }),
+      line({ type: 'pr-link', sessionId: s, prNumber: 2 }),
+      // A row after the boundary keeps its parent from above it
+      line({ type: 'user', uuid: 'late', parentUuid: 'old' }),
+    ].join('\n') + '\n';
+  const out = rows(transcriptEpoch(text).text).map(
+    (r) =>
+      r.uuid ??
+      `${r.type}${r.customTitle ? `:${r.customTitle}` : ''}${r.prNumber ? `:${r.prNumber}` : ''}`
+  );
+  assert.deepEqual(out, [
+    'old', // parent of "late"
+    'content-replacement', // accumulate
+    'some-new-type', // unknown types accumulate
+    'cost-state', // fails the cost-state schema: kept
+    'answer', // preserved
+    'file-history-snapshot', // of a preserved message
+    'next', // preserved
+    'bbbbbbbbbb',
+    // last-wins rows from above, the newest of each, right after the boundary
+    'custom-title:second',
+    'queue-operation',
+    'sum',
+    'pr-link:2', // the newer pr-link stays in place; the older one above is dropped
+    'late',
+  ]);
+});
+
+test('transcript epoch: kept whole when Claude Code would not compact it', () => {
+  const text =
+    [
+      line({ type: 'user', uuid: 'a', parentUuid: null }),
+      boundary('cccccccccc', '2026-11-09T04:00:00.000Z', {
+        preservedMessages: { uuids: ['missing'] },
+      }),
+    ].join('\n') + '\n';
+  assert.deepEqual(
+    (({ text: t, kind, reason }) => ({ same: t === text, kind, reason }))(transcriptEpoch(text)),
+    { same: true, kind: 'abort', reason: 'preserved_uuid_missing' }
+  );
 });
 
 test('latest epoch key of a session; project of a key', () => {
@@ -118,66 +199,24 @@ test('restore note: shells run again, subagents resumed by id with the prompt as
   assert.match(note, /«Review the worker»/);
 });
 
-test('transcript epoch: starts at the messages the compaction preserved before its boundary', () => {
-  const lines = [
-    line({ type: 'user', uuid: 'old' }),
-    line({ type: 'user', uuid: 'head', parentUuid: 'old' }),
-    line({ type: 'assistant', uuid: 'tail', parentUuid: 'head' }),
-    line({
-      type: 'system',
-      subtype: 'compact_boundary',
-      uuid: 'b3cccccccc',
-      parentUuid: null,
-      timestamp: '2026-11-09T02:33:44.050Z',
-      compactMetadata: {
-        preservedSegment: { headUuid: 'head', anchorUuid: 'sum', tailUuid: 'tail' },
-      },
-    }),
-    line({ type: 'user', uuid: 'sum', isCompactSummary: true }),
-  ];
-  const text = lines.join('\n');
-  const epoch = transcriptEpoch(text);
-  assert.ok(text.slice(epoch.start).startsWith(lines[1]));
-  assert.equal(epoch.name, '2026-11-09T02-33-44-050Z-b3cccccc.jsonl');
+test('transcript epoch: a line still being written is left for the next save', () => {
+  const done = line({ type: 'user', uuid: 'a', timestamp: '2026-11-09T05:00:00.000Z' });
+  const epoch = transcriptEpoch(`${done}\n{"type":"assistant","uu`);
+  assert.equal(epoch.text, `${done}\n`);
 });
 
-test('transcript epoch: preservedMessages.uuids first (as Claude Code loads them), with lines of the same message', () => {
-  const lines = [
-    line({ type: 'user', uuid: 'old' }),
-    // The answer's thinking: same API message as the preserved text line
-    line({ type: 'assistant', uuid: 'think', parentUuid: 'old', message: { id: 'msg_1' } }),
-    line({ type: 'assistant', uuid: 'answer', parentUuid: 'think', message: { id: 'msg_1' } }),
-    line({ type: 'user', uuid: 'next', parentUuid: 'answer' }),
-    line({
-      type: 'system',
-      subtype: 'compact_boundary',
-      uuid: 'b4dddddddd',
-      parentUuid: null,
-      timestamp: '2026-11-09T03:00:00.000Z',
-      compactMetadata: {
-        // A segment that disagrees: the list wins, like in Claude Code's loader
-        preservedSegment: { headUuid: 'next', anchorUuid: 'sum', tailUuid: 'next' },
-        preservedMessages: {
-          anchorUuid: 'sum',
-          uuids: ['answer', 'next'],
-          allUuids: ['answer', 'next'],
-        },
-      },
-    }),
-    line({ type: 'user', uuid: 'sum', isCompactSummary: true }),
-  ];
-  const text = lines.join('\n');
-  assert.ok(text.slice(transcriptEpoch(text).start).startsWith(lines[1]));
+test('transcript epoch: the resume check keeps the whole file when a kept message lost its parent', () => {
+  // A message below the boundary whose parent is in no row at all: Claude Code compacts, the check refuses
+  const text =
+    [
+      line({ type: 'user', uuid: 'a', parentUuid: null }),
+      boundary('dddddddddd', '2026-11-09T06:00:00.000Z'),
+      line({ type: 'user', uuid: 'sum', parentUuid: 'dddddddddd', isCompactSummary: true }),
+      line({ type: 'user', uuid: 'b', parentUuid: 'nowhere' }),
+    ].join('\n') + '\n';
+  const epoch = transcriptEpoch(text);
   assert.deepEqual(
-    preservedUuids({
-      preservedSegment: { headUuid: 'h', tailUuid: 't' },
-      preservedMessages: { uuids: ['a', 'b'] },
-    }),
-    ['a', 'b']
+    [epoch.text === text, epoch.kind, epoch.reason],
+    [true, 'abort', 'check_parent_missing']
   );
-  assert.deepEqual(preservedUuids({ preservedSegment: { headUuid: 'h', tailUuid: 't' } }), [
-    'h',
-    't',
-  ]);
-  assert.deepEqual(preservedUuids({ preservedMessages: ['x'] }), ['x']);
 });

@@ -425,7 +425,8 @@ async function saveTranscript(sessionId) {
   if (!transcript) return;
   const text = readFileSync(transcript.path, 'utf8');
   const epoch = transcriptEpoch(text);
-  writeFileSync('/tmp/transcript-epoch.jsonl', text.slice(epoch.start));
+  if (epoch.reason) log(`transcript kept whole: ${epoch.reason}`);
+  writeFileSync('/tmp/transcript-epoch.jsonl', epoch.text);
   const key = `${TRANSCRIPTS_PREFIX}${transcript.project}/${sessionId}/${epoch.name}`;
   await aws('s3', 'cp', '/tmp/transcript-epoch.jsonl', `s3://${BUCKET}/${key}`, '--quiet');
 }
