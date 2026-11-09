@@ -196,6 +196,39 @@ def _run_runner_task(ecs, run_task_args, run_id):
         raise RuntimeError(f"run {run_id}: FARGATE run_task started no task: {response.get('failures')}")
     print(f"run {run_id}: runner started on FARGATE")
 
+def _github_dispatch_workflow(workflow, ref, installation_token):
+    owner = os.environ["GITHUB_OWNER"]
+    repo = os.environ["GITHUB_REPO"]
+    req = urllib.request.Request(
+        url=f"https://api.github.com/repos/{owner}/{repo}/actions/workflows/{workflow}/dispatches",
+        method="POST",
+        data=json.dumps({"ref": ref}).encode("utf-8"),
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {installation_token}",
+            "Content-Type": "application/json",
+            "X-GitHub-Api-Version": "2022-11-28",
+            "User-Agent": "github-runner-dispatcher-worker",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as response:
+        return response.status
+
+
+def schedule_handler(event, _context):
+    """EventBridge Scheduler: start the scheduled workflow (the on-call's Manual E2E) with workflow_dispatch.
+
+    GitHub's own `schedule` trigger started it hours late (busiest at the top of the hour) and stopped for good after
+    GitHub disabled the schedule of this public repository for 60 days without activity; a dispatch through the
+    GitHub App (Actions: write) runs at once and never gets disabled.
+    """
+    workflow = (event or {}).get("workflow") or os.environ["SCHEDULED_WORKFLOW"]
+    ref = (event or {}).get("ref") or os.environ.get("SCHEDULED_REF", "main")
+    status = _github_dispatch_workflow(workflow, ref, _github_installation_token())
+    print(f"dispatched {workflow} on {ref}: HTTP {status}")
+    return {"statusCode": status, "body": f"dispatched {workflow} on {ref}"}
+
+
 def handler(event, _context):
     records = event.get("Records") or []
     for record in records:

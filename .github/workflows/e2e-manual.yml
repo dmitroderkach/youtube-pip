@@ -11,9 +11,8 @@ on:
         description: 'On-call: comma-separated flags to probe (chromium e2e set with the flag flipped) even if not new'
         type: string
         default: ''
-  schedule:
-    # Daily at 16:00 UTC (~18:00 Warsaw during CEST; 17:00 during CET).
-    - cron: '0 16 * * *'
+  # Daily run: EventBridge Scheduler dispatches this workflow at 18:00 Warsaw time (terraform/oncall_schedule.tf).
+  # Not GitHub's `schedule`: it started runs hours late and stopped after 60 days without repository activity.
 
 jobs:
   e2e:

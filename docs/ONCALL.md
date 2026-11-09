@@ -1,6 +1,6 @@
 # On-call: Daily E2E Watch and YouTube Flag Scan
 
-After every run of the **Manual E2E** workflow (daily at 16:00 UTC and on manual dispatch) an `oncall` job:
+After every run of the **Manual E2E** workflow (daily at 18:00 Warsaw time and on manual dispatch) an `oncall` job:
 
 1. **Summarizes the results** — `scripts/oncall/summarize-results.mjs` reads the Playwright JSON report: failed, flaky, passed.
 2. **Scans YouTube experiment flags** — `scripts/oncall/scan-flags.mjs`, keeping the flags that can touch the userscript. A flag is **relevant** when
@@ -34,6 +34,7 @@ Every message ends with `Розбери онкол-прогін <run URL>`. Past
 
 ## Runner and secrets
 
+- **Daily start**: EventBridge Scheduler `youtube-pip-prod-oncall-daily` (`terraform/oncall_schedule.tf`; `var.oncall_schedule`, default `cron(0 18 * * ? *)` in `var.oncall_schedule_timezone` `Europe/Warsaw`, so 18:00 all year) invokes the Lambda `youtube-pip-prod-oncall-schedule` (`worker.schedule_handler` in `terraform/lambda/worker.py`), which dispatches `e2e-manual.yml` on `var.oncall_branch` with a GitHub App installation token (the app needs Actions: write). GitHub's own `schedule` trigger is not used: it started the run 2–6 hours late (the top of the hour is GitHub's busiest time) and stopped for good after GitHub disabled the schedule of this public repository for 60 days without activity.
 - The job runs on `runs-on: [self-hosted, fargate, oncall]`. The dispatcher Lambda starts a separate, small task definition `runner-oncall` (1 vCPU / 2 GB) for it, with the secrets from AWS Secrets Manager **`youtube-pip-oncall`** (JSON: `claude_code_oauth_token`, `telegram_bot_token`, `telegram_chat_id`) as `CLAUDE_CODE_OAUTH_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`. The CI runner never gets them.
 - The repository is public and any workflow file (also one changed in a pull request) could ask for the `oncall` label, so the Lambda checks the run through the GitHub API: only `schedule` / `workflow_dispatch` runs of `var.oncall_branch` (default `main`) of this repository get the on-call runner (`terraform/lambda/worker.py`).
 - Claude Code runs with read-only tools (`Read`, `Grep`, `Glob`), no shell and no network, and without the Telegram secrets in its environment: it reads data downloaded from YouTube, which is untrusted. Model: `--model sonnet`, the alias for the latest Sonnet (updates by itself, never switches to another family); anything suspicious is investigated further by hand. Usage counts against the Claude subscription of `claude setup-token`, not AWS.
