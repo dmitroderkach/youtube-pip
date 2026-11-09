@@ -21,6 +21,8 @@ import {
   questionHtml,
   questionKeyboard,
   tableText,
+  voiceKeyboard,
+  voiceText,
 } from './telegram-format.mjs';
 
 test('inline Markdown becomes Telegram HTML, the rest is escaped', () => {
@@ -200,4 +202,26 @@ test('model and effort keyboards', () => {
     effortKeyboard(EFFORT_LEVELS, null).inline_keyboard[1][0].text,
     '✓ за замовчуванням моделі'
   );
+});
+
+test('voice keyboard: modes, voices three per row, samples; current ones marked', () => {
+  const rows = voiceKeyboard(['Aoede', 'Kore', 'Leda', 'Zephyr'], 'on', 'Kore').inline_keyboard;
+  assert.deepEqual(
+    rows.map((row) => row.map((b) => [b.text, b.callback_data])),
+    [
+      [
+        ['auto', 'voice:mode:auto'],
+        ['✓ on', 'voice:mode:on'],
+        ['off', 'voice:mode:off'],
+      ],
+      [
+        ['Aoede', 'voice:name:Aoede'],
+        ['✓ Kore', 'voice:name:Kore'],
+        ['Leda', 'voice:name:Leda'],
+      ],
+      [['Zephyr', 'voice:name:Zephyr']],
+      [['🔈 Зразки голосів', 'voice:samples']],
+    ]
+  );
+  assert.match(voiceText('on', 'Kore'), /<b>on<\/b> · голос <b>Kore<\/b>/);
 });

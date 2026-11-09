@@ -35,6 +35,8 @@ import {
   planTitle,
   questionHtml,
   questionKeyboard,
+  voiceKeyboard,
+  voiceText,
 } from './telegram-format.mjs';
 import { execFile } from 'node:child_process';
 import {
@@ -878,47 +880,66 @@ async function replyByVoice(text, spoken) {
 
 const VOICE_COMMAND = /^\/voice(@\w+)?(\s+(.+))?$/i;
 
+/** The `/voice` message: settings and buttons (`messageId`: edit that message instead of sending one). */
+async function voiceMenu(messageId) {
+  const keyboard = voiceKeyboard(TTS_SAMPLE_VOICES, voiceMode(), voiceName());
+  if (messageId) await editHtml(messageId, voiceText(voiceMode(), voiceName()), keyboard);
+  else await sayHtml(voiceText(voiceMode(), voiceName()), keyboard);
+}
+
+function setVoiceMode(mode) {
+  meta = { ...(meta ?? {}), voiceMode: mode };
+  save().catch((error) => log('save failed', error));
+}
+
+async function voiceSamples() {
+  for (const name of TTS_SAMPLE_VOICES) {
+    try {
+      await sendVoice(await synthesize(TTS_SAMPLE_TEXT, name), `${name} — /voice ${name}`);
+    } catch (error) {
+      await say(`⚠️ ${name}: ${String(error.message ?? error).slice(0, 300)}`);
+      return;
+    }
+  }
+}
+
+/** Switch to the voice `name` after a sample of it; false when it does not work. */
+async function setVoice(name) {
+  try {
+    await sendVoice(await synthesize(`Тепер я говорю голосом ${name}.`, name), name);
+  } catch (error) {
+    await say(`⚠️ Голос ${name} не працює: ${String(error.message ?? error).slice(0, 300)}`);
+    return false;
+  }
+  meta = { ...(meta ?? {}), voiceName: name };
+  save().catch((error) => log('save failed', error));
+  return true;
+}
+
 /** `/voice` [auto | on | off | samples | <voice name>]: voice reply settings, answered without a Claude turn. */
 async function voiceCommand(argument) {
   const arg = (argument ?? '').trim();
-  const status = () =>
-    `🔊 Голосові відповіді: ${voiceMode()} (auto: на твої голосові, on: на все, off: ніколи); голос ${voiceName()}`;
-  if (!arg) {
-    await say(
-      `${status()}\n/voice auto | on | off — режим\n/voice samples — зразки голосів\n/voice <імʼя> — вибрати голос (наприклад /voice Kore)`
-    );
-    return;
-  }
+  if (!arg) return voiceMenu();
   if (VOICE_MODES.includes(arg.toLowerCase())) {
-    meta = { ...(meta ?? {}), voiceMode: arg.toLowerCase() };
-    await say(status());
-    return save().catch((error) => log('save failed', error));
+    setVoiceMode(arg.toLowerCase());
+    return voiceMenu();
   }
-  if (arg.toLowerCase() === 'samples') {
-    for (const name of TTS_SAMPLE_VOICES) {
-      try {
-        await sendVoice(await synthesize(TTS_SAMPLE_TEXT, name), `${name} — /voice ${name}`);
-      } catch (error) {
-        await say(`⚠️ ${name}: ${String(error.message ?? error).slice(0, 300)}`);
-        return;
-      }
-    }
-    return;
-  }
+  if (arg.toLowerCase() === 'samples') return voiceSamples();
   const name = arg.charAt(0).toUpperCase() + arg.slice(1).toLowerCase();
   if (!/^[A-Z][a-z]+$/.test(name)) {
     await say('ℹ️ /voice auto | on | off | samples | <імʼя голосу>');
     return;
   }
-  try {
-    await sendVoice(await synthesize(`Тепер я говорю голосом ${name}.`, name), name);
-  } catch (error) {
-    await say(`⚠️ Голос ${name} не працює: ${String(error.message ?? error).slice(0, 300)}`);
-    return;
-  }
-  meta = { ...(meta ?? {}), voiceName: name };
-  await say(status());
-  return save().catch((error) => log('save failed', error));
+  if (await setVoice(name)) await voiceMenu();
+}
+
+/** A `/voice` button: `mode:<auto|on|off>`, `name:<voice>` or `samples`; the menu is updated in place. */
+async function onVoiceButton(messageId, id, value) {
+  if (id === 'samples') return voiceSamples();
+  if (id === 'mode' && VOICE_MODES.includes(value) && value !== voiceMode()) setVoiceMode(value);
+  if (id === 'name' && TTS_SAMPLE_VOICES.includes(value) && value !== voiceName())
+    await setVoice(value);
+  await voiceMenu(messageId);
 }
 
 // ---------------------------------------------------------------------------------------------- modes, questions, plans
@@ -1261,6 +1282,10 @@ async function onCallback(callback) {
   if (kind === 'agents') {
     await onAgentsButton(Number(id));
     await editHtml(callback.message_id, agentsHtml(), agentsKeyboard());
+    return;
+  }
+  if (kind === 'voice') {
+    await onVoiceButton(callback.message_id, id, value);
     return;
   }
   if (kind === 'plans') {
