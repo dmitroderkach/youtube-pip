@@ -260,6 +260,23 @@ resource "aws_ecr_repository" "runner" {
   }
 }
 
+# Like the dev worker's repository: only `latest` is ever used, older pushes are just storage
+resource "aws_ecr_lifecycle_policy" "runner" {
+  repository = aws_ecr_repository.runner.name
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep the last 3 images"
+      selection = {
+        tagStatus   = "any"
+        countType   = "imageCountMoreThan"
+        countNumber = 3
+      }
+      action = { type = "expire" }
+    }]
+  })
+}
+
 resource "aws_ecs_cluster" "runner" {
   name = "${local.name_prefix}-cluster"
 }
