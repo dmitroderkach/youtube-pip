@@ -368,8 +368,19 @@ export const VOICE_MODE_ABOUT = {
   off: 'ніколи',
 };
 
-/** `/voice` keyboard: the reply mode, the voices (the current one marked) and the samples button. */
-export function voiceKeyboard(voices, mode, current) {
+/**
+ * Speech models of `/voice` (Google Cloud Text-to-Speech): Chirp 3 HD voices (`uk-UA-Chirp3-HD-<voice>`) or a
+ * Gemini-TTS model (`modelName`, the same voice names, a style prompt).
+ */
+export const VOICE_MODELS = {
+  chirp3: { label: 'Chirp 3 HD', model: null },
+  flash: { label: 'Gemini 2.5 Flash', model: 'gemini-2.5-flash-tts' },
+  pro: { label: 'Gemini 2.5 Pro', model: 'gemini-2.5-pro-tts' },
+  flash31: { label: 'Gemini 3.1 Flash (preview)', model: 'gemini-3.1-flash-tts-preview' },
+};
+
+/** `/voice` keyboard: the reply mode, the speech model, the voices (current ones marked), samples and comparison. */
+export function voiceKeyboard(voices, mode, current, model = 'chirp3') {
   const mark = (on) => (on ? '✓ ' : '');
   const rows = [
     Object.keys(VOICE_MODE_ABOUT).map((name) => ({
@@ -377,6 +388,14 @@ export function voiceKeyboard(voices, mode, current) {
       callback_data: callbackData('voice', 'mode', name),
     })),
   ];
+  const models = Object.entries(VOICE_MODELS);
+  for (let i = 0; i < models.length; i += 2)
+    rows.push(
+      models.slice(i, i + 2).map(([key, { label }]) => ({
+        text: `${mark(key === model)}${label}`,
+        callback_data: callbackData('voice', 'model', key),
+      }))
+    );
   for (let i = 0; i < voices.length; i += 3)
     rows.push(
       voices.slice(i, i + 3).map((name) => ({
@@ -384,17 +403,20 @@ export function voiceKeyboard(voices, mode, current) {
         callback_data: callbackData('voice', 'name', name),
       }))
     );
-  rows.push([{ text: '🔈 Зразки голосів', callback_data: callbackData('voice', 'samples') }]);
+  rows.push([
+    { text: '🔈 Зразки голосів', callback_data: callbackData('voice', 'samples') },
+    { text: '🎧 Порівняти моделі', callback_data: callbackData('voice', 'compare') },
+  ]);
   return { inline_keyboard: rows };
 }
 
-export function voiceText(mode, current) {
+export function voiceText(mode, current, model = 'chirp3') {
   return [
-    `🔊 Голосові відповіді: <b>${escapeHtml(mode)}</b> · голос <b>${escapeHtml(current)}</b>`,
+    `🔊 Голосові відповіді: <b>${escapeHtml(mode)}</b> · модель <b>${escapeHtml(VOICE_MODELS[model]?.label ?? model)}</b> · голос <b>${escapeHtml(current)}</b>`,
     '',
     ...Object.entries(VOICE_MODE_ABOUT).map(([name, about]) => `<b>${name}</b>: ${about}`),
     '',
-    '<i>Вибір голосу надсилає його зразок. Або текстом: /voice auto | on | off | samples | &lt;імʼя&gt;</i>',
+    '<i>Вибір моделі чи голосу надсилає зразок. «Порівняти моделі» — одне речення всіма моделями. Або текстом: /voice auto | on | off | samples | compare | &lt;імʼя&gt;</i>',
   ].join('\n');
 }
 
