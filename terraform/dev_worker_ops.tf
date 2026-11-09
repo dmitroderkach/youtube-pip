@@ -270,7 +270,7 @@ resource "aws_iam_policy" "project_boundary" {
         },
         {
           Effect    = "Allow"
-          Action    = ["lambda:CreateEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping", "lambda:GetEventSourceMapping"]
+          Action    = ["lambda:CreateEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping", "lambda:GetEventSourceMapping", "lambda:ListTags", "lambda:TagResource", "lambda:UntagResource"]
           Resource  = "*"
           Condition = { ArnLikeIfExists = { "lambda:FunctionArn" = "arn:aws:lambda:*:*:function:${local.project_glob}" } }
         },
@@ -420,7 +420,7 @@ resource "aws_iam_policy" "project_apply" {
       {
         Sid       = "ProjectEventSourceMappings"
         Effect    = "Allow"
-        Action    = ["lambda:CreateEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping", "lambda:GetEventSourceMapping"]
+        Action    = ["lambda:CreateEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping", "lambda:GetEventSourceMapping", "lambda:ListTags", "lambda:TagResource", "lambda:UntagResource"]
         Resource  = "*"
         Condition = { ArnLikeIfExists = { "lambda:FunctionArn" = "arn:aws:lambda:${var.aws_region}:${local.account_id}:function:${local.project_glob}" } }
       },
