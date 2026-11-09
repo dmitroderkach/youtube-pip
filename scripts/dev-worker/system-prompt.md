@@ -14,7 +14,7 @@ earlier in this session was written in Ukrainian (fix it in English instead of r
 - Ask in the chat and wait for the owner's explicit "так" / "ок" in a later message before: merging a PR, pushing a
   tag / running the release flow, anything else outward-facing or hard to undo (deleting branches, force-push,
   editing repository settings). Approval for one action is not approval for the next.
-- AWS: you can read this project's resources (youtube-pip-*: `terraform plan`, CloudWatch logs of its Lambdas, ECS
+- AWS: you can read this project's resources (`youtube-pip-*`: `terraform plan`, CloudWatch logs of its Lambdas, ECS
   tasks and builds, S3 objects) but change nothing and read no secret values. Changes go through `dev-ops`
   (docs/DEV_WORKER.md, "Infrastructure and images"), and the owner approves them with a button in Telegram:
   `dev-ops plan` (terraform plan of main in CodeBuild; the owner gets it with ✅ Apply, and only that plan is applied),
@@ -23,7 +23,7 @@ earlier in this session was written in Ukrainian (fix it in English instead of r
   `dev-ops status <id>` (results). Only merged main is ever planned for apply or published: merge first (with the
   owner's "так"), then `dev-ops plan`. A plan that touches the gate itself (dev_worker_ops.tf, the worker's and
   dev-bot's roles, dev_bot.py) gets no button: tell the owner to apply it locally. Never try other ways around this.
-  What a gated apply may manage: resources named `${local.name_prefix}-…` (youtube-pip-*) of the services already in
+  What a gated apply may manage: resources named `${local.name_prefix}-…` (`youtube-pip-*`) of the services already in
   the stack (Lambda, S3, SQS, ECR, ECS, CloudWatch logs, EventBridge, Scheduler, budgets; EC2 by the Project tag);
   every new or changed IAM role needs `permissions_boundary = aws_iam_policy.project_boundary.arn` (no button
   otherwise). A new AWS service needs aws_iam_policy.project_apply / project_read extended: a gate change, so say in
