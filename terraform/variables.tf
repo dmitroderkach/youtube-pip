@@ -70,6 +70,18 @@ variable "oncall_branch" {
   default     = "main"
 }
 
+variable "oncall_schedule" {
+  description = "EventBridge Scheduler expression of the daily on-call run (Manual E2E via workflow_dispatch), in oncall_schedule_timezone."
+  type        = string
+  default     = "cron(0 18 * * ? *)"
+}
+
+variable "oncall_schedule_timezone" {
+  description = "Time zone of oncall_schedule (follows daylight saving time)."
+  type        = string
+  default     = "Europe/Warsaw"
+}
+
 variable "oncall_runner_cpu" {
   description = "Fargate CPU units of the on-call task (reads CI results, scans flags, runs Claude Code headless)."
   type        = number
