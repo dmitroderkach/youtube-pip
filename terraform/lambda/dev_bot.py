@@ -43,7 +43,7 @@ META_KEY = "state/meta.json"
 ACTIVITY_KEY = "state/activity.json"
 # Last answer the watchdog warned about, so it warns once per answer
 IDLE_ALERT_KEY = "state/idle-alert.json"
-IDLE_ALERT_MINUTES = int(os.environ.get("IDLE_ALERT_MINUTES", "30"))
+IDLE_ALERT_MINUTES = int(os.environ.get("IDLE_ALERT_MINUTES", "10"))
 # Start requested while a stopped worker was still saving: consumed by the STOPPED event of that task
 PENDING_START_KEY = "state/pending-start.json"
 

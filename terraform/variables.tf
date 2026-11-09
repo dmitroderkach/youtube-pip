@@ -147,7 +147,7 @@ variable "dev_worker_memory" {
 variable "dev_worker_idle_alert_minutes" {
   description = "The dev-bot warns in the chat when the worker is still up this long after its last answer with no turn running."
   type        = number
-  default     = 30
+  default     = 10
 }
 
 variable "dev_worker_idle_timeout_seconds" {
