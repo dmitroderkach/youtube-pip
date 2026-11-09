@@ -915,6 +915,11 @@ async function runSession(resumeId) {
         foregroundToolIds.add(item.id);
         toolCalls.set(item.id, { name: item.name, input: item.input ?? {} });
         if (toolCalls.size > TOOL_CALLS_KEPT) toolCalls.delete(toolCalls.keys().next().value);
+        // Claude switching to plan mode itself: Claude Code may allow EnterPlanMode without asking canUseTool
+        if (item.name === 'EnterPlanMode' && !modeAfterTool.has(item.id)) {
+          modeAfterTool.set(item.id, 'plan');
+        }
+        if (item.name === 'EnterPlanMode') selfModeTools.add(item.id);
         onToolUse(describeTool(item.name, item.input));
       }
     } else if (message.type === 'user' && Array.isArray(message.message?.content)) {
@@ -923,11 +928,20 @@ async function runSession(resumeId) {
         foregroundToolIds.delete(item.tool_use_id);
         // Leaving / entering plan mode: the mode the owner chose (Claude Code restores its own otherwise)
         const mode = modeAfterTool.get(item.tool_use_id);
+        const self = selfModeTools.delete(item.tool_use_id);
         if (mode) {
           modeAfterTool.delete(item.tool_use_id);
-          if (!item.is_error) await setMode(mode, { quiet: mode !== 'plan' });
+          if (!item.is_error && self)
+            await setMode(mode, { quiet: true, apply: false, announce: 'self' });
+          else if (!item.is_error) await setMode(mode, { quiet: mode !== 'plan' });
         }
       }
+    } else if (
+      message.type === 'system' &&
+      message.subtype === 'status' &&
+      message.permissionMode
+    ) {
+      await syncSdkMode(message.permissionMode);
     } else if (message.type === 'rate_limit_event') {
       onRateLimit(message.rate_limit_info);
     } else if (
@@ -1201,11 +1215,20 @@ function waitForOwner(entry, signal) {
 const giveUpText = (result) =>
   result.aborted ? '⌛ Скасовано' : `⌛ Без відповіді ${ANSWER_TIMEOUT_MS / 60000} хв`;
 
-/** Switch the mode for the session now (and for later runs). Returns false when the SDK refused it. */
-async function setMode(mode, { quiet = false } = {}) {
+/** Mode tool calls Claude made on its own (EnterPlanMode): the chat says Claude switched itself. */
+const selfModeTools = new Set();
+/** The mode before plan mode: where Claude Code's own return from plan (SDK `default`) lands. */
+let modeBeforePlan = null;
+
+/**
+ * Switch the mode for the session now (and for later runs). Returns false when the SDK refused it. `apply: false`
+ * only records a mode the session is already in; `announce: 'self'` says in the chat that Claude switched itself.
+ */
+async function setMode(mode, { quiet = false, apply = true, announce = null } = {}) {
   const previous = currentMode();
+  if (mode === 'plan' && previous !== 'plan') modeBeforePlan = previous;
   meta = { ...(meta ?? {}), mode };
-  if (session) {
+  if (session && apply) {
     try {
       await session.setPermissionMode(SDK_MODES[mode]);
     } catch (error) {
@@ -1215,8 +1238,37 @@ async function setMode(mode, { quiet = false } = {}) {
     }
   }
   await saveMeta().catch((error) => log('save meta failed', error));
-  if (!quiet) await say(`${MODES[mode].emoji} Режим: ${mode}`);
+  if (announce === 'self') {
+    await say(`${MODES[mode].emoji} Claude перейшов у режим ${mode} (було: ${previous}) · /mode`);
+  } else if (!quiet) {
+    await say(`${MODES[mode].emoji} Режим: ${mode}`);
+  }
   return true;
+}
+
+/**
+ * The session's own permission mode (SDK `status` messages): keep /mode true when Claude Code changes it by itself
+ * (entering / leaving plan mode) and say so in the chat. `default` is bypass or manual: the one before plan mode.
+ */
+async function syncSdkMode(sdkMode) {
+  // A plan-mode tool call is in flight: the worker sets the owner's choice after its result
+  if (modeAfterTool.size) return;
+  if (SDK_MODES[currentMode()] === sdkMode) return;
+  const mode =
+    sdkMode === 'plan' || sdkMode === 'auto'
+      ? sdkMode
+      : sdkMode === 'default'
+        ? ['bypass', 'manual'].includes(modeBeforePlan)
+          ? modeBeforePlan
+          : DEFAULT_MODE
+        : null;
+  if (!mode) {
+    log(`session permission mode ${sdkMode} has no /mode counterpart`);
+    await say(`ℹ️ Claude Code перейшов у режим ${sdkMode}, якого немає в /mode`);
+    return;
+  }
+  // The session is in that mode already (`default` is bypass and manual alike): record it, do not apply it
+  await setMode(mode, { quiet: true, apply: false, announce: 'self' });
 }
 
 const MODE_COMMAND = /^\/mode(@\w+)?(\s+(\S+))?\s*$/i;
@@ -1467,7 +1519,8 @@ async function canUseTool(toolName, input, options) {
 async function onCallback(callback) {
   const { kind, id, value } = parseCallback(callback.data);
   if (kind === 'mode') {
-    if (MODES[id] && id !== currentMode()) await setMode(id, { quiet: true });
+    // Also the current mode: pressing it again re-applies it to the session (resync)
+    if (MODES[id]) await setMode(id, { quiet: true });
     await editHtml(callback.message_id, modeText(currentMode()), modeKeyboard(currentMode()));
     return;
   }
