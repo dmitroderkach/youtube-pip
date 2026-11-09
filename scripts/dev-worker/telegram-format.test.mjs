@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
   CALLBACK_DATA_MAX,
+  EFFORT_LEVELS,
+  effortKeyboard,
+  modelKeyboard,
+  modelText,
   FOLD_SECTION_LINES,
   inlineHtml,
   markdownBlocks,
@@ -167,4 +171,33 @@ test('permission prompt shows the command or the edit as a diff, escaped', () =>
   const editHtml = permissionHtml('Edit', { file_path: '/a.js', old_string: 'x', new_string: 'y' });
   assert.match(editHtml, /<pre>- x\n\+ y<\/pre>/);
   assert.equal(permissionKeyboard('i', false).inline_keyboard.length, 1);
+});
+
+test('model and effort keyboards', () => {
+  const models = [
+    { value: 'opus', displayName: 'Opus', description: 'Most capable' },
+    { value: 'sonnet', displayName: 'Sonnet', description: '' },
+  ];
+  const rows = modelKeyboard(models, 'sonnet').inline_keyboard;
+  assert.deepEqual(
+    rows.map((row) => [row[0].text, row[0].callback_data]),
+    [
+      ['Opus', 'model:0'],
+      ['✓ Sonnet', 'model:1'],
+    ]
+  );
+  assert.match(modelText(models, 'sonnet'), /<b>Opus<\/b> <code>opus<\/code>\nMost capable/);
+  const effort = effortKeyboard(['low', 'high'], 'high').inline_keyboard;
+  assert.deepEqual(
+    effort[0].map((b) => [b.text, b.callback_data]),
+    [
+      ['low', 'effort:low'],
+      ['✓ high', 'effort:high'],
+    ]
+  );
+  assert.equal(effort[1][0].text, 'за замовчуванням моделі');
+  assert.equal(
+    effortKeyboard(EFFORT_LEVELS, null).inline_keyboard[1][0].text,
+    '✓ за замовчуванням моделі'
+  );
 });

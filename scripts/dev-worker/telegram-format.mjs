@@ -389,3 +389,52 @@ export function permissionHtml(toolName, input = {}, options = {}) {
   lines.push('', '<i>Або напиши текстом, що зробити натомість (це відхилить дію).</i>');
   return lines.join('\n');
 }
+
+/** Effort levels of Claude Code (`/effort`); a model may support fewer (ModelInfo.supportedEffortLevels). */
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
+
+/** `/model` buttons: one per model of `supportedModels()` (by index: model ids can be long), the current one marked. */
+export function modelKeyboard(models, current) {
+  return {
+    inline_keyboard: models.map((model, i) => [
+      {
+        text: buttonText(
+          `${model.value === current ? '✓ ' : ''}${model.displayName || model.value}`
+        ),
+        callback_data: callbackData('model', String(i)),
+      },
+    ]),
+  };
+}
+
+export function modelText(models, current) {
+  return [
+    `Модель: <b>${escapeHtml(current)}</b>`,
+    '',
+    ...models.map(
+      (model) =>
+        `<b>${escapeHtml(model.displayName || model.value)}</b> <code>${escapeHtml(model.value)}</code>${model.description ? `\n${escapeHtml(model.description)}` : ''}`
+    ),
+    '',
+    '<i>Або текстом: /model &lt;назва&gt;</i>',
+  ].join('\n');
+}
+
+/** `/effort` buttons: the levels the model supports and "default" (the model's own), the current one marked. */
+export function effortKeyboard(levels, current) {
+  const mark = (level) => (level === current ? '✓ ' : '');
+  return {
+    inline_keyboard: [
+      levels.map((level) => ({
+        text: `${mark(level)}${level}`,
+        callback_data: callbackData('effort', level),
+      })),
+      [
+        {
+          text: `${current ? '' : '✓ '}за замовчуванням моделі`,
+          callback_data: callbackData('effort', 'default'),
+        },
+      ],
+    ],
+  };
+}

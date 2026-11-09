@@ -18,10 +18,14 @@
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import {
   DEFAULT_MODE,
+  EFFORT_LEVELS,
   MODES,
+  effortKeyboard,
   escapeHtml,
   modeKeyboard,
   modeText,
+  modelKeyboard,
+  modelText,
   parseCallback,
   permissionHtml,
   permissionKeyboard,
@@ -668,7 +672,8 @@ async function runSession(resumeId) {
   session = query({
     prompt: userMessages(),
     options: {
-      model: MODEL,
+      model: meta?.model ?? MODEL,
+      ...(meta?.effort ? { effort: meta.effort } : {}),
       cwd: REPO_DIR,
       ...(resumeId ? { resume: resumeId } : {}),
       // Every mode answers permission prompts through canUseTool (SDK_MODES): questions and plans reach the chat
@@ -710,6 +715,8 @@ async function runSession(resumeId) {
       }
     } else if (message.type === 'rate_limit_event') {
       onRateLimit(message.rate_limit_info);
+    } else if (message.type === 'system' && message.subtype === 'init') {
+      sessionModel = message.model ?? sessionModel;
     } else if (message.type === 'system' && message.subtype === 'background_tasks_changed') {
       backgroundTaskCount = (message.tasks ?? []).length;
       backgroundTasks = new Map(
@@ -1204,6 +1211,26 @@ async function onCallback(callback) {
     await editHtml(callback.message_id, modeText(currentMode()), modeKeyboard(currentMode()));
     return;
   }
+  if (kind === 'model') {
+    const model = modelsListed[Number(id)];
+    if (model && model.value !== modelName()) await setModel(model.value);
+    await editHtml(
+      callback.message_id,
+      modelText(modelsListed, modelName()),
+      modelKeyboard(modelsListed, modelName())
+    );
+    return;
+  }
+  if (kind === 'effort') {
+    if (id !== (meta?.effort ?? 'default') && (id === 'default' || EFFORT_LEVELS.includes(id)))
+      await setEffort(id);
+    await editHtml(
+      callback.message_id,
+      effortHtml(),
+      effortKeyboard(await effortLevels(), meta?.effort ?? null)
+    );
+    return;
+  }
   if (kind === 'plans') {
     await sendPlan(Number(id));
     return;
@@ -1238,6 +1265,92 @@ async function answerPending(message) {
 const answersPending = (message) =>
   Boolean(textTarget) &&
   (message.attachments ?? []).every((a) => a.kind === 'voice' || a.kind === 'audio');
+
+// ---------------------------------------------------------------------------------------------- /model, /effort
+
+/** The model the session reports (its init message), else the one asked for. */
+let sessionModel = null;
+/** The list `/model` showed last (its buttons pick a model by index). */
+let modelsListed = [];
+
+const modelName = () => meta?.model ?? MODEL;
+
+const MODEL_COMMAND = /^\/model(@\w+)?(\s+(\S+))?\s*$/i;
+const EFFORT_COMMAND = /^\/effort(@\w+)?(\s+(\S+))?\s*$/i;
+
+/** Switch the session's model now and for later runs (meta.json). */
+async function setModel(model) {
+  try {
+    await session?.setModel(model);
+  } catch (error) {
+    await say(
+      `⚠️ Модель ${model} не вдалося вибрати: ${String(error.message ?? error).slice(0, 300)}`
+    );
+    return false;
+  }
+  meta = { ...(meta ?? {}), model };
+  await saveMeta().catch((error) => log('save meta failed', error));
+  return true;
+}
+
+/** `/model` [name]: without an argument the session's models as buttons. */
+async function modelCommand(argument) {
+  if (argument) {
+    if (await setModel(argument)) await say(`🧠 Модель: ${argument}`);
+    return;
+  }
+  modelsListed =
+    (await session?.supportedModels().catch((error) => log('supportedModels failed', error))) ?? [];
+  if (!modelsListed.length) {
+    await say(
+      `🧠 Модель: ${modelName()}${sessionModel ? ` (${sessionModel})` : ''}\n/model <назва> — змінити`
+    );
+    return;
+  }
+  await sayHtml(modelText(modelsListed, modelName()), modelKeyboard(modelsListed, modelName()));
+}
+
+/** Effort levels of the current model (all of them when the session does not say). */
+async function effortLevels() {
+  const models = (await session?.supportedModels().catch(() => null)) ?? [];
+  const model = models.find((m) => m.value === modelName() || m.resolvedModel === sessionModel);
+  return model?.supportedEffortLevels?.length ? model.supportedEffortLevels : EFFORT_LEVELS;
+}
+
+/** Set the effort now and for later runs; 'default' goes back to the model's own. */
+async function setEffort(level) {
+  const effort = level === 'default' ? null : level;
+  try {
+    await session?.applyFlagSettings({ effortLevel: effort });
+  } catch (error) {
+    await say(
+      `⚠️ Effort ${level} не вдалося встановити: ${String(error.message ?? error).slice(0, 300)}`
+    );
+    return false;
+  }
+  meta = { ...(meta ?? {}), effort };
+  if (!effort) delete meta.effort;
+  await saveMeta().catch((error) => log('save meta failed', error));
+  return true;
+}
+
+const effortHtml = () =>
+  `Effort: <b>${meta?.effort ?? 'за замовчуванням моделі'}</b> (модель ${escapeHtml(modelName())})\n<i>Або текстом: /effort low | medium | high | xhigh | max | default</i>`;
+
+/** `/effort` [low | medium | high | xhigh | max | default]: without an argument the levels as buttons. */
+async function effortCommand(argument) {
+  const level = (argument ?? '').toLowerCase();
+  if (!level) {
+    await sayHtml(effortHtml(), effortKeyboard(await effortLevels(), meta?.effort ?? null));
+    return;
+  }
+  if (level !== 'default' && !EFFORT_LEVELS.includes(level)) {
+    await say('ℹ️ /effort low | medium | high | xhigh | max | default');
+    return;
+  }
+  if (await setEffort(level))
+    await say(`🎚 Effort: ${level === 'default' ? 'за замовчуванням моделі' : level}`);
+}
 
 // ---------------------------------------------------------------------------------------------- /plans
 
@@ -1694,13 +1807,15 @@ async function main() {
   if (stopReason) return stop();
   const branch = (await sh('git', ['-C', REPO_DIR, 'branch', '--show-current'])).trim();
   const modeNote =
-    currentMode() === DEFAULT_MODE
+    (currentMode() === DEFAULT_MODE
       ? ''
-      : ` Режим: ${MODES[currentMode()].emoji} ${currentMode()} (/mode).`;
+      : ` Режим: ${MODES[currentMode()].emoji} ${currentMode()} (/mode).`) +
+    (meta?.effort ? ` Effort: ${meta.effort}.` : '');
   await say(
     (meta?.sessionId
-      ? `🟢 Воркер готовий (Opus). Контекст відновлено з сесії від ${new Date(meta.savedAt).toLocaleString('uk-UA', { timeZone: OWNER_TIME_ZONE })}; гілка ${branch || '(detached)'}${restored.workspace ? '' : ', робоча копія свіжа'}.`
-      : `🟢 Воркер готовий (Opus). Нова сесія; гілка ${branch || '(detached)'}.`) + modeNote
+      ? `🟢 Воркер готовий (${modelName()}). Контекст відновлено з сесії від ${new Date(meta.savedAt).toLocaleString('uk-UA', { timeZone: OWNER_TIME_ZONE })}; гілка ${branch || '(detached)'}${restored.workspace ? '' : ', робоча копія свіжа'}.`
+      : `🟢 Воркер готовий (${modelName()}). Нова сесія; гілка ${branch || '(detached)'}.`) +
+      modeNote
   );
 
   lastActivity = Date.now();
@@ -1751,6 +1866,16 @@ async function main() {
         const compact = command.match(COMPACT_COMMAND);
         if (compact) {
           await compactCommand(compact[3]);
+          continue;
+        }
+        const model = command.match(MODEL_COMMAND);
+        if (model) {
+          await modelCommand(model[3]);
+          continue;
+        }
+        const effort = command.match(EFFORT_COMMAND);
+        if (effort) {
+          await effortCommand(effort[3]);
           continue;
         }
         if (PLANS_COMMAND.test(command)) {
