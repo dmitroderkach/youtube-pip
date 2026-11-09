@@ -39,6 +39,7 @@ import {
   planTitle,
   questionHtml,
   questionKeyboard,
+  VOICE_MODELS,
   voiceKeyboard,
   voiceText,
 } from './telegram-format.mjs';
@@ -145,7 +146,14 @@ const TTS_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const TTS_LANGUAGE = 'uk-UA';
 const TTS_VOICE_PREFIX = 'uk-UA-Chirp3-HD-';
 const TTS_DEFAULT_VOICE = env.TTS_VOICE ?? 'Aoede';
-/** Female Chirp 3 HD voices for `/voice samples`. */
+/**
+ * Gemini-TTS style instructions (VOICE_MODELS): Chirp 3 HD takes none, and its Ukrainian word stress and intonation
+ * were often off.
+ */
+const TTS_STYLE_PROMPT =
+  'Read this Ukrainian text aloud the way a calm, friendly colleague talks: natural Ukrainian word stress and ' +
+  'intonation, clear sentence structure, an even pace, no dramatising.';
+/** Female voices for `/voice samples` (Chirp 3 HD and Gemini-TTS share these names). */
 const TTS_SAMPLE_VOICES = ['Aoede', 'Kore', 'Leda', 'Zephyr', 'Despina', 'Sulafat'];
 const TTS_SAMPLE_TEXT =
   'Привіт! Це голос воркера youtube-pip. PR змерджено, перевірки зелені, можна релізити.';
@@ -1029,19 +1037,28 @@ let voiceReplyPending = false;
 
 const voiceMode = () => (VOICE_MODES.includes(meta?.voiceMode) ? meta.voiceMode : 'auto');
 const voiceName = () => meta?.voiceName ?? TTS_DEFAULT_VOICE;
+const voiceModel = () => (VOICE_MODELS[meta?.voiceModel] ? meta.voiceModel : 'chirp3');
 
-/** OGG/Opus audio of `text` in the voice `name` (Chirp 3 HD), or throws. */
-async function synthesize(text, name = voiceName()) {
+/** OGG/Opus audio of `text` in the voice `name` with the speech model `model` (VOICE_MODELS), or throws. */
+async function synthesize(text, name = voiceName(), model = voiceModel()) {
   if (!env.GOOGLE_TTS_API_KEY) throw new Error('GOOGLE_TTS_API_KEY is not set');
   // The key in a header, never in the URL (URLs end up in error messages and logs)
   const res = await fetch(TTS_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': env.GOOGLE_TTS_API_KEY },
-    body: JSON.stringify({
-      input: { text },
-      voice: { languageCode: TTS_LANGUAGE, name: `${TTS_VOICE_PREFIX}${name}` },
-      audioConfig: { audioEncoding: 'OGG_OPUS' },
-    }),
+    body: JSON.stringify(
+      VOICE_MODELS[model]?.model
+        ? {
+            input: { text, prompt: TTS_STYLE_PROMPT },
+            voice: { languageCode: TTS_LANGUAGE, name, modelName: VOICE_MODELS[model].model },
+            audioConfig: { audioEncoding: 'OGG_OPUS' },
+          }
+        : {
+            input: { text },
+            voice: { languageCode: TTS_LANGUAGE, name: `${TTS_VOICE_PREFIX}${name}` },
+            audioConfig: { audioEncoding: 'OGG_OPUS' },
+          }
+    ),
   });
   const json = await res.json().catch(() => ({}));
   if (!res.ok || !json.audioContent) {
@@ -1078,8 +1095,9 @@ function speakable(text) {
 /** Note for Claude on a message that gets a voice reply: end the answer with a spoken summary. */
 const VOICE_NOTE =
   '[Voice reply: end your answer with <voice>…</voice>, a short spoken summary in Ukrainian for the owner to hear ' +
-  '(1–4 natural sentences, 20–40 s, no links, code, paths, ids or lists). The worker removes it from the text and ' +
-  'sends it as a voice message.]';
+  '(1–4 natural sentences, 20–40 s, no links, code, paths, ids or lists; short, simply built sentences, numbers ' +
+  'and abbreviations written out as words, so speech synthesis reads them naturally). The worker removes it from ' +
+  'the text and sends it as a voice message.]';
 
 /** Split the spoken summary off the answer: { text, spoken }. */
 function splitVoiceBlock(answer) {
@@ -1108,9 +1126,10 @@ const VOICE_COMMAND = /^\/voice(@\w+)?(\s+(.+))?$/i;
 
 /** The `/voice` message: settings and buttons (`messageId`: edit that message instead of sending one). */
 async function voiceMenu(messageId) {
-  const keyboard = voiceKeyboard(TTS_SAMPLE_VOICES, voiceMode(), voiceName());
-  if (messageId) await editHtml(messageId, voiceText(voiceMode(), voiceName()), keyboard);
-  else await sayHtml(voiceText(voiceMode(), voiceName()), keyboard);
+  const keyboard = voiceKeyboard(TTS_SAMPLE_VOICES, voiceMode(), voiceName(), voiceModel());
+  const html = voiceText(voiceMode(), voiceName(), voiceModel());
+  if (messageId) await editHtml(messageId, html, keyboard);
+  else await sayHtml(html, keyboard);
 }
 
 function setVoiceMode(mode) {
@@ -1121,12 +1140,43 @@ function setVoiceMode(mode) {
 async function voiceSamples() {
   for (const name of TTS_SAMPLE_VOICES) {
     try {
-      await sendVoice(await synthesize(TTS_SAMPLE_TEXT, name), `${name} — /voice ${name}`);
+      await sendVoice(
+        await synthesize(TTS_SAMPLE_TEXT, name),
+        `${VOICE_MODELS[voiceModel()].label} · ${name} — /voice ${name}`
+      );
     } catch (error) {
       await say(`⚠️ ${name}: ${String(error.message ?? error).slice(0, 300)}`);
       return;
     }
   }
+}
+
+/** The same sentence in the current voice with every speech model, to compare them by ear. */
+async function voiceCompare() {
+  for (const [key, { label }] of Object.entries(VOICE_MODELS)) {
+    try {
+      await sendVoice(
+        await synthesize(TTS_SAMPLE_TEXT, voiceName(), key),
+        `${label} · ${voiceName()}`
+      );
+    } catch (error) {
+      await say(`⚠️ ${label}: ${String(error.message ?? error).slice(0, 300)}`);
+    }
+  }
+}
+
+/** Switch to the speech model `key` after a sample of it; false when it does not work. */
+async function setVoiceModel(key) {
+  const { label } = VOICE_MODELS[key];
+  try {
+    await sendVoice(await synthesize(`Тепер я говорю моделлю ${label}.`, voiceName(), key), label);
+  } catch (error) {
+    await say(`⚠️ Модель ${label} не працює: ${String(error.message ?? error).slice(0, 300)}`);
+    return false;
+  }
+  meta = { ...(meta ?? {}), voiceModel: key };
+  save().catch((error) => log('save failed', error));
+  return true;
 }
 
 /** Switch to the voice `name` after a sample of it; false when it does not work. */
@@ -1142,7 +1192,7 @@ async function setVoice(name) {
   return true;
 }
 
-/** `/voice` [auto | on | off | samples | <voice name>]: voice reply settings, answered without a Claude turn. */
+/** `/voice` [auto | on | off | samples | compare | <voice name>]: voice reply settings, answered without a Claude turn. */
 async function voiceCommand(argument) {
   const arg = (argument ?? '').trim();
   if (!arg) return voiceMenu();
@@ -1151,6 +1201,7 @@ async function voiceCommand(argument) {
     return voiceMenu();
   }
   if (arg.toLowerCase() === 'samples') return voiceSamples();
+  if (arg.toLowerCase() === 'compare') return voiceCompare();
   const name = arg.charAt(0).toUpperCase() + arg.slice(1).toLowerCase();
   if (!/^[A-Z][a-z]+$/.test(name)) {
     await say('ℹ️ /voice auto | on | off | samples | <імʼя голосу>');
@@ -1162,6 +1213,8 @@ async function voiceCommand(argument) {
 /** A `/voice` button: `mode:<auto|on|off>`, `name:<voice>` or `samples`; the menu is updated in place. */
 async function onVoiceButton(messageId, id, value) {
   if (id === 'samples') return voiceSamples();
+  if (id === 'compare') return voiceCompare();
+  if (id === 'model' && VOICE_MODELS[value] && value !== voiceModel()) await setVoiceModel(value);
   if (id === 'mode' && VOICE_MODES.includes(value) && value !== voiceMode()) setVoiceMode(value);
   if (id === 'name' && TTS_SAMPLE_VOICES.includes(value) && value !== voiceName())
     await setVoice(value);

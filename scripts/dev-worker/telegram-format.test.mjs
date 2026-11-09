@@ -206,8 +206,13 @@ test('model and effort keyboards', () => {
   );
 });
 
-test('voice keyboard: modes, voices three per row, samples; current ones marked', () => {
-  const rows = voiceKeyboard(['Aoede', 'Kore', 'Leda', 'Zephyr'], 'on', 'Kore').inline_keyboard;
+test('voice keyboard: modes, models two per row, voices three per row, samples and comparison', () => {
+  const rows = voiceKeyboard(
+    ['Aoede', 'Kore', 'Leda', 'Zephyr'],
+    'on',
+    'Kore',
+    'flash'
+  ).inline_keyboard;
   assert.deepEqual(
     rows.map((row) => row.map((b) => [b.text, b.callback_data])),
     [
@@ -217,15 +222,30 @@ test('voice keyboard: modes, voices three per row, samples; current ones marked'
         ['off', 'voice:mode:off'],
       ],
       [
+        ['Chirp 3 HD', 'voice:model:chirp3'],
+        ['✓ Gemini 2.5 Flash', 'voice:model:flash'],
+      ],
+      [
+        ['Gemini 2.5 Pro', 'voice:model:pro'],
+        ['Gemini 3.1 Flash (preview)', 'voice:model:flash31'],
+      ],
+      [
         ['Aoede', 'voice:name:Aoede'],
         ['✓ Kore', 'voice:name:Kore'],
         ['Leda', 'voice:name:Leda'],
       ],
       [['Zephyr', 'voice:name:Zephyr']],
-      [['🔈 Зразки голосів', 'voice:samples']],
+      [
+        ['🔈 Зразки голосів', 'voice:samples'],
+        ['🎧 Порівняти моделі', 'voice:compare'],
+      ],
     ]
   );
-  assert.match(voiceText('on', 'Kore'), /<b>on<\/b> · голос <b>Kore<\/b>/);
+  assert.match(
+    voiceText('on', 'Kore', 'pro'),
+    /<b>on<\/b> · модель <b>Gemini 2\.5 Pro<\/b> · голос <b>Kore<\/b>/
+  );
+  assert.match(voiceText('on', 'Kore'), /модель <b>Chirp 3 HD<\/b>/);
 });
 
 test('background restore offer: tasks with command / prompt and purpose; toggles and decisions', () => {
