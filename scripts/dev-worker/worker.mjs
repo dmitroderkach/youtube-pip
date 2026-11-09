@@ -494,9 +494,12 @@ let lastAnswerAt = new Date().toISOString();
 /** Uploads of the activity run one after another, so an older state never lands after a newer one. */
 let activityUploads = Promise.resolve();
 
-/** Tell the watchdog when the last answer went out and whether a turn is running (best effort). */
+/**
+ * Tell the watchdog when the last answer went out, whether a turn is running and whether the worker is shutting down
+ * (best effort): a worker that saves its session before it exits is still a running task for a minute.
+ */
 function publishActivity(turnActive) {
-  const body = JSON.stringify({ lastAnswerAt, turnActive });
+  const body = JSON.stringify({ lastAnswerAt, turnActive, stopping });
   activityUploads = activityUploads.then(async () => {
     try {
       const path = '/tmp/activity.json';
@@ -1030,6 +1033,33 @@ async function deliver(message) {
   }
 }
 
+// ---------------------------------------------------------------------------------------------- idle watchdog
+
+/**
+ * The dev-bot's idle watchdog (docs/DEV_WORKER.md): the worker is still up IDLE_ALERT_MINUTES after its last answer
+ * with no turn running, i.e. background tasks keep the idle timer from firing. Claude gets the list and stops only
+ * the orphaned ones (it alone knows which tasks it still waits for); with none left the idle timer stops the worker.
+ * Ignored when outdated (an answer since), during a turn, or with no background task.
+ */
+async function handleIdleWatchdog(message) {
+  if (message.lastAnswerAt !== lastAnswerAt || turn || !backgroundTasks.size) {
+    log(
+      `idle watchdog ignored: answer ${message.lastAnswerAt} vs ${lastAnswerAt}, turn ${Boolean(turn)}, background ${backgroundTasks.size}`
+    );
+    return;
+  }
+  const tasks = Array.from(backgroundTasks.entries())
+    .map(
+      ([id, task], i) =>
+        `${i + 1}. ${task.type} · ${task.description || '(no description)'} · running ${elapsedText(task.since)} (task id ${id})`
+    )
+    .join('\n');
+  sendToClaude(
+    `[Idle watchdog (dev-bot): your last answer was ${message.minutes} min ago and no turn is running, but the worker cannot go idle: these background tasks are still running:\n${tasks}\nStop only the orphaned ones, the tasks nobody waits for any more (a forgotten sleep / watch / server, a check whose result you already reported), with TaskStop; keep the ones you deliberately wait for. Then answer in one or two lines: what you stopped, what you kept and why. The owner already got the bot's warning; with no background task left, the idle timer stops the worker.]`
+  );
+  ensureTurn();
+}
+
 // ---------------------------------------------------------------------------------------------- main loop
 
 let lastActivity = Date.now();
@@ -1068,6 +1098,7 @@ async function receive() {
 async function stop() {
   if (stopping) return;
   stopping = true;
+  publishActivity(Boolean(turn));
   const reason = stopReason;
   const interrupted = Boolean(turn);
   if (session) {
@@ -1152,12 +1183,18 @@ async function main() {
       if (stopReason) break;
       // Sent before this /up (left in the queue by a previous run): not meant for this session
       if (message.date < UP_AT) {
-        skipped++;
+        // A watchdog message of the previous run is not the owner's: skipped silently
+        if (message.watchdog !== 'idle') skipped++;
         continue;
       }
       if (skipped) {
         await say(`ℹ️ Пропустив повідомлень, надісланих до /up: ${skipped}`);
         skipped = 0;
+      }
+      // The dev-bot's idle watchdog, not the owner: no activity of its own
+      if (message.watchdog === 'idle') {
+        await handleIdleWatchdog(message).catch((error) => log('idle watchdog failed', error));
+        continue;
       }
       lastActivity = Date.now();
       try {

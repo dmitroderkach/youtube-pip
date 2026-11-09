@@ -39,11 +39,12 @@ REPORTED_EXIT_CODES = {0, 10}
 REPLY_MAX_CHARS = 8000
 STARTED_BY = "telegram"
 META_KEY = "state/meta.json"
-# Written by the worker: {lastAnswerAt, turnActive} (scripts/dev-worker/worker.mjs)
+# Written by the worker: {lastAnswerAt, turnActive, stopping} (scripts/dev-worker/worker.mjs)
 ACTIVITY_KEY = "state/activity.json"
 # Last answer the watchdog warned about, so it warns once per answer
 IDLE_ALERT_KEY = "state/idle-alert.json"
-IDLE_ALERT_MINUTES = int(os.environ.get("IDLE_ALERT_MINUTES", "30"))
+# Above the worker's 10-minute idle stop, so a worker going to sleep is never warned about
+IDLE_ALERT_MINUTES = int(os.environ.get("IDLE_ALERT_MINUTES", "15"))
 # Start requested while a stopped worker was still saving: consumed by the STOPPED event of that task
 PENDING_START_KEY = "state/pending-start.json"
 
@@ -337,12 +338,17 @@ def read_json(key):
 
 
 def idle_watch():
-    """Scheduled: warn once when the worker is still up IDLE_ALERT_MINUTES after its last answer with no turn running."""
+    """
+    Scheduled: once the worker is still up IDLE_ALERT_MINUTES after its last answer with no turn running, warn the owner
+    and tell the worker (its Claude stops the orphaned background tasks); again every IDLE_ALERT_MINUTES while it stays so.
+    """
     running = [t for t in worker_tasks() if t["lastStatus"] == "RUNNING" and t["startedAt"]]
     if not running:
         return {"status": "no worker"}
     activity = read_json(ACTIVITY_KEY) or {}
     last = activity.get("lastAnswerAt")
+    if activity.get("stopping"):
+        return {"status": "stopping"}
     if not last or activity.get("turnActive"):
         return {"status": "busy or unknown"}
     answered = datetime.fromisoformat(last.replace("Z", "+00:00"))
@@ -352,13 +358,26 @@ def idle_watch():
     minutes = (datetime.now(timezone.utc) - answered).total_seconds() / 60
     if minutes < IDLE_ALERT_MINUTES:
         return {"status": "recent answer"}
-    if (read_json(IDLE_ALERT_KEY) or {}).get("lastAnswerAt") == last:
+    # Round after round: again every IDLE_ALERT_MINUTES while nothing changes (a worker that does not answer)
+    alert = read_json(IDLE_ALERT_KEY) or {}
+    if alert.get("lastAnswerAt") == last and time.time() - alert.get("at", 0) < IDLE_ALERT_MINUTES * 60:
         return {"status": "already warned"}
     # Marked before the message: a failed mark (and EventBridge's retry of the invocation) never warns twice
-    s3.put_object(Bucket=STATE_BUCKET, Key=IDLE_ALERT_KEY, Body=json.dumps({"lastAnswerAt": last}))
+    now = int(time.time())
+    s3.put_object(Bucket=STATE_BUCKET, Key=IDLE_ALERT_KEY, Body=json.dumps({"lastAnswerAt": last, "at": now}))
     say(
         f"🟡 Воркер працює вже {int(minutes)} хв після останньої відповіді, а задачі в роботі немає: "
-        "можливо, висить фонова задача, що не дає йому заснути. /background — подивитись, /down — зупинити"
+        "можливо, висить фонова задача, що не дає йому заснути. Передав воркеру: осиротілі фонові задачі він "
+        "зупинить сам і засне. /background — подивитись, /down — зупинити"
+    )
+    # The worker gets it too: Claude stops the orphaned background tasks, then the idle timer stops the worker
+    sqs.send_message(
+        QueueUrl=QUEUE_URL,
+        MessageBody=json.dumps(
+            {"watchdog": "idle", "lastAnswerAt": last, "minutes": int(minutes), "date": now}
+        ),
+        MessageGroupId=str(config()["chat_id"]),
+        MessageDeduplicationId=f"idle-watchdog-{last}-{now}",
     )
     return {"status": "warned"}
 
