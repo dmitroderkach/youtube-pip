@@ -105,9 +105,12 @@ def changed_attributes(change):
 
 
 def summarize(plan):
-    """[(symbol, address, detail)] of the resource changes and the gate resources among them."""
-    gate = set(((plan.get("planned_values") or {}).get("outputs") or {}).get("dev_worker_gate_addresses", {}).get("value") or [])
-    lines, touched = [], []
+    """[(symbol, address, detail)] of the resource changes, the gate resources among them and the roles created or
+    changed without the permissions boundary (tf-apply is denied both: it would stop half-way)."""
+    outputs_planned = (plan.get("planned_values") or {}).get("outputs") or {}
+    gate = set(outputs_planned.get("dev_worker_gate_addresses", {}).get("value") or [])
+    boundary = outputs_planned.get("dev_worker_permissions_boundary", {}).get("value")
+    lines, touched, unbounded = [], [], []
     for rc in plan.get("resource_changes") or []:
         if rc.get("mode") != "managed":
             continue
@@ -125,14 +128,19 @@ def summarize(plan):
         lines.append((symbol, rc["address"], detail))
         if base_address(rc["address"]) in gate:
             touched.append(rc["address"])
+        elif rc["type"] == "aws_iam_role" and ("create" in actions or "update" in actions):
+            # Unknown only when the boundary itself is created by this plan, which touches the gate anyway
+            known = (rc["change"].get("after_unknown") or {}).get("permissions_boundary") is not True
+            if known and (rc["change"].get("after") or {}).get("permissions_boundary") != boundary:
+                unbounded.append(rc["address"])
     outputs = [name for name, change in (plan.get("output_changes") or {}).items() if change.get("actions") != ["no-op"]]
-    return lines, touched, outputs
+    return lines, touched, unbounded, outputs
 
 
 def plan_report(plan_path):
     sha, subject, run_id = os.environ["SHA"], os.environ["SUBJECT"], os.environ["RUN_ID"]
     plan = json.load(open(plan_path))
-    lines, touched, outputs = summarize(plan)
+    lines, touched, unbounded, outputs = summarize(plan)
     head = f"🏗 Terraform plan: main@{sha[:7]}\n«{subject[:120]}»"
     if not lines and not outputs:
         say(f"{head}\n\n✅ Змін немає: AWS відповідає main.")
@@ -159,6 +167,14 @@ def plan_report(plan_path):
             + "\n\n🔒 Зачіпає захищені ресурси (ворота воркера): "
             + ", ".join(touched[:8])
             + ". Кнопкою не застосовується: terraform apply з main локально."
+        )
+        return
+    if unbounded:
+        say(
+            text
+            + "\n\n⛔ Ролі без permissions boundary: "
+            + ", ".join(unbounded[:8])
+            + ". tf-apply такі не створює й не змінює: треба permissions_boundary = aws_iam_policy.project_boundary.arn."
         )
         return
     markup = {

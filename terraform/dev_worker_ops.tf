@@ -225,6 +225,11 @@ output "dev_worker_gate_addresses" {
   value       = local.gate_addresses
 }
 
+output "dev_worker_permissions_boundary" {
+  description = "Boundary every role changed by tf-apply must carry: tf-plan offers no Apply for a plan with a role without it."
+  value       = local.boundary_policy_arn
+}
+
 # ------------------------------------------------------------------------------------------------ policies
 
 # Every role a gated apply may change or create carries this boundary: anything but the gate.

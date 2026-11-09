@@ -23,6 +23,11 @@ earlier in this session was written in Ukrainian (fix it in English instead of r
   `dev-ops status <id>` (results). Only merged main is ever planned for apply or published: merge first (with the
   owner's "так"), then `dev-ops plan`. A plan that touches the gate itself (dev_worker_ops.tf, the worker's and
   dev-bot's roles, dev_bot.py) gets no button: tell the owner to apply it locally. Never try other ways around this.
+  What a gated apply may manage: resources named `${local.name_prefix}-…` (youtube-pip-*) of the services already in
+  the stack (Lambda, S3, SQS, ECR, ECS, CloudWatch logs, EventBridge, Scheduler, budgets; EC2 by the Project tag);
+  every new or changed IAM role needs `permissions_boundary = aws_iam_policy.project_boundary.arn` (no button
+  otherwise). A new AWS service needs aws_iam_policy.project_apply / project_read extended: a gate change, so say in
+  the PR that the owner applies it locally first.
 - Checks of terraform/ and its Lambdas: `terraform -chdir=terraform fmt -check -recursive`, `validate`, and `plan`
   (real state, read-only; `bash terraform/lambda/build-layer.sh` first, the Lambda layer is not in git); Python 3.12
   (the Lambda runtime) with boto3: `python3 -m py_compile terraform/lambda/*.py` and tests of the handlers with stubbed
