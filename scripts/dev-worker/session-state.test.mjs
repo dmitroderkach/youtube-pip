@@ -6,6 +6,7 @@ import {
   epochProject,
   latestEpochKey,
   restoreNote,
+  preservedUuids,
   transcriptEpoch,
 } from './session-state.mjs';
 
@@ -138,4 +139,45 @@ test('transcript epoch: starts at the messages the compaction preserved before i
   const epoch = transcriptEpoch(text);
   assert.ok(text.slice(epoch.start).startsWith(lines[1]));
   assert.equal(epoch.name, '2026-11-09T02-33-44-050Z-b3cccccc.jsonl');
+});
+
+test('transcript epoch: preservedMessages.uuids first (as Claude Code loads them), with lines of the same message', () => {
+  const lines = [
+    line({ type: 'user', uuid: 'old' }),
+    // The answer's thinking: same API message as the preserved text line
+    line({ type: 'assistant', uuid: 'think', parentUuid: 'old', message: { id: 'msg_1' } }),
+    line({ type: 'assistant', uuid: 'answer', parentUuid: 'think', message: { id: 'msg_1' } }),
+    line({ type: 'user', uuid: 'next', parentUuid: 'answer' }),
+    line({
+      type: 'system',
+      subtype: 'compact_boundary',
+      uuid: 'b4dddddddd',
+      parentUuid: null,
+      timestamp: '2026-11-09T03:00:00.000Z',
+      compactMetadata: {
+        // A segment that disagrees: the list wins, like in Claude Code's loader
+        preservedSegment: { headUuid: 'next', anchorUuid: 'sum', tailUuid: 'next' },
+        preservedMessages: {
+          anchorUuid: 'sum',
+          uuids: ['answer', 'next'],
+          allUuids: ['answer', 'next'],
+        },
+      },
+    }),
+    line({ type: 'user', uuid: 'sum', isCompactSummary: true }),
+  ];
+  const text = lines.join('\n');
+  assert.ok(text.slice(transcriptEpoch(text).start).startsWith(lines[1]));
+  assert.deepEqual(
+    preservedUuids({
+      preservedSegment: { headUuid: 'h', tailUuid: 't' },
+      preservedMessages: { uuids: ['a', 'b'] },
+    }),
+    ['a', 'b']
+  );
+  assert.deepEqual(preservedUuids({ preservedSegment: { headUuid: 'h', tailUuid: 't' } }), [
+    'h',
+    't',
+  ]);
+  assert.deepEqual(preservedUuids({ preservedMessages: ['x'] }), ['x']);
 });

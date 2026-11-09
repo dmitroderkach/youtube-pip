@@ -24,25 +24,54 @@ function parseLine(line) {
 const lineStart = (text, index) => text.lastIndexOf('\n', index) + 1;
 
 /**
- * A compaction can keep the newest messages as they were (`compactMetadata.preservedSegment`, head … tail, or the
- * older `preservedMessages` list): they are written before the boundary and relinked after its summary on resume,
- * so the epoch starts at the first of them. Returns `from` when there are none (or they are not in the file).
+ * The first line before `before` that holds `needle`, parsed, when `matches` accepts it: `{ from, entry }` or null.
+ * An id first appears in the line it was created with, so the first occurrence is that line.
+ */
+function firstLine(text, needle, before, matches) {
+  const at = text.indexOf(needle);
+  if (at < 0 || at >= before) return null;
+  const from = lineStart(text, at);
+  const end = text.indexOf('\n', at);
+  const entry = parseLine(text.slice(from, end < 0 ? undefined : end));
+  return entry && matches(entry) ? { from, entry } : null;
+}
+
+/**
+ * The uuids of the messages a compaction kept as they were, the way Claude Code's own loader reads them:
+ * `preservedMessages.uuids` (`{ anchorUuid, uuids, allUuids }`; a plain list in older transcripts), else the
+ * `preservedSegment` head … tail.
+ */
+export function preservedUuids(meta = {}) {
+  const listed = Array.isArray(meta.preservedMessages)
+    ? meta.preservedMessages
+    : meta.preservedMessages?.uuids;
+  const uuids = Array.isArray(listed)
+    ? listed
+    : [meta.preservedSegment?.headUuid, meta.preservedSegment?.tailUuid];
+  return uuids.filter((uuid) => typeof uuid === 'string');
+}
+
+/**
+ * A compaction can keep the newest messages as they were: they are written before the boundary and relinked after
+ * its summary on resume, so the epoch starts at the first of them, or at an earlier line of the same API message
+ * (Claude Code writes an answer's thinking and text as separate lines and loads them together). Returns `from` when
+ * there are none (or they are not in the file).
  */
 function preservedStart(text, boundary, from) {
-  const meta = boundary.compactMetadata ?? {};
-  const uuids = [
-    meta.preservedSegment?.headUuid,
-    meta.preservedSegment?.tailUuid,
-    ...(Array.isArray(meta.preservedMessages) ? meta.preservedMessages : []),
-  ].filter((uuid) => typeof uuid === 'string');
   let start = from;
-  for (const uuid of uuids) {
-    const at = text.indexOf(`"uuid":"${uuid}"`);
-    if (at < 0 || at >= from) continue;
-    const lineFrom = lineStart(text, at);
-    const end = text.indexOf('\n', at);
-    if (parseLine(text.slice(lineFrom, end < 0 ? undefined : end))?.uuid === uuid)
-      start = Math.min(start, lineFrom);
+  for (const uuid of preservedUuids(boundary.compactMetadata)) {
+    const found = firstLine(text, `"uuid":"${uuid}"`, from, (entry) => entry.uuid === uuid);
+    if (!found) continue;
+    start = Math.min(start, found.from);
+    const messageId = found.entry.message?.id;
+    if (typeof messageId !== 'string') continue;
+    const sibling = firstLine(
+      text,
+      `"id":"${messageId}"`,
+      from,
+      (entry) => entry.message?.id === messageId
+    );
+    if (sibling) start = Math.min(start, sibling.from);
   }
   return start;
 }
