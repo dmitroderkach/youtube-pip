@@ -70,6 +70,8 @@ The worker stops after 10 minutes without a turn or a background task. A backgro
 
 One `/mode` command, four modes (Claude Code's permission modes; the session switches at once, the mode survives restarts in `state/meta.json`; outside `bypass` every answer starts with the mode's label, and the ready message names it):
 
+When Claude Code changes the mode itself (Claude calls `EnterPlanMode`, which Claude Code may allow without asking the worker, or returns from plan mode), the worker follows it: the tool call and the session's `status` messages (`permissionMode`) update `/mode`, and the chat gets `📋 Claude сам перейшов у режим plan (було: bypass) · /mode`. SDK `default` is bypass or manual alike: the worker takes the one before plan mode. Pressing the current mode's button again re-applies it to the session.
+
 | Mode                  | Claude Code mode | Permission prompts                                                                        |
 | --------------------- | ---------------- | ----------------------------------------------------------------------------------------- |
 | 🚀 `bypass` (default) | `default`        | all allowed by the worker (as before)                                                     |
