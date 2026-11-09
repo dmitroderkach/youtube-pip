@@ -339,7 +339,7 @@ def read_json(key):
 def idle_watch():
     """
     Scheduled: once the worker is still up IDLE_ALERT_MINUTES after its last answer with no turn running, warn the owner
-    and tell the worker (its Claude stops the orphaned background tasks), once per answer.
+    and tell the worker (its Claude stops the orphaned background tasks); again every IDLE_ALERT_MINUTES while it stays so.
     """
     running = [t for t in worker_tasks() if t["lastStatus"] == "RUNNING" and t["startedAt"]]
     if not running:
@@ -355,10 +355,13 @@ def idle_watch():
     minutes = (datetime.now(timezone.utc) - answered).total_seconds() / 60
     if minutes < IDLE_ALERT_MINUTES:
         return {"status": "recent answer"}
-    if (read_json(IDLE_ALERT_KEY) or {}).get("lastAnswerAt") == last:
+    # Round after round: again every IDLE_ALERT_MINUTES while nothing changes (a worker that does not answer)
+    alert = read_json(IDLE_ALERT_KEY) or {}
+    if alert.get("lastAnswerAt") == last and time.time() - alert.get("at", 0) < IDLE_ALERT_MINUTES * 60:
         return {"status": "already warned"}
     # Marked before the message: a failed mark (and EventBridge's retry of the invocation) never warns twice
-    s3.put_object(Bucket=STATE_BUCKET, Key=IDLE_ALERT_KEY, Body=json.dumps({"lastAnswerAt": last}))
+    now = int(time.time())
+    s3.put_object(Bucket=STATE_BUCKET, Key=IDLE_ALERT_KEY, Body=json.dumps({"lastAnswerAt": last, "at": now}))
     say(
         f"🟡 Воркер працює вже {int(minutes)} хв після останньої відповіді, а задачі в роботі немає: "
         "можливо, висить фонова задача, що не дає йому заснути. Передав воркеру: осиротілі фонові задачі він "
@@ -368,10 +371,10 @@ def idle_watch():
     sqs.send_message(
         QueueUrl=QUEUE_URL,
         MessageBody=json.dumps(
-            {"watchdog": "idle", "lastAnswerAt": last, "minutes": int(minutes), "date": int(time.time())}
+            {"watchdog": "idle", "lastAnswerAt": last, "minutes": int(minutes), "date": now}
         ),
         MessageGroupId=str(config()["chat_id"]),
-        MessageDeduplicationId=f"idle-watchdog-{last}",
+        MessageDeduplicationId=f"idle-watchdog-{last}-{now}",
     )
     return {"status": "warned"}
 
