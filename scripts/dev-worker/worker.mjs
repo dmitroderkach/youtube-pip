@@ -1186,7 +1186,16 @@ async function askPermission(toolName, input, options) {
     return {
       behavior: 'allow',
       updatedInput: input,
-      ...(result.decision === 'always' ? { updatedPermissions: options.suggestions } : {}),
+      // Claude Code's suggestions usually target localSettings (.claude/settings.local.json in the working copy,
+      // which is saved to S3 and not git-ignored here): kept for this session only, as the button says
+      ...(result.decision === 'always'
+        ? {
+            updatedPermissions: options.suggestions.map((rule) => ({
+              ...rule,
+              destination: 'session',
+            })),
+          }
+        : {}),
     };
   }
   if (result.answer) {
