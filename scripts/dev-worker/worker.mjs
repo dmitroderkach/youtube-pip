@@ -815,7 +815,9 @@ async function finishTurn(result) {
   // Outside the default mode every answer says which mode Claude is in
   const label =
     currentMode() === DEFAULT_MODE ? '' : `${MODES[currentMode()].emoji} ${currentMode()}\n`;
-  await say(`${label}${text || (result.errors ?? []).join('\n') || `(${result.subtype})`}`);
+  // A successful turn with nothing to say (e.g. Claude only took note of background tasks that ended) posts nothing
+  const message = text || (result.errors ?? []).join('\n') || (failed ? `(${result.subtype})` : '');
+  if (message) await say(`${label}${message}`);
   lastAnswerAt = new Date().toISOString();
   publishActivity(false);
   if (text && !failed) await replyByVoice(text, spoken);
