@@ -494,9 +494,12 @@ let lastAnswerAt = new Date().toISOString();
 /** Uploads of the activity run one after another, so an older state never lands after a newer one. */
 let activityUploads = Promise.resolve();
 
-/** Tell the watchdog when the last answer went out and whether a turn is running (best effort). */
+/**
+ * Tell the watchdog when the last answer went out, whether a turn is running and whether the worker is shutting down
+ * (best effort): a worker that saves its session before it exits is still a running task for a minute.
+ */
 function publishActivity(turnActive) {
-  const body = JSON.stringify({ lastAnswerAt, turnActive });
+  const body = JSON.stringify({ lastAnswerAt, turnActive, stopping });
   activityUploads = activityUploads.then(async () => {
     try {
       const path = '/tmp/activity.json';
@@ -1095,6 +1098,7 @@ async function receive() {
 async function stop() {
   if (stopping) return;
   stopping = true;
+  publishActivity(Boolean(turn));
   const reason = stopReason;
   const interrupted = Boolean(turn);
   if (session) {
@@ -1179,7 +1183,8 @@ async function main() {
       if (stopReason) break;
       // Sent before this /up (left in the queue by a previous run): not meant for this session
       if (message.date < UP_AT) {
-        skipped++;
+        // A watchdog message of the previous run is not the owner's: skipped silently
+        if (message.watchdog !== 'idle') skipped++;
         continue;
       }
       if (skipped) {

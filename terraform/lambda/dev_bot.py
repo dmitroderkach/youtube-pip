@@ -39,11 +39,12 @@ REPORTED_EXIT_CODES = {0, 10}
 REPLY_MAX_CHARS = 8000
 STARTED_BY = "telegram"
 META_KEY = "state/meta.json"
-# Written by the worker: {lastAnswerAt, turnActive} (scripts/dev-worker/worker.mjs)
+# Written by the worker: {lastAnswerAt, turnActive, stopping} (scripts/dev-worker/worker.mjs)
 ACTIVITY_KEY = "state/activity.json"
 # Last answer the watchdog warned about, so it warns once per answer
 IDLE_ALERT_KEY = "state/idle-alert.json"
-IDLE_ALERT_MINUTES = int(os.environ.get("IDLE_ALERT_MINUTES", "10"))
+# Above the worker's 10-minute idle stop, so a worker going to sleep is never warned about
+IDLE_ALERT_MINUTES = int(os.environ.get("IDLE_ALERT_MINUTES", "15"))
 # Start requested while a stopped worker was still saving: consumed by the STOPPED event of that task
 PENDING_START_KEY = "state/pending-start.json"
 
@@ -346,6 +347,8 @@ def idle_watch():
         return {"status": "no worker"}
     activity = read_json(ACTIVITY_KEY) or {}
     last = activity.get("lastAnswerAt")
+    if activity.get("stopping"):
+        return {"status": "stopping"}
     if not last or activity.get("turnActive"):
         return {"status": "busy or unknown"}
     answered = datetime.fromisoformat(last.replace("Z", "+00:00"))
