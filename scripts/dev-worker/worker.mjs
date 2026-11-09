@@ -109,6 +109,13 @@ const BACKGROUND_PREFIX = 'state/background/';
 const PERIODIC_SAVE_MS = 5 * 60 * 1000;
 /** Plans from plan mode (Markdown, one object per version, the owner's decision appended); never expire. */
 const PLANS_PREFIX = 'plans/';
+/**
+ * Claude Code's auto memory of each project (`~/.claude/projects/<project>/memory/`) as `memory/<project>/…`:
+ * outside the expiring prefixes, since a memory file can stay unchanged for weeks.
+ */
+const MEMORY_PREFIX = 'memory/';
+/** Memory was restored from S3 this run: only then may a save delete memory files that are gone locally. */
+let memoryRestored = false;
 /** Claude Code writes the plan of plan mode here (when ExitPlanMode's input has no `plan`). */
 const CLAUDE_PLANS_DIR = join(homedir(), '.claude', 'plans');
 /** Local copy of the saved plans (synced from S3 on start, listed in the system prompt of every session). */
@@ -386,6 +393,18 @@ async function restore() {
     mkdirSync(dir, { recursive: true });
     await aws('s3', 'cp', `s3://${BUCKET}/${epochKey}`, join(dir, `${sessionId}.jsonl`), '--quiet');
   }
+  // Memory over its copy of the old layout (claude/projects/<project>/memory/, restored above until it expires)
+  const memoryProjects = new Set((await s3Keys(MEMORY_PREFIX)).map((key) => key.split('/')[1]));
+  for (const project of memoryProjects) {
+    await aws(
+      's3',
+      'sync',
+      `s3://${BUCKET}/${MEMORY_PREFIX}${project}/`,
+      join(CLAUDE_PROJECTS_DIR, project, 'memory'),
+      '--quiet'
+    );
+  }
+  memoryRestored = true;
   mkdirSync(PLANS_DIR, { recursive: true });
   await aws('s3', 'sync', `s3://${BUCKET}/${PLANS_PREFIX}`, PLANS_DIR, '--quiet');
   log(`restored: session=${meta?.sessionId ?? 'none'} workspace=${workspace}`);
@@ -431,6 +450,23 @@ async function saveTranscript(sessionId) {
   await aws('s3', 'cp', '/tmp/transcript-epoch.jsonl', `s3://${BUCKET}/${key}`, '--quiet');
 }
 
+/** Upload each project's memory to MEMORY_PREFIX (files removed locally are removed there too, once restored). */
+async function saveMemory() {
+  if (!existsSync(CLAUDE_PROJECTS_DIR)) return;
+  for (const project of readdirSync(CLAUDE_PROJECTS_DIR)) {
+    const dir = join(CLAUDE_PROJECTS_DIR, project, 'memory');
+    if (!existsSync(dir)) continue;
+    await aws(
+      's3',
+      'sync',
+      dir,
+      `s3://${BUCKET}/${MEMORY_PREFIX}${project}/`,
+      ...(memoryRestored ? ['--delete'] : []),
+      '--quiet'
+    );
+  }
+}
+
 /** Saves run one after another (after answers, periodic ones and the last one on stop). */
 let saving = Promise.resolve();
 
@@ -446,7 +482,7 @@ async function saveNow() {
   await aws('s3', 'cp', '/tmp/workspace.tar.gz', `s3://${BUCKET}/${WORKSPACE_KEY}`, '--quiet');
   const sessionId = meta?.sessionId ?? null;
   await saveTranscript(sessionId);
-  // Subagents, tool results and memory of all projects; the session's own transcript went up as its epoch
+  // Subagents and tool results of all projects; the session's own transcript went up as its epoch, memory below
   const own = sessionId ? ['--exclude', `*/${sessionId}.jsonl`] : [];
   await aws(
     's3',
@@ -454,8 +490,11 @@ async function saveNow() {
     CLAUDE_PROJECTS_DIR,
     `s3://${BUCKET}/${PROJECTS_PREFIX}`,
     ...own,
+    '--exclude',
+    '*/memory/*',
     '--quiet'
   );
+  await saveMemory();
   meta = { ...(meta ?? {}), sessionId: meta?.sessionId ?? null, savedAt: new Date().toISOString() };
   writeFileSync('/tmp/meta.json', JSON.stringify(meta));
   await aws('s3', 'cp', '/tmp/meta.json', `s3://${BUCKET}/${META_KEY}`, '--quiet');
