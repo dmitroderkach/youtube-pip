@@ -1239,9 +1239,7 @@ async function setMode(mode, { quiet = false, apply = true, announce = null } = 
   }
   await saveMeta().catch((error) => log('save meta failed', error));
   if (announce === 'self') {
-    await say(
-      `${MODES[mode].emoji} Claude сам перейшов у режим ${mode} (було: ${previous}) · /mode`
-    );
+    await say(`${MODES[mode].emoji} Claude перейшов у режим ${mode} (було: ${previous}) · /mode`);
   } else if (!quiet) {
     await say(`${MODES[mode].emoji} Режим: ${mode}`);
   }
