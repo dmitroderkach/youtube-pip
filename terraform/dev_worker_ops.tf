@@ -49,59 +49,53 @@ locals {
     "${local.name_prefix}-dev-worker-execution-role",
   ]
   gate_role_arns = [
-    for name in concat(local.gate_role_names, local.gate_passable_role_names) : "arn:aws:iam::${local.account_id}:role/${name}"
+    for name in concat(local.gate_role_names, local.gate_passable_role_names) : "arn:aws:iam::*:role/${name}"
   ]
   gate_policy_arns = [
     for name in ["permissions-boundary", "project-read", "project-apply"] :
-    "arn:aws:iam::${local.account_id}:policy/${local.name_prefix}-${name}"
+    "arn:aws:iam::*:policy/${local.name_prefix}-${name}"
   ]
   gate_function_arns = flatten([
     for name in [local.dev_ops_lambda_name, "${local.name_prefix}-dev-bot"] : [
-      "arn:aws:lambda:${var.aws_region}:${local.account_id}:function:${name}",
-      "arn:aws:lambda:${var.aws_region}:${local.account_id}:function:${name}:*",
+      "arn:aws:lambda:*:*:function:${name}",
+      "arn:aws:lambda:*:*:function:${name}:*",
     ]
   ])
   gate_project_arns = [
     for name in [local.tf_plan_project, local.tf_apply_project, local.image_build_project, local.image_publish_project] :
-    "arn:aws:codebuild:${var.aws_region}:${local.account_id}:project/${name}"
+    "arn:aws:codebuild:*:*:project/${name}"
   ]
 
   # Part of the permissions boundary of every role a gated apply may change or create (and of the apply role itself)
   gate_deny_statements = [
     {
-      Sid      = "GateRolesUnchanged"
       Effect   = "Deny"
       Action   = ["iam:Attach*", "iam:Detach*", "iam:Put*", "iam:Delete*", "iam:Update*", "iam:Tag*", "iam:Untag*", "iam:CreateRole"]
       Resource = local.gate_role_arns
     },
     {
-      Sid      = "GateRolesNotPassed"
       Effect   = "Deny"
       Action   = "iam:PassRole"
-      Resource = [for name in local.gate_role_names : "arn:aws:iam::${local.account_id}:role/${name}"]
+      Resource = [for name in local.gate_role_names : "arn:aws:iam::*:role/${name}"]
     },
     {
-      Sid      = "GatePoliciesUnchanged"
       Effect   = "Deny"
       Action   = ["iam:CreatePolicy", "iam:CreatePolicyVersion", "iam:DeletePolicy", "iam:DeletePolicyVersion", "iam:SetDefaultPolicyVersion", "iam:TagPolicy", "iam:UntagPolicy"]
       Resource = local.gate_policy_arns
     },
     {
-      Sid      = "BoundaryStays"
       Effect   = "Deny"
       Action   = "iam:DeleteRolePermissionsBoundary"
       Resource = "*"
     },
     {
       # A role created or given rights by a bounded role has this boundary too
-      Sid       = "RolesOnlyWithBoundary"
       Effect    = "Deny"
       Action    = ["iam:CreateRole", "iam:PutRolePermissionsBoundary", "iam:PutRolePolicy", "iam:AttachRolePolicy", "iam:DeleteRolePolicy", "iam:DetachRolePolicy"]
       Resource  = "*"
       Condition = { StringNotEquals = { "iam:PermissionsBoundary" = local.boundary_policy_arn } }
     },
     {
-      Sid    = "NoUsersOrKeys"
       Effect = "Deny"
       Action = [
         "iam:CreateUser", "iam:CreateAccessKey", "iam:UpdateAccessKey", "iam:CreateLoginProfile", "iam:UpdateLoginProfile",
@@ -112,32 +106,27 @@ locals {
       Resource = "*"
     },
     {
-      Sid      = "GateFunctionsUnchanged"
       Effect   = "Deny"
       Action   = ["lambda:Update*", "lambda:Delete*", "lambda:Put*", "lambda:AddPermission", "lambda:RemovePermission", "lambda:CreateFunctionUrlConfig", "lambda:CreateAlias", "lambda:PublishVersion", "lambda:TagResource", "lambda:UntagResource"]
       Resource = local.gate_function_arns
     },
     {
-      Sid       = "GateProjectsUnchanged"
       Effect    = "Deny"
       NotAction = ["codebuild:BatchGet*", "codebuild:List*", "codebuild:Describe*"]
       Resource  = local.gate_project_arns
     },
     {
-      Sid       = "OpsBucketReadOnly"
       Effect    = "Deny"
       NotAction = ["s3:Get*", "s3:List*"]
       Resource  = ["arn:aws:s3:::${local.dev_ops_bucket_name}", "arn:aws:s3:::${local.dev_ops_bucket_name}/*"]
     },
     {
       # The webhook secret would let anyone fake the owner's ✅; the GitHub token is the worker's
-      Sid       = "WorkerSecretUnread"
       Effect    = "Deny"
       NotAction = ["secretsmanager:DescribeSecret", "secretsmanager:ListSecretVersionIds", "secretsmanager:GetResourcePolicy"]
       Resource  = data.aws_secretsmanager_secret.dev_worker.arn
     },
     {
-      Sid      = "NoMessagesAsTheOwner"
       Effect   = "Deny"
       Action   = "sqs:SendMessage"
       Resource = aws_sqs_queue.dev_worker_inbox.arn
@@ -232,14 +221,84 @@ output "dev_worker_permissions_boundary" {
 
 # ------------------------------------------------------------------------------------------------ policies
 
-# Every role a gated apply may change or create carries this boundary: anything but the gate.
+# Every role a gated apply may change or create (and tf-apply itself) carries this boundary: the most such a role can
+# ever do, whatever its own policies say. This project's resources only (the account holds other projects), and never
+# the gate. Services the stack may grow into later (SNS, Step Functions, DynamoDB tables) are already inside, so
+# extending project_apply for them needs no change here.
 resource "aws_iam_policy" "project_boundary" {
   name        = "${local.name_prefix}-permissions-boundary"
-  description = "Boundary of the project's roles: everything except changing the dev worker's gate (dev_worker_ops.tf)."
+  description = "Boundary of the project's roles: youtube-pip resources only, never the dev worker's gate (dev_worker_ops.tf)."
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = concat(
-      [{ Sid = "Everything", Effect = "Allow", Action = "*", Resource = "*" }],
+      [
+        {
+          Effect = "Allow"
+          Action = "*"
+          Resource = [
+            "arn:aws:lambda:*:*:*:${local.project_glob}",
+            "arn:aws:s3:::${local.project_glob}",
+            "arn:aws:sqs:*:*:${local.project_glob}",
+            "arn:aws:sns:*:*:${local.project_glob}",
+            "arn:aws:states:*:*:*:${local.project_glob}",
+            "arn:aws:dynamodb:*:*:table/${local.project_glob}",
+            "arn:aws:ecr:*:*:repository/${local.project_glob}",
+            "arn:aws:ecs:*:*:*/${local.project_glob}",
+            "arn:aws:logs:*:*:log-group:/*/${local.project_glob}",
+            "arn:aws:events:*:*:rule/${local.project_glob}",
+            "arn:aws:scheduler:*:*:schedule/*/${local.project_glob}",
+            "arn:aws:secretsmanager:*:*:secret:${local.project_glob}",
+            "arn:aws:iam::*:role/${local.project_glob}",
+            "arn:aws:iam::*:policy/${local.project_glob}",
+            "arn:aws:budgets::*:budget/${local.project_glob}",
+            "arn:aws:codebuild:*:*:project/${local.project_glob}",
+          ]
+        },
+        {
+          # Actions without resource-level permissions (reads, ECS task definitions, ECR login, AppRegistry)
+          Effect = "Allow"
+          Action = [
+            "ec2:Describe*", "ecs:Describe*", "ecs:List*", "ecs:RegisterTaskDefinition", "ecs:DeregisterTaskDefinition",
+            "ecr:GetAuthorizationToken", "ecr:Describe*", "lambda:ListLayers", "lambda:ListLayerVersions",
+            "lambda:ListEventSourceMappings", "lambda:GetAccountSettings", "iam:Get*", "iam:List*",
+            "sqs:ListQueues", "events:List*", "events:Describe*", "scheduler:List*", "logs:Describe*",
+            "secretsmanager:ListSecrets", "budgets:ViewBudget", "servicecatalog:*", "resource-groups:Get*",
+            "resource-groups:List*", "tag:Get*", "codebuild:List*", "cloudwatch:*", "s3:ListAllMyBuckets",
+            "states:List*", "sns:List*", "dynamodb:List*"
+          ]
+          Resource = "*"
+        },
+        {
+          Effect    = "Allow"
+          Action    = ["lambda:CreateEventSourceMapping", "lambda:UpdateEventSourceMapping", "lambda:DeleteEventSourceMapping", "lambda:GetEventSourceMapping"]
+          Resource  = "*"
+          Condition = { ArnLikeIfExists = { "lambda:FunctionArn" = "arn:aws:lambda:*:*:function:${local.project_glob}" } }
+        },
+        {
+          Effect    = "Allow"
+          Action    = "ec2:*"
+          Resource  = "*"
+          Condition = { StringEquals = { "aws:ResourceTag/Project" = var.project_name } }
+        },
+        {
+          Effect    = "Allow"
+          Action    = ["ec2:Create*", "ec2:RunInstances", "ec2:AllocateAddress"]
+          Resource  = "*"
+          Condition = { StringEquals = { "aws:RequestTag/Project" = var.project_name } }
+        },
+        {
+          Effect    = "Allow"
+          Action    = "ec2:CreateTags"
+          Resource  = "*"
+          Condition = { Null = { "ec2:CreateAction" = "false" } }
+        },
+        {
+          Effect    = "Allow"
+          Action    = "iam:CreateServiceLinkedRole"
+          Resource  = "*"
+          Condition = { StringEquals = { "iam:AWSServiceName" = ["ecs.amazonaws.com", "appregistry.servicecatalog.amazonaws.com"] } }
+        },
+      ],
       local.gate_deny_statements
     )
   })
