@@ -72,7 +72,8 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "dev_worker_state"
 resource "aws_s3_bucket_lifecycle_configuration" "dev_worker_state" {
   bucket = aws_s3_bucket.dev_worker_state.id
 
-  # Everything but plans/ (plan-mode plans, kept for good): S3 lifecycle filters cannot exclude a prefix
+  # Everything but plans/ (plan-mode plans) and memory/ (Claude Code's auto memory), kept for good: S3 lifecycle
+  # filters cannot exclude a prefix
   dynamic "rule" {
     for_each = toset(["state/", "claude/", "inbox/"])
     content {
