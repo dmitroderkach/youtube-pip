@@ -7,6 +7,8 @@ Invoked by the worker (scripts/dev-worker/dev-ops.sh) with one of:
   candidates repository (CodeBuild image-build), which neither CI nor the worker runs.
 - {"action": "publish", "image": "runner" | "dev-worker"}: asks the owner (✅ / 🚫 under a message sent from here) to
   publish :latest built from the current main commit; dev-bot starts image-publish on ✅.
+- {"action": "telegram"}: asks the owner to set the bot up from the current main commit (webhook to dev-bot, the command
+  menu of scripts/dev-worker/setup-telegram.mjs, listed in the request); dev-bot starts telegram-setup on ✅.
 
 Nothing started here changes the infrastructure or a published image: what changes them waits for the owner's button,
 and the message with the button is sent from here or from tf-plan, never by the worker.
@@ -90,52 +92,76 @@ def build_image(event):
     return {"build_id": build["id"], "image_uri": f"{CANDIDATES_REPO_URL}:{image}-{tag}"}
 
 
-def publish(event):
-    image = event.get("image")
-    if image not in IMAGES:
-        return {"error": f"image must be one of {sorted(IMAGES)}"}
-    sha, subject = main_commit()
+def ask_owner(kind, sha, text, button, extra):
+    """The request with ✅ / 🚫 and its gate record (what dev-bot compares the pressed message with)."""
     request_id = str(uuid.uuid4())
     markup = {
         "inline_keyboard": [
             [
-                {"text": "✅ Опублікувати", "callback_data": f"gate:{request_id}:ok"},
+                {"text": button, "callback_data": f"gate:{request_id}:ok"},
                 {"text": "🚫 Відхилити", "callback_data": f"gate:{request_id}:no"},
             ]
         ]
     }
-    message = telegram(
-        "sendMessage",
-        {
-            "text": (
-                f"🐳 Опублікувати образ {image}:latest з main@{sha[:7]}?\n«{subject[:120]}»\n\n"
-                f"{IMAGES[image]} Збере CodeBuild з цього коміту. Кнопка діє годину."
-            ),
-            "reply_markup": markup,
-            "disable_web_page_preview": True,
-        },
-    )
-    # What dev-bot compares the pressed message with
+    message = telegram("sendMessage", {"text": text, "reply_markup": markup, "disable_web_page_preview": True})
     s3.put_object(
         Bucket=OPS_BUCKET,
         Key=f"gate/{request_id}.json",
         Body=json.dumps(
             {
-                "kind": "image",
+                "kind": kind,
                 "id": request_id,
-                "image": image,
                 "sha": sha,
                 "message_id": message["message_id"],
                 "text": message.get("text", ""),
                 "reply_markup": message.get("reply_markup") or {},
                 "created_at": int(time.time()),
+                **extra,
             }
         ).encode(),
     )
+    return request_id
+
+
+def menu_commands(sha):
+    """The command menu setup-telegram.mjs sets at that commit: ["/up — …", …]."""
+    request = urllib.request.Request(
+        f"https://raw.githubusercontent.com/{GITHUB_REPO}/{sha}/scripts/dev-worker/setup-telegram.mjs",
+        headers={"User-Agent": "youtube-pip-dev-ops"},
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        source = response.read().decode()
+    found = re.findall(r"\{\s*command:\s*'([^']+)',\s*description:\s*'([^']*)'\s*\}", source)
+    return [f"/{name} — {description}" for name, description in found]
+
+
+def telegram_setup(_event):
+    sha, subject = main_commit()
+    commands = menu_commands(sha)
+    text = (
+        f"🤖 Налаштувати Telegram-бота з main@{sha[:7]}?\n«{subject[:120]}»\n\n"
+        "Вебхук на dev-bot (секрет вебхука лишається), меню команд:\n"
+        + ("\n".join(commands) if commands else "(не вдалося прочитати меню з setup-telegram.mjs)")
+        + "\n\nЗапустить CodeBuild telegram-setup з цього коміту. Кнопка діє годину."
+    )
+    request_id = ask_owner("telegram", sha, text[:3900], "✅ Налаштувати", {})
+    return {"request_id": request_id, "sha": sha, "commands": len(commands)}
+
+
+def publish(event):
+    image = event.get("image")
+    if image not in IMAGES:
+        return {"error": f"image must be one of {sorted(IMAGES)}"}
+    sha, subject = main_commit()
+    text = (
+        f"🐳 Опублікувати образ {image}:latest з main@{sha[:7]}?\n«{subject[:120]}»\n\n"
+        f"{IMAGES[image]} Збере CodeBuild з цього коміту. Кнопка діє годину."
+    )
+    request_id = ask_owner("image", sha, text, "✅ Опублікувати", {"image": image})
     return {"request_id": request_id, "image": image, "sha": sha}
 
 
-ACTIONS = {"plan": plan, "build": build_image, "publish": publish}
+ACTIONS = {"plan": plan, "build": build_image, "publish": publish, "telegram": telegram_setup}
 
 
 def handler(event, _context):

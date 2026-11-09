@@ -231,7 +231,7 @@ resource "aws_ecs_task_definition" "dev_worker" {
         # dev-ops CLI (scripts/dev-worker/dev-ops.sh, dev_worker_ops.tf)
         { name = "DEV_OPS_FUNCTION", value = aws_lambda_function.dev_ops.function_name },
         { name = "OPS_BUCKET", value = aws_s3_bucket.dev_ops.bucket },
-        { name = "DEV_OPS_PROJECTS", value = join(",", [aws_codebuild_project.tf_plan.name, aws_codebuild_project.tf_apply.name, aws_codebuild_project.image_build.name, aws_codebuild_project.image_publish.name]) }
+        { name = "DEV_OPS_PROJECTS", value = join(",", [aws_codebuild_project.tf_plan.name, aws_codebuild_project.tf_apply.name, aws_codebuild_project.image_build.name, aws_codebuild_project.image_publish.name, local.telegram_setup_project]) }
       ]
       secrets = [
         { name = "CLAUDE_CODE_OAUTH_TOKEN", valueFrom = "${data.aws_secretsmanager_secret.oncall.arn}:claude_code_oauth_token::" },
@@ -341,7 +341,7 @@ resource "aws_iam_role_policy" "dev_bot" {
         # Only on the owner's ✅
         Effect   = "Allow"
         Action   = "codebuild:StartBuild"
-        Resource = [aws_codebuild_project.tf_apply.arn, aws_codebuild_project.image_publish.arn]
+        Resource = [aws_codebuild_project.tf_apply.arn, aws_codebuild_project.image_publish.arn, aws_codebuild_project.telegram_setup.arn]
       }
     ]
   })
@@ -367,19 +367,20 @@ resource "aws_lambda_function" "dev_bot" {
 
   environment {
     variables = {
-      CLUSTER_ARN           = aws_ecs_cluster.dev_worker.arn
-      TASK_DEFINITION_ARN   = aws_ecs_task_definition.dev_worker.arn_without_revision
-      CONTAINER_NAME        = local.dev_worker_container
-      SUBNET_IDS            = aws_subnet.public.id
-      SECURITY_GROUP_IDS    = aws_security_group.runner.id
-      QUEUE_URL             = aws_sqs_queue.dev_worker_inbox.id
-      STATE_BUCKET          = aws_s3_bucket.dev_worker_state.bucket
-      ONCALL_SECRET_ARN     = data.aws_secretsmanager_secret.oncall.arn
-      DEV_SECRET_ARN        = data.aws_secretsmanager_secret.dev_worker.arn
-      IDLE_ALERT_MINUTES    = tostring(var.dev_worker_idle_alert_minutes)
-      OPS_BUCKET            = aws_s3_bucket.dev_ops.bucket
-      TF_APPLY_PROJECT      = aws_codebuild_project.tf_apply.name
-      IMAGE_PUBLISH_PROJECT = aws_codebuild_project.image_publish.name
+      CLUSTER_ARN            = aws_ecs_cluster.dev_worker.arn
+      TASK_DEFINITION_ARN    = aws_ecs_task_definition.dev_worker.arn_without_revision
+      CONTAINER_NAME         = local.dev_worker_container
+      SUBNET_IDS             = aws_subnet.public.id
+      SECURITY_GROUP_IDS     = aws_security_group.runner.id
+      QUEUE_URL              = aws_sqs_queue.dev_worker_inbox.id
+      STATE_BUCKET           = aws_s3_bucket.dev_worker_state.bucket
+      ONCALL_SECRET_ARN      = data.aws_secretsmanager_secret.oncall.arn
+      DEV_SECRET_ARN         = data.aws_secretsmanager_secret.dev_worker.arn
+      IDLE_ALERT_MINUTES     = tostring(var.dev_worker_idle_alert_minutes)
+      OPS_BUCKET             = aws_s3_bucket.dev_ops.bucket
+      TF_APPLY_PROJECT       = aws_codebuild_project.tf_apply.name
+      IMAGE_PUBLISH_PROJECT  = aws_codebuild_project.image_publish.name
+      TELEGRAM_SETUP_PROJECT = local.telegram_setup_project
     }
   }
 }

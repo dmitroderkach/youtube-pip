@@ -9,6 +9,9 @@
 #   nor the worker runs. Started by the dev-ops Lambda.
 # - image-publish (CodeBuild): builds an image from a main commit and pushes it as :latest. Started only by dev-bot when
 #   the owner presses ✅ under the request the dev-ops Lambda posted.
+# - telegram-setup (CodeBuild): runs scripts/dev-worker/setup-telegram.mjs of a main commit (the bot's webhook to dev-bot,
+#   its command menu). The only role besides dev-bot's that reads the bot token and the webhook secret. Started only by
+#   dev-bot on the owner's ✅ under the request the dev-ops Lambda posted.
 #
 # The worker never holds write credentials: it cannot start tf-apply / image-publish nor write the ops bucket, and
 # only main is ever applied. The gate itself (this file, the worker's and dev-bot's roles, the dev-bot Lambda) is out
@@ -17,6 +20,9 @@
 #
 # Extending what the gated apply may manage: add a statement to aws_iam_policy.project_apply (and the reads a plan of
 # it needs to aws_iam_policy.project_read), then apply locally.
+#
+# Names: roles of the gate are youtube-pip-prod-{dev-,tf-,image-,telegram-setup-}…, and every CodeBuild project of the
+# project belongs to the gate (the boundary protects them by these patterns); other roles never take those prefixes.
 
 locals {
   # Keep in sync with terraform/dev-worker/Dockerfile (TERRAFORM_VERSION)
@@ -26,13 +32,14 @@ locals {
   # The account holds other projects too: this one's resources are named youtube-pip-…
   project_glob = "${var.project_name}-*"
 
-  dev_ops_bucket_name   = "${local.name_prefix}-dev-ops-${local.account_id}"
-  dev_ops_lambda_name   = "${local.name_prefix}-dev-ops"
-  tf_plan_project       = "${local.name_prefix}-tf-plan"
-  tf_apply_project      = "${local.name_prefix}-tf-apply"
-  image_build_project   = "${local.name_prefix}-image-build"
-  image_publish_project = "${local.name_prefix}-image-publish"
-  boundary_policy_arn   = "arn:aws:iam::${local.account_id}:policy/${local.name_prefix}-permissions-boundary"
+  dev_ops_bucket_name    = "${local.name_prefix}-dev-ops-${local.account_id}"
+  dev_ops_lambda_name    = "${local.name_prefix}-dev-ops"
+  tf_plan_project        = "${local.name_prefix}-tf-plan"
+  tf_apply_project       = "${local.name_prefix}-tf-apply"
+  image_build_project    = "${local.name_prefix}-image-build"
+  image_publish_project  = "${local.name_prefix}-image-publish"
+  telegram_setup_project = "${local.name_prefix}-telegram-setup"
+  boundary_policy_arn    = "arn:aws:iam::${local.account_id}:policy/${local.name_prefix}-permissions-boundary"
 
   # Roles of the gate: nothing but the owner changes them, and nothing the apply role creates may be given them
   gate_role_names = [
@@ -41,15 +48,13 @@ locals {
     "${local.name_prefix}-tf-apply-role",
     "${local.name_prefix}-image-build-role",
     "${local.name_prefix}-image-publish-role",
+    "${local.name_prefix}-telegram-setup-role",
     "${local.name_prefix}-dev-bot-role",
   ]
-  # Unchangeable too, but passed to the worker's task definition, which a gated apply may change
-  gate_passable_role_names = [
-    "${local.name_prefix}-dev-worker-task-role",
-    "${local.name_prefix}-dev-worker-execution-role",
-  ]
+  # By name prefix (compact: the boundary has to stay under IAM's 6144 characters): every dev-* role (dev-bot, dev-ops,
+  # the worker's task and execution roles), the CodeBuild roles; a new gate role takes one of these prefixes
   gate_role_arns = [
-    for name in concat(local.gate_role_names, local.gate_passable_role_names) : "arn:aws:iam::*:role/${name}"
+    for prefix in ["dev-", "tf-", "image-", "telegram-setup-"] : "arn:aws:iam::*:role/${local.name_prefix}-${prefix}*"
   ]
   gate_policy_arns = [
     for name in ["permissions-boundary", "project-read", "project-apply"] :
@@ -61,10 +66,9 @@ locals {
       "arn:aws:lambda:*:*:function:${name}:*",
     ]
   ])
-  gate_project_arns = [
-    for name in [local.tf_plan_project, local.tf_apply_project, local.image_build_project, local.image_publish_project] :
-    "arn:aws:codebuild:*:*:project/${name}"
-  ]
+  # Every CodeBuild project of this project is part of the gate (a new one, too)
+  gate_project_arns = ["arn:aws:codebuild:*:*:project/${local.project_glob}"]
+
 
   # Part of the permissions boundary of every role a gated apply may change or create (and of the apply role itself)
   gate_deny_statements = [
@@ -162,6 +166,9 @@ locals {
     "aws_iam_role.image_publish",
     "aws_iam_role_policy.image_publish",
     "aws_codebuild_project.image_publish",
+    "aws_iam_role.telegram_setup",
+    "aws_iam_role_policy.telegram_setup",
+    "aws_codebuild_project.telegram_setup",
     "aws_iam_role.dev_worker_task",
     "aws_iam_role_policy.dev_worker_task",
     "aws_iam_role_policy_attachment.dev_worker_task_read",
@@ -609,7 +616,7 @@ resource "aws_ecr_lifecycle_policy" "image_candidates" {
 }
 
 resource "aws_cloudwatch_log_group" "dev_ops" {
-  for_each          = toset([local.tf_plan_project, local.tf_apply_project, local.image_build_project, local.image_publish_project])
+  for_each          = toset([local.tf_plan_project, local.tf_apply_project, local.image_build_project, local.image_publish_project, local.telegram_setup_project])
   name              = "/aws/codebuild/${each.value}"
   retention_in_days = 30
 }
@@ -1063,6 +1070,99 @@ resource "aws_codebuild_project" "image_publish" {
         post_build = {
           commands = [
             "if [ \"$CODEBUILD_BUILD_SUCCEEDING\" = 1 ]; then TEXT=\"✅ Образ $IMAGE:latest опубліковано з main@$${REF:0:7}\"; else TEXT=\"🔴 Публікація $IMAGE:latest з main@$${REF:0:7} не вдалася, лог: $CODEBUILD_BUILD_ID\"; fi; curl -fsS -o /dev/null \"https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage\" --data-urlencode \"chat_id=$TELEGRAM_CHAT_ID\" --data-urlencode \"text=$TEXT\" || true",
+          ]
+        }
+      }
+    })
+  }
+}
+
+# ------------------------------------------------------------------------------------------------ Telegram setup
+
+resource "aws_iam_role" "telegram_setup" {
+  name               = "${local.name_prefix}-telegram-setup-role"
+  assume_role_policy = local.codebuild_trust
+}
+
+resource "aws_iam_role_policy" "telegram_setup" {
+  name = "${local.name_prefix}-telegram-setup-policy"
+  role = aws_iam_role.telegram_setup.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "${aws_cloudwatch_log_group.dev_ops[local.telegram_setup_project].arn}:*"
+      },
+      {
+        # The bot token, and the webhook secret (generated and stored on the first run)
+        Effect   = "Allow"
+        Action   = "secretsmanager:GetSecretValue"
+        Resource = [data.aws_secretsmanager_secret.oncall.arn, data.aws_secretsmanager_secret.dev_worker.arn]
+      },
+      {
+        Effect   = "Allow"
+        Action   = "secretsmanager:PutSecretValue"
+        Resource = data.aws_secretsmanager_secret.dev_worker.arn
+      }
+    ]
+  })
+}
+
+resource "aws_codebuild_project" "telegram_setup" {
+  name                   = local.telegram_setup_project
+  description            = "Dev worker: Telegram bot webhook and command menu from a main commit (started by dev-bot only, dev_worker_ops.tf)."
+  service_role           = aws_iam_role.telegram_setup.arn
+  build_timeout          = 10
+  concurrent_build_limit = 1
+
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
+
+  environment {
+    type         = "LINUX_CONTAINER"
+    compute_type = "BUILD_GENERAL1_SMALL"
+    image        = "aws/codebuild/amazonlinux-x86_64-standard:5.0"
+
+    environment_variable {
+      name  = "WEBHOOK_URL"
+      value = aws_lambda_function_url.dev_bot.function_url
+    }
+    # Set by dev-bot: the main commit the owner approved
+    environment_variable {
+      name  = "REF"
+      value = ""
+    }
+  }
+
+  logs_config {
+    cloudwatch_logs {
+      group_name = aws_cloudwatch_log_group.dev_ops[local.telegram_setup_project].name
+    }
+  }
+
+  source {
+    type = "NO_SOURCE"
+    buildspec = yamlencode({
+      version = "0.2"
+      env     = { shell = "bash", "secrets-manager" = local.telegram_secrets }
+      phases = {
+        install = { "runtime-versions" = { nodejs = "22" } }
+        build = {
+          commands = [
+            "[[ \"$REF\" =~ ^[0-9a-f]{40}$ ]]",
+            "git clone --quiet ${local.dev_ops_repo_url} /tmp/repo",
+            # Only a commit of main is ever run with the bot's secrets
+            "cd /tmp/repo && git merge-base --is-ancestor \"$REF\" origin/main && git checkout --quiet --detach \"$REF\"",
+            # Prints statuses only (never the token or the secret)
+            "cd /tmp/repo && node scripts/dev-worker/setup-telegram.mjs \"$WEBHOOK_URL\" 2>&1 | tee /tmp/setup.log",
+          ]
+        }
+        post_build = {
+          commands = [
+            "if [ \"$CODEBUILD_BUILD_SUCCEEDING\" = 1 ]; then TEXT=\"✅ Telegram-бота налаштовано з main@$${REF:0:7}:\"$'\\n'\"$(cat /tmp/setup.log)\"; else TEXT=\"🔴 Налаштування Telegram-бота з main@$${REF:0:7} не вдалося:\"$'\\n'\"$(tail -5 /tmp/setup.log 2>/dev/null)\"; fi; curl -fsS -o /dev/null \"https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage\" --data-urlencode \"chat_id=$TELEGRAM_CHAT_ID\" --data-urlencode \"text=$TEXT\" || true",
           ]
         }
       }

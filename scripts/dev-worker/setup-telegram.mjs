@@ -8,7 +8,8 @@
  *
  * Safe to re-run (e.g. after a menu change): the secret is kept and the webhook set again.
  *
- * Usage (AWS credentials of the account, from the repository root):
+ * Usage: from the dev worker, `dev-ops telegram` (the owner approves; CodeBuild telegram-setup runs this file of a main
+ * commit), or locally with AWS credentials of the account, from the repository root:
  *   node scripts/dev-worker/setup-telegram.mjs "$(terraform -chdir=terraform output -raw dev_bot_webhook_url)"
  */
 import { execFileSync } from 'node:child_process';
