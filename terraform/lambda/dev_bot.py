@@ -337,7 +337,10 @@ def read_json(key):
 
 
 def idle_watch():
-    """Scheduled: warn once when the worker is still up IDLE_ALERT_MINUTES after its last answer with no turn running."""
+    """
+    Scheduled: once the worker is still up IDLE_ALERT_MINUTES after its last answer with no turn running, warn the owner
+    and tell the worker (its Claude stops the orphaned background tasks), once per answer.
+    """
     running = [t for t in worker_tasks() if t["lastStatus"] == "RUNNING" and t["startedAt"]]
     if not running:
         return {"status": "no worker"}
@@ -358,7 +361,17 @@ def idle_watch():
     s3.put_object(Bucket=STATE_BUCKET, Key=IDLE_ALERT_KEY, Body=json.dumps({"lastAnswerAt": last}))
     say(
         f"🟡 Воркер працює вже {int(minutes)} хв після останньої відповіді, а задачі в роботі немає: "
-        "можливо, висить фонова задача, що не дає йому заснути. /background — подивитись, /down — зупинити"
+        "можливо, висить фонова задача, що не дає йому заснути. Передав воркеру: осиротілі фонові задачі він "
+        "зупинить сам і засне. /background — подивитись, /down — зупинити"
+    )
+    # The worker gets it too: Claude stops the orphaned background tasks, then the idle timer stops the worker
+    sqs.send_message(
+        QueueUrl=QUEUE_URL,
+        MessageBody=json.dumps(
+            {"watchdog": "idle", "lastAnswerAt": last, "minutes": int(minutes), "date": int(time.time())}
+        ),
+        MessageGroupId=str(config()["chat_id"]),
+        MessageDeduplicationId=f"idle-watchdog-{last}",
     )
     return {"status": "warned"}
 
