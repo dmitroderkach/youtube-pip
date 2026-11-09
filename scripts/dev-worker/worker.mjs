@@ -17,7 +17,7 @@
  *      CLAUDE_MODEL, TRANSCRIBE_LANGUAGE, GOOGLE_TTS_API_KEY, TTS_VOICE.
  */
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { backgroundRecord, epochProject, latestEpochKey, restoreNote } from './session-state.mjs';
+import { backgroundRecord, restoreNote } from './session-state.mjs';
 import {
   backgroundRestoreHtml,
   backgroundRestoreKeyboard,
@@ -92,12 +92,11 @@ const WORKSPACE_KEY = 'state/workspace.tar.gz';
 const ACTIVITY_KEY = 'state/activity.json';
 const PROJECTS_PREFIX = 'claude/projects/';
 /**
- * Transcripts of the epoch layout (#175, #176): `claude/transcripts/<project>/<session id>/<epoch>.jsonl`. Read once
- * on restore (newer than the session's frozen transcript under PROJECTS_PREFIX) and deleted by the first save.
+ * Session transcripts (`~/.claude/projects/<project>/<session id>.jsonl`) as `transcripts/<project>/<session id>.jsonl`:
+ * kept for good, outside the expiring `claude/` prefix (Claude Code keeps them small itself,
+ * CLAUDE_CODE_TRANSCRIPT_LOCAL_GC). Subagent transcripts and tool results stay under PROJECTS_PREFIX and expire.
  */
-const TRANSCRIPTS_PREFIX = 'claude/transcripts/';
-/** Epoch-layout transcripts exist and are to be deleted once a save has uploaded the session's transcript. */
-let epochsToDrop = false;
+const TRANSCRIPTS_PREFIX = 'transcripts/';
 /** Live background tasks of the session, one JSON record each (session-state.mjs backgroundRecord). */
 const BACKGROUND_PREFIX = 'state/background/';
 /** Saves while a turn runs, so a crash in a long turn loses at most this much of it. */
@@ -372,11 +371,12 @@ async function restore() {
   await sh('git', ['-C', REPO_DIR, 'fetch', '--prune', 'origin']);
   mkdirSync(CLAUDE_PROJECTS_DIR, { recursive: true });
   const sessionId = meta?.sessionId ?? null;
-  const epochKeys = await s3Keys(TRANSCRIPTS_PREFIX);
-  epochsToDrop = epochKeys.length > 0;
-  const epochKey = sessionId ? latestEpochKey(epochKeys, sessionId) : null;
-  // Migration: the session's transcript under PROJECTS_PREFIX stopped changing when epochs were saved instead
-  const legacy = epochKey ? ['--exclude', `*/${sessionId}.jsonl`] : [];
+  const transcriptKey = sessionId
+    ? ((await s3Keys(TRANSCRIPTS_PREFIX)).find((key) => key.endsWith(`/${sessionId}.jsonl`)) ??
+      null)
+    : null;
+  // The session's copy under PROJECTS_PREFIX (before TRANSCRIPTS_PREFIX) is not needed once it is there
+  const legacy = transcriptKey ? ['--exclude', `*/${sessionId}.jsonl`] : [];
   // A project with memory under memory/ takes it only from there: the old copy under claude/projects/<project>/memory/
   // is no longer updated, so restoring it would bring back memory files Claude has deleted since (until it expires).
   // A project without it yet gets the old copy once; the next save moves it to memory/.
@@ -394,10 +394,16 @@ async function restore() {
     ...oldMemory,
     '--quiet'
   );
-  if (epochKey) {
-    const dir = join(CLAUDE_PROJECTS_DIR, epochProject(epochKey));
+  if (transcriptKey) {
+    const dir = join(CLAUDE_PROJECTS_DIR, transcriptKey.split('/')[1]);
     mkdirSync(dir, { recursive: true });
-    await aws('s3', 'cp', `s3://${BUCKET}/${epochKey}`, join(dir, `${sessionId}.jsonl`), '--quiet');
+    await aws(
+      's3',
+      'cp',
+      `s3://${BUCKET}/${transcriptKey}`,
+      join(dir, `${sessionId}.jsonl`),
+      '--quiet'
+    );
   }
   for (const project of memoryProjects) {
     await aws(
@@ -469,16 +475,29 @@ async function saveNow() {
     'sync',
     CLAUDE_PROJECTS_DIR,
     `s3://${BUCKET}/${PROJECTS_PREFIX}`,
+    // Session transcripts (`<project>/<id>.jsonl`, the only files one level down) go to TRANSCRIPTS_PREFIX below
+    '--exclude',
+    '*.jsonl',
+    '--include',
+    '*/*/*',
     '--exclude',
     '*/memory/*',
     '--quiet'
   );
+  await aws(
+    's3',
+    'sync',
+    CLAUDE_PROJECTS_DIR,
+    `s3://${BUCKET}/${TRANSCRIPTS_PREFIX}`,
+    '--exclude',
+    '*',
+    '--include',
+    '*.jsonl',
+    '--exclude',
+    '*/*/*',
+    '--quiet'
+  );
   await saveMemory();
-  // The epoch layout is migrated once the session's transcript is up in its usual place
-  if (epochsToDrop) {
-    await aws('s3', 'rm', `s3://${BUCKET}/${TRANSCRIPTS_PREFIX}`, '--recursive', '--quiet');
-    epochsToDrop = false;
-  }
   meta = { ...(meta ?? {}), sessionId: meta?.sessionId ?? null, savedAt: new Date().toISOString() };
   writeFileSync('/tmp/meta.json', JSON.stringify(meta));
   await aws('s3', 'cp', '/tmp/meta.json', `s3://${BUCKET}/${META_KEY}`, '--quiet');

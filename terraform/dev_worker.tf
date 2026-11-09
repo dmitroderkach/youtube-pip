@@ -46,8 +46,9 @@ resource "aws_cloudwatch_log_group" "dev_worker" {
   retention_in_days = 14
 }
 
-# Session transcripts (one object per transcript), working copy snapshot, session id and settings, plans of plan mode.
-# Everything but the plans expires a week after it was written: a session untouched for a week starts fresh.
+# Session transcripts (transcripts/), working copy snapshot, session id and settings, background task records (state/),
+# plans of plan mode (plans/), Claude Code's memory (memory/): kept for good. Subagent transcripts and tool results
+# (claude/) and voice uploads (inbox/) are temporary and expire a week after they were written.
 resource "aws_s3_bucket" "dev_worker_state" {
   bucket = "${local.name_prefix}-dev-worker-state-${data.aws_caller_identity.current.account_id}"
 }
@@ -72,10 +73,9 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "dev_worker_state"
 resource "aws_s3_bucket_lifecycle_configuration" "dev_worker_state" {
   bucket = aws_s3_bucket.dev_worker_state.id
 
-  # Everything but plans/ (plan-mode plans) and memory/ (Claude Code's auto memory), kept for good: S3 lifecycle
-  # filters cannot exclude a prefix
+  # Temporary prefixes only (S3 lifecycle filters cannot exclude a prefix, so each expiring prefix has its own rule)
   dynamic "rule" {
-    for_each = toset(["state/", "claude/", "inbox/"])
+    for_each = toset(["claude/", "inbox/"])
     content {
       id     = "expire-${trimsuffix(rule.value, "/")}-after-a-week"
       status = "Enabled"

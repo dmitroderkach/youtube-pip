@@ -1,20 +1,7 @@
 /** Unit tests of session-state.mjs: `node --test scripts/dev-worker/*.test.mjs`. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { backgroundRecord, epochProject, latestEpochKey, restoreNote } from './session-state.mjs';
-
-test('migration: latest epoch key of a session; project of a key', () => {
-  const keys = [
-    'claude/transcripts/-home-p/s1/2026-11-07T08-00-00-000Z-start.jsonl',
-    'claude/transcripts/-home-p/s1/2026-11-09T01-02-03-456Z-b2bbbbbb.jsonl',
-    'claude/transcripts/-home-p/s1/2026-11-08T12-00-00-000Z-b1aaaaaa.jsonl',
-    'claude/transcripts/-home-p/s2/2026-12-01T00-00-00-000Z-start.jsonl',
-    'claude/transcripts/-home-p/s1/notes.txt',
-  ];
-  assert.equal(latestEpochKey(keys, 's1'), keys[1]);
-  assert.equal(latestEpochKey(keys, 'nope'), null);
-  assert.equal(epochProject(keys[1]), '-home-p');
-});
+import { backgroundRecord, restoreNote } from './session-state.mjs';
 
 test('background record: command or prompt from the tool call, the purpose clipped', () => {
   const now = new Date('2026-11-09T15:00:00Z');

@@ -1,27 +1,10 @@
 /**
  * Pure helpers of the dev worker's state in S3 (no I/O): the background task records shown for restoring after a
- * restart, and reading the transcript layout of #175 / #176 once to migrate from it.
+ * restart.
  *
  * Transcripts themselves need no helper: Claude Code trims its own transcript file after a compaction
  * (`CLAUDE_CODE_TRANSCRIPT_LOCAL_GC=1`, set by the worker), so the worker uploads the file as it is.
  */
-
-/**
- * Migration from the epoch layout (#175): the newest epoch key of `sessionId` among
- * `claude/transcripts/<project>/<session id>/<name>` keys, or null.
- */
-export function latestEpochKey(keys, sessionId) {
-  let latest = null;
-  for (const key of keys) {
-    const parts = key.split('/');
-    if (parts.length !== 5 || parts[3] !== sessionId || !parts[4].endsWith('.jsonl')) continue;
-    if (!latest || parts[4] > latest.split('/')[4]) latest = key;
-  }
-  return latest;
-}
-
-/** Project directory name of a transcript key (`claude/transcripts/<project>/…`). */
-export const epochProject = (key) => key.split('/')[2];
 
 const clip = (text, max) => {
   const value = String(text ?? '').trim();
