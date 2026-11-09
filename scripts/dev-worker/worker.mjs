@@ -1410,11 +1410,13 @@ function onTaskEvent(message) {
     message.subtype === 'task_started' &&
     (message.task_type === 'local_agent' || message.subagent_type)
   ) {
+    // A finished subagent resumed by SendMessage starts again under the same id: keep its first start
+    const known = agents.get(message.task_id);
     agents.set(message.task_id, {
-      description: message.description || '(без опису)',
-      type: message.subagent_type ?? 'agent',
-      toolUseId: message.tool_use_id ?? null,
-      since: Date.now(),
+      description: message.description || known?.description || '(без опису)',
+      type: message.subagent_type ?? known?.type ?? 'agent',
+      toolUseId: message.tool_use_id ?? known?.toolUseId ?? null,
+      since: known?.since ?? Date.now(),
       ended: false,
     });
   } else if (message.subtype === 'task_notification' && agents.has(message.task_id)) {
@@ -1611,7 +1613,7 @@ async function endView(status, taskId = viewing?.taskId) {
   const icon = { completed: '✅', failed: '🔴', stopped: '⏹' }[status] ?? '⚪';
   const verb = { completed: 'завершив', failed: 'впав', stopped: 'зупинений' }[status] ?? status;
   const details = [
-    agent.since ? `за ${elapsedText(agent.since)}` : '',
+    agent.since ? `за ${elapsedText(agent.since, agent.endedAt)}` : '',
     agent.toolUses != null ? `кроків ${agent.toolUses}` : '',
   ].filter(Boolean);
   const summary = agent.summary ? `\n${agent.summary.slice(0, 1500)}` : '';
@@ -1822,9 +1824,9 @@ async function reportContext() {
 
 const BACKGROUND_COMMAND = /^\/background(@\w+)?$/i;
 
-/** "1h05m" / "3m12s" / "40s" since a time in ms. */
-function elapsedText(since) {
-  const seconds = Math.max(0, Math.round((Date.now() - since) / 1000));
+/** "1h05m" / "3m12s" / "40s" from a time in ms until another one (now by default). */
+function elapsedText(since, until = Date.now()) {
+  const seconds = Math.max(0, Math.round((until - since) / 1000));
   const minutes = Math.floor(seconds / 60);
   if (minutes >= 60) return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}m`;
   return minutes ? `${minutes}m${String(seconds % 60).padStart(2, '0')}s` : `${seconds}s`;
