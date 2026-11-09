@@ -1409,7 +1409,12 @@ function onTaskEvent(message) {
       ended: false,
     });
   } else if (message.subtype === 'task_notification' && agents.has(message.task_id)) {
-    agents.get(message.task_id).ended = message.status;
+    Object.assign(agents.get(message.task_id), {
+      ended: message.status,
+      summary: message.summary ?? '',
+      toolUses: message.usage?.tool_uses ?? null,
+      endedAt: Date.now(),
+    });
     // Let the last lines of its transcript arrive, then go back to the main agent
     if (viewing?.taskId === message.task_id)
       setTimeout(() => void endView(message.status, message.task_id), AGENT_POLL_MS + 500);
@@ -1593,9 +1598,16 @@ async function switchView(taskId) {
 async function endView(status, taskId = viewing?.taskId) {
   if (!viewing || viewing.taskId !== taskId) return;
   await pollView().catch(() => {});
-  const name = agents.get(viewing.taskId)?.description ?? 'субагент';
+  const agent = agents.get(taskId) ?? {};
+  const icon = { completed: '✅', failed: '🔴', stopped: '⏹' }[status] ?? '⚪';
+  const verb = { completed: 'завершив', failed: 'впав', stopped: 'зупинений' }[status] ?? status;
+  const details = [
+    agent.since ? `за ${elapsedText(agent.since)}` : '',
+    agent.toolUses != null ? `кроків ${agent.toolUses}` : '',
+  ].filter(Boolean);
+  const summary = agent.summary ? `\n${agent.summary.slice(0, 1500)}` : '';
   await say(
-    `${status === 'completed' ? '✅' : '⚪'} ${name}: ${status === 'completed' ? 'завершив' : status}`
+    `${icon} 🤖 ${agent.description ?? 'субагент'} ${verb}${details.length ? ` · ${details.join(', ')}` : ''}${summary}`
   );
   await switchView(null);
 }
@@ -1913,7 +1925,12 @@ async function deliver(message) {
     await say('ℹ️ Нічого передати: порожнє повідомлення');
     return;
   }
-  text = forShownAgent(text);
+  if (viewing) {
+    text = forShownAgent(text);
+    await say(
+      `📨 Для 🤖 ${agents.get(viewing.taskId)?.description ?? 'субагента'} (передає основний агент)`
+    );
+  }
   const oncall = await oncallNote().catch((error) => log('oncall check failed', error));
   if (oncall) text = `${oncall}\n\n${text}`;
   const spokenByOwner = (message.attachments ?? []).some((a) => a.kind === 'voice');
