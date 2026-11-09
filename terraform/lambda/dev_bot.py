@@ -5,6 +5,8 @@ Two entry points:
   (text, photo, voice, audio, file with its caption) goes to the worker's SQS FIFO queue and starts the worker when
   it is not running. While a stopped worker is still saving its session, the start is deferred to its STOPPED event
   (marker state/pending-start.json in the state bucket). Only requests with the webhook secret token from the owner's chat are served.
+  A button pressed under a worker message (callback_query: questions, plan approval, permission prompts, /mode) is
+  acknowledged and queued for the running worker; with no worker running it only gets a notice.
 - EventBridge "ECS Task State Change" (STOPPED) of the dev-worker cluster: a stop the worker did not report itself
   (exit code other than 0 / REPORTED_EXIT_CODE, failed start, killed task) is reported in the chat.
 
@@ -65,19 +67,23 @@ def config():
     return _config
 
 
-def say(text):
+def bot_api(method, payload):
+    """Call the Bot API; never raises (a status that does not arrive must not fail the command)."""
     cfg = config()
-    body = json.dumps({"chat_id": cfg["chat_id"], "text": text, "disable_web_page_preview": True}).encode()
     request = urllib.request.Request(
-        f"https://api.telegram.org/bot{cfg['bot_token']}/sendMessage",
-        data=body,
+        f"https://api.telegram.org/bot{cfg['bot_token']}/{method}",
+        data=json.dumps(payload).encode(),
         headers={"Content-Type": "application/json"},
     )
     try:
         with urllib.request.urlopen(request, timeout=10) as response:
             response.read()
-    except Exception as error:  # a status that does not arrive must not fail the command
-        print(f"telegram sendMessage failed: {error}")
+    except Exception as error:
+        print(f"telegram {method} failed: {error}")
+
+
+def say(text):
+    bot_api("sendMessage", {"chat_id": config()["chat_id"], "text": text, "disable_web_page_preview": True})
 
 
 def worker_tasks():
@@ -263,6 +269,34 @@ def forward(message, text, attachments):
         say("📥 Отримав, передам, щойно підніметься")
 
 
+def callback(query):
+    """A button under a worker message: stop Telegram's spinner, then hand it to the running worker."""
+    chat_id = str(((query.get("message") or {}).get("chat") or {}).get("id"))
+    if chat_id != config()["chat_id"]:
+        return {"statusCode": 200, "body": "ignored"}
+    running = any(t["lastStatus"] == "RUNNING" for t in worker_tasks())
+    answer = {"callback_query_id": query["id"]}
+    if not running:
+        # The question it answers went away with the worker's run
+        answer["text"] = "Воркер не запущений: /up"
+    bot_api("answerCallbackQuery", answer)
+    if not running:
+        return {"statusCode": 200, "body": "no worker"}
+    now = int(time.time())
+    sqs.send_message(
+        QueueUrl=QUEUE_URL,
+        MessageBody=json.dumps(
+            {
+                "callback": {"data": query.get("data", ""), "message_id": query["message"]["message_id"]},
+                "date": now,
+            }
+        ),
+        MessageGroupId=chat_id,
+        MessageDeduplicationId=f"callback-{query['id']}",
+    )
+    return {"statusCode": 200, "body": "ok"}
+
+
 def telegram_update(event):
     headers = {k.lower(): v for k, v in (event.get("headers") or {}).items()}
     cfg = config()
@@ -274,6 +308,8 @@ def telegram_update(event):
 
         body = base64.b64decode(body).decode()
     update = json.loads(body)
+    if update.get("callback_query"):
+        return callback(update["callback_query"])
     message = update.get("message") or {}
     if str((message.get("chat") or {}).get("id")) != cfg["chat_id"]:
         return {"statusCode": 200, "body": "ignored"}
@@ -288,7 +324,10 @@ def telegram_update(event):
     elif command == "/down":
         down()
     elif command == "/start":
-        say("Команди: /up — підняти воркера, /down — зупинити. Поки він працює, пиши йому сюди.")
+        say(
+            "Команди: /up — підняти воркера, /down — зупинити. Поки він працює, пиши йому сюди; "
+            "/mode — режим (bypass, auto, manual, plan), /plans — збережені плани, /compact — стиснути контекст."
+        )
     else:
         forward(message, text, attachments)
     return {"statusCode": 200, "body": "ok"}

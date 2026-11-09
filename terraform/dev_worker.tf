@@ -46,8 +46,8 @@ resource "aws_cloudwatch_log_group" "dev_worker" {
   retention_in_days = 14
 }
 
-# Session transcripts (one object per transcript), working copy snapshot and session id. Everything not written
-# for a week expires: a session untouched for a week starts fresh.
+# Session transcripts (one object per transcript), working copy snapshot, session id and settings, plans of plan mode.
+# Everything but the plans expires a week after it was written: a session untouched for a week starts fresh.
 resource "aws_s3_bucket" "dev_worker_state" {
   bucket = "${local.name_prefix}-dev-worker-state-${data.aws_caller_identity.current.account_id}"
 }
@@ -72,13 +72,25 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "dev_worker_state"
 resource "aws_s3_bucket_lifecycle_configuration" "dev_worker_state" {
   bucket = aws_s3_bucket.dev_worker_state.id
 
+  # Everything but plans/ (plan-mode plans, kept for good): S3 lifecycle filters cannot exclude a prefix
+  dynamic "rule" {
+    for_each = toset(["state/", "claude/", "inbox/"])
+    content {
+      id     = "expire-${trimsuffix(rule.value, "/")}-after-a-week"
+      status = "Enabled"
+      filter {
+        prefix = rule.value
+      }
+      expiration {
+        days = var.dev_worker_state_retention_days
+      }
+    }
+  }
+
   rule {
-    id     = "expire-after-a-week"
+    id     = "abort-incomplete-uploads"
     status = "Enabled"
     filter {}
-    expiration {
-      days = var.dev_worker_state_retention_days
-    }
     abort_incomplete_multipart_upload {
       days_after_initiation = 1
     }

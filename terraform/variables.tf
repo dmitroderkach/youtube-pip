@@ -157,7 +157,7 @@ variable "dev_worker_idle_timeout_seconds" {
 }
 
 variable "dev_worker_state_retention_days" {
-  description = "Dev worker state (session transcripts, working copy) not written for this many days expires."
+  description = "Dev worker state (session transcripts, working copy; not the saved plans) not written for this many days expires."
   type        = number
   default     = 7
 }

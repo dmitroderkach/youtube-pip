@@ -16,6 +16,22 @@
  *      CLAUDE_MODEL, TRANSCRIBE_LANGUAGE, GOOGLE_TTS_API_KEY, TTS_VOICE.
  */
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import {
+  DEFAULT_MODE,
+  MODES,
+  escapeHtml,
+  modeKeyboard,
+  modeText,
+  parseCallback,
+  permissionHtml,
+  permissionKeyboard,
+  planKeyboard,
+  planMessages,
+  planSlug,
+  planTitle,
+  questionHtml,
+  questionKeyboard,
+} from './telegram-format.mjs';
 import { execFile } from 'node:child_process';
 import {
   existsSync,
@@ -65,6 +81,16 @@ const WORKSPACE_KEY = 'state/workspace.tar.gz';
  */
 const ACTIVITY_KEY = 'state/activity.json';
 const PROJECTS_PREFIX = 'claude/projects/';
+/** Plans from plan mode (Markdown, one object per version, the owner's decision appended); never expire. */
+const PLANS_PREFIX = 'plans/';
+/** Claude Code writes the plan of plan mode here (when ExitPlanMode's input has no `plan`). */
+const CLAUDE_PLANS_DIR = join(homedir(), '.claude', 'plans');
+/** Local copy of the saved plans (synced from S3 on start, listed in the system prompt of every session). */
+const PLANS_DIR = join(homedir(), 'plans');
+/** `/plans` lists this many of the newest plans. */
+const PLANS_LIST_MAX = 10;
+/** A question / plan / permission prompt nobody answers is given up after this long (the turn ends, idle follows). */
+const ANSWER_TIMEOUT_MS = 60 * 60 * 1000;
 /** Voice / audio uploaded for AWS Transcribe (deleted after; the bucket lifecycle covers leftovers). */
 const INBOX_PREFIX = 'inbox/';
 /** Photos and files from the chat, for Claude's Read tool (outside the repository). */
@@ -243,6 +269,40 @@ async function flushOutbox() {
 const edit = (messageId, text) =>
   telegram('editMessageText', { message_id: messageId, text: text.slice(0, TELEGRAM_MAX_LENGTH) });
 
+/** Strip Telegram HTML to plain text (the fallback when Telegram refuses the markup). */
+const htmlToText = (html) =>
+  html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&amp;/g, '&');
+
+/** Send an HTML message (with buttons); falls back to plain text if Telegram cannot parse the markup. */
+async function sayHtml(html, replyMarkup) {
+  const extra = replyMarkup ? { reply_markup: replyMarkup } : {};
+  const sent = await telegram('sendMessage', { text: html, parse_mode: 'HTML', ...extra });
+  return (
+    sent ??
+    telegram('sendMessage', { text: htmlToText(html).slice(0, TELEGRAM_MAX_LENGTH), ...extra })
+  );
+}
+
+/** Replace an HTML message's text (and its buttons: none unless given). */
+async function editHtml(messageId, html, replyMarkup) {
+  const body = { message_id: messageId, reply_markup: replyMarkup ?? { inline_keyboard: [] } };
+  const edited = await telegram('editMessageText', { ...body, text: html, parse_mode: 'HTML' });
+  return (
+    edited ??
+    telegram('editMessageText', { ...body, text: htmlToText(html).slice(0, TELEGRAM_MAX_LENGTH) })
+  );
+}
+
+const editButtons = (messageId, replyMarkup) =>
+  telegram('editMessageReplyMarkup', {
+    message_id: messageId,
+    reply_markup: replyMarkup ?? { inline_keyboard: [] },
+  });
+
 // ---------------------------------------------------------------------------------------------- shell / AWS
 
 async function sh(cmd, args, options = {}) {
@@ -284,6 +344,8 @@ async function restore() {
   await sh('git', ['-C', REPO_DIR, 'fetch', '--prune', 'origin']);
   mkdirSync(CLAUDE_PROJECTS_DIR, { recursive: true });
   await aws('s3', 'sync', `s3://${BUCKET}/${PROJECTS_PREFIX}`, CLAUDE_PROJECTS_DIR, '--quiet');
+  mkdirSync(PLANS_DIR, { recursive: true });
+  await aws('s3', 'sync', `s3://${BUCKET}/${PLANS_PREFIX}`, PLANS_DIR, '--quiet');
   log(`restored: session=${meta?.sessionId ?? 'none'} workspace=${workspace}`);
   return { workspace };
 }
@@ -298,6 +360,12 @@ async function save() {
   writeFileSync('/tmp/meta.json', JSON.stringify(meta));
   await aws('s3', 'cp', '/tmp/meta.json', `s3://${BUCKET}/${META_KEY}`, '--quiet');
   log(`saved: session=${meta.sessionId}`);
+}
+
+/** Upload meta.json only (settings such as the mode change between full saves). */
+async function saveMeta() {
+  writeFileSync('/tmp/meta.json', JSON.stringify(meta ?? {}));
+  await aws('s3', 'cp', '/tmp/meta.json', `s3://${BUCKET}/${META_KEY}`, '--quiet');
 }
 
 // ---------------------------------------------------------------------------------------------- attachments
@@ -565,8 +633,18 @@ async function finishTurn(result) {
     log(`turn superseded: ${result.subtype} ${(result.errors ?? []).join(' ')}`);
     return;
   }
+  if (compacting) {
+    await say(await compactReport(result));
+    lastAnswerAt = new Date().toISOString();
+    publishActivity(false);
+    voiceReplyPending = false;
+    return;
+  }
   const { text, spoken } = splitVoiceBlock(answer);
-  await say(text || (result.errors ?? []).join('\n') || `(${result.subtype})`);
+  // Outside the default mode every answer says which mode Claude is in
+  const label =
+    currentMode() === DEFAULT_MODE ? '' : `${MODES[currentMode()].emoji} ${currentMode()}\n`;
+  await say(`${label}${text || (result.errors ?? []).join('\n') || `(${result.subtype})`}`);
   lastAnswerAt = new Date().toISOString();
   publishActivity(false);
   if (text && !failed) await replyByVoice(text, spoken);
@@ -593,9 +671,14 @@ async function runSession(resumeId) {
       model: MODEL,
       cwd: REPO_DIR,
       ...(resumeId ? { resume: resumeId } : {}),
-      permissionMode: 'bypassPermissions',
-      allowDangerouslySkipPermissions: true,
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM_PROMPT },
+      // Every mode answers permission prompts through canUseTool (SDK_MODES): questions and plans reach the chat
+      permissionMode: SDK_MODES[currentMode()],
+      canUseTool,
+      systemPrompt: {
+        type: 'preset',
+        preset: 'claude_code',
+        append: `${SYSTEM_PROMPT}${plansPromptNote()}`,
+      },
       // user: the English-only hook (~/.claude/settings.json); project: CLAUDE.md and the repository settings
       settingSources: ['user', 'project', 'local'],
       env: childEnv,
@@ -616,7 +699,14 @@ async function runSession(resumeId) {
       }
     } else if (message.type === 'user' && Array.isArray(message.message?.content)) {
       for (const item of message.message.content) {
-        if (item.type === 'tool_result') foregroundToolIds.delete(item.tool_use_id);
+        if (item.type !== 'tool_result') continue;
+        foregroundToolIds.delete(item.tool_use_id);
+        // Leaving / entering plan mode: the mode the owner chose (Claude Code restores its own otherwise)
+        const mode = modeAfterTool.get(item.tool_use_id);
+        if (mode) {
+          modeAfterTool.delete(item.tool_use_id);
+          if (!item.is_error) await setMode(mode, { quiet: mode !== 'plan' });
+        }
       }
     } else if (message.type === 'rate_limit_event') {
       onRateLimit(message.rate_limit_info);
@@ -654,6 +744,8 @@ async function keepSession() {
       turn = null;
       backgroundTaskCount = 0;
       backgroundTasks = new Map();
+      for (const entry of [...pending.values()]) entry.resolve({ aborted: true });
+      compacting = null;
       // The turn is gone with the session: the watchdog must not take it for one still running
       publishActivity(false);
       if (resumeId && /no conversation found/i.test(String(error?.message ?? error))) {
@@ -802,6 +894,450 @@ async function voiceCommand(argument) {
   meta = { ...(meta ?? {}), voiceName: name };
   await say(status());
   return save().catch((error) => log('save failed', error));
+}
+
+// ---------------------------------------------------------------------------------------------- modes, questions, plans
+
+/** The worker mode (MODES): bypass (default), auto, manual, plan. Kept in meta.json across runs. */
+const currentMode = () => (MODES[meta?.mode] ? meta.mode : DEFAULT_MODE);
+
+/**
+ * Worker mode → SDK permission mode. `bypass` and `manual` both run Claude Code's `default` mode, so every
+ * permission prompt reaches canUseTool: bypass allows it there, manual asks the owner. (Claude Code's own
+ * bypassPermissions never consults canUseTool, so the owner's questions and plans could not reach the chat.)
+ */
+const SDK_MODES = { bypass: 'default', auto: 'auto', manual: 'default', plan: 'plan' };
+
+/** Questions, plans and permission prompts waiting for the owner: id → { kind, messageId, resolve, ... }. */
+const pending = new Map();
+let pendingSeq = 0;
+/** The interaction a text message from the owner answers (the newest one that takes text). */
+let textTarget = null;
+/** ExitPlanMode / EnterPlanMode tool calls whose result sets the mode: tool_use_id → mode. */
+const modeAfterTool = new Map();
+
+const newPendingId = () =>
+  `${(++pendingSeq).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+
+/** Wait for the owner (a button or a text message) with a timeout and the tool call's abort signal. */
+function waitForOwner(entry, signal) {
+  return new Promise((resolve) => {
+    const done = (value) => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', onAbort);
+      pending.delete(entry.id);
+      if (textTarget === entry)
+        textTarget = [...pending.values()].reverse().find((e) => e.takesText) ?? null;
+      resolve(value);
+    };
+    const onAbort = () => done({ aborted: true });
+    const timer = setTimeout(() => done({ timeout: true }), ANSWER_TIMEOUT_MS);
+    signal?.addEventListener('abort', onAbort, { once: true });
+    entry.resolve = done;
+    pending.set(entry.id, entry);
+    if (entry.takesText) textTarget = entry;
+    if (turn?.progress) void edit(turn.progress.message_id, '⏳ Чекаю на твою відповідь (вище)…');
+  });
+}
+
+const giveUpText = (result) =>
+  result.aborted ? '⌛ Скасовано' : `⌛ Без відповіді ${ANSWER_TIMEOUT_MS / 60000} хв`;
+
+/** Switch the mode for the session now (and for later runs). Returns false when the SDK refused it. */
+async function setMode(mode, { quiet = false } = {}) {
+  const previous = currentMode();
+  meta = { ...(meta ?? {}), mode };
+  if (session) {
+    try {
+      await session.setPermissionMode(SDK_MODES[mode]);
+    } catch (error) {
+      meta = { ...meta, mode: previous };
+      await say(`⚠️ Режим ${mode} недоступний: ${String(error.message ?? error).slice(0, 300)}`);
+      return false;
+    }
+  }
+  await saveMeta().catch((error) => log('save meta failed', error));
+  if (!quiet) await say(`${MODES[mode].emoji} Режим: ${mode}`);
+  return true;
+}
+
+const MODE_COMMAND = /^\/mode(@\w+)?(\s+(\S+))?\s*$/i;
+
+/** `/mode` [bypass | auto | manual | plan]: without an argument, the current mode with buttons. */
+async function modeCommand(argument) {
+  const name = (argument ?? '').toLowerCase();
+  if (!name) {
+    await sayHtml(modeText(currentMode()), modeKeyboard(currentMode()));
+    return;
+  }
+  if (!MODES[name]) {
+    await say('ℹ️ /mode bypass | auto | manual | plan');
+    return;
+  }
+  await setMode(name);
+}
+
+/** AskUserQuestion: every question as a message with buttons; returns the tool's updated input with answers. */
+async function askQuestions(input, signal) {
+  const questions = Array.isArray(input.questions) ? input.questions : [];
+  const answers = {};
+  for (const [index, question] of questions.entries()) {
+    const id = newPendingId();
+    const html = questionHtml(question, index, questions.length);
+    const sent = await sayHtml(html, questionKeyboard(id, index, question));
+    const entry = {
+      id,
+      kind: 'q',
+      question,
+      index,
+      html,
+      messageId: sent?.message_id,
+      picked: new Set(),
+      takesText: true,
+    };
+    const result = await waitForOwner(entry, signal);
+    if (result.aborted || result.timeout) {
+      if (entry.messageId) await editHtml(entry.messageId, `${html}\n\n${giveUpText(result)}`);
+      return {
+        behavior: 'deny',
+        message: result.aborted
+          ? 'Cancelled.'
+          : 'The owner did not answer in time; ask again later.',
+      };
+    }
+    answers[question.question] = result.answer;
+    if (entry.messageId)
+      await editHtml(entry.messageId, `${html}\n\n✅ <b>${escapeHtml(result.answer)}</b>`);
+  }
+  return { behavior: 'allow', updatedInput: { ...input, answers } };
+}
+
+/** A question's button: an option (single choice answers, multi-select toggles), "done" or "own answer". */
+async function onQuestionButton(entry, value) {
+  const [, choice] = value.split('.');
+  const { question } = entry;
+  if (choice === 'own') {
+    textTarget = entry;
+    if (entry.messageId)
+      await editHtml(entry.messageId, `${entry.html}\n\n✏️ <i>Напиши відповідь текстом</i>`);
+    return;
+  }
+  if (choice === 'done') {
+    const labels = question.options.filter((_, i) => entry.picked.has(i)).map((o) => o.label);
+    if (!labels.length) return;
+    entry.resolve({ answer: labels.join(', ') });
+    return;
+  }
+  const option = question.options[Number(choice)];
+  if (!option) return;
+  if (!question.multiSelect) {
+    entry.resolve({ answer: option.label });
+    return;
+  }
+  const i = Number(choice);
+  if (entry.picked.has(i)) entry.picked.delete(i);
+  else entry.picked.add(i);
+  if (entry.messageId) {
+    await editButtons(
+      entry.messageId,
+      questionKeyboard(entry.id, entry.index, question, entry.picked)
+    );
+  }
+}
+
+/** The plan Claude submits with ExitPlanMode: its input, else the newest plan file Claude Code wrote. */
+function planOf(input) {
+  if (typeof input.plan === 'string' && input.plan.trim()) return input.plan.trim();
+  if (!existsSync(CLAUDE_PLANS_DIR)) return '';
+  const newest = readdirSync(CLAUDE_PLANS_DIR)
+    .filter((name) => name.endsWith('.md'))
+    .map((name) => join(CLAUDE_PLANS_DIR, name))
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
+  return newest ? readFileSync(newest, 'utf8').trim() : '';
+}
+
+/** Versions of the plan under review (reset once a plan is approved): { slug, version }. */
+let planDraft = null;
+
+/** Save a plan version to PLANS_DIR and S3 (plans/<date>-<title>[-vN].md); returns the file name. */
+async function storePlan(name, text) {
+  mkdirSync(PLANS_DIR, { recursive: true });
+  writeFileSync(join(PLANS_DIR, name), `${text}\n`);
+  await aws('s3', 'cp', join(PLANS_DIR, name), `s3://${BUCKET}/${PLANS_PREFIX}${name}`, '--quiet');
+}
+
+/** ExitPlanMode: the plan to the chat (formatted, saved to S3) with "run it in auto / bypass / manual" or "revise". */
+async function reviewPlan(input, options) {
+  const plan = planOf(input) || '(Claude не передав текст плану)';
+  const title = planTitle(plan);
+  planDraft = planDraft
+    ? { ...planDraft, version: planDraft.version + 1 }
+    : { slug: planSlug(title), version: 1 };
+  const name = `${planDraft.slug}${planDraft.version > 1 ? `-v${planDraft.version}` : ''}.md`;
+  await storePlan(name, plan).catch((error) => log('plan save failed', error));
+  const header = `📋 <b>План${planDraft.version > 1 ? ` · v${planDraft.version}` : ''}</b>\n<i>💾 ${escapeHtml(PLANS_PREFIX + name)} · /plans</i>`;
+  const id = newPendingId();
+  const messages = planMessages(plan, header);
+  let last;
+  for (const html of messages) {
+    last = await sayHtml(html);
+  }
+  const question = '▶️ <b>Виконувати цей план?</b>';
+  const sent = await sayHtml(question, planKeyboard(id));
+  const entry = {
+    id,
+    kind: 'p',
+    html: question,
+    messageId: sent?.message_id ?? last?.message_id,
+    takesText: true,
+  };
+  const result = await waitForOwner(entry, options.signal);
+  const decide = (decision) =>
+    storePlan(name, `${plan}\n\n---\n_Decision (${new Date().toISOString()}): ${decision}_`).catch(
+      (error) => log('plan save failed', error)
+    );
+  if (result.aborted || result.timeout) {
+    if (entry.messageId) await editHtml(entry.messageId, `${question}\n\n${giveUpText(result)}`);
+    await decide(result.aborted ? 'cancelled' : 'no answer');
+    return {
+      behavior: 'deny',
+      message: 'The owner has not approved the plan yet; stay in plan mode and wait.',
+    };
+  }
+  if (result.mode) {
+    if (entry.messageId)
+      await editHtml(entry.messageId, `${question}\n\n✅ <b>Так, ${result.mode}</b>`);
+    await decide(`approved, run in ${result.mode} mode`);
+    planDraft = null;
+    // Set once the tool has run: ExitPlanMode itself leaves plan mode for Claude Code's previous mode
+    modeAfterTool.set(options.toolUseID, result.mode);
+    return { behavior: 'allow', updatedInput: input };
+  }
+  if (entry.messageId)
+    await editHtml(
+      entry.messageId,
+      `${question}\n\n✏️ <b>Доопрацювати:</b> ${escapeHtml(result.answer)}`
+    );
+  await decide(`revise: ${result.answer}`);
+  return {
+    behavior: 'deny',
+    message: `The owner wants changes to the plan before it runs: ${result.answer}\nRevise the plan and submit it again with ExitPlanMode (stay in plan mode).`,
+  };
+}
+
+async function onPlanButton(entry, value) {
+  if (MODES[value] && value !== 'plan') {
+    entry.resolve({ mode: value });
+    return;
+  }
+  if (value === 'revise') {
+    textTarget = entry;
+    if (entry.messageId)
+      await editHtml(entry.messageId, `${entry.html}\n\n✏️ <i>Напиши, що змінити</i>`);
+  }
+}
+
+/** A permission prompt (manual mode, auto's undecided calls, plan mode): the action with allow / deny buttons. */
+async function askPermission(toolName, input, options) {
+  const id = newPendingId();
+  const html = permissionHtml(toolName, input, options);
+  const canAlways = !options.suppressAlwaysAllowRule && Boolean(options.suggestions?.length);
+  const sent = await sayHtml(html, permissionKeyboard(id, canAlways));
+  const entry = { id, kind: 'perm', html, messageId: sent?.message_id, takesText: true };
+  const result = await waitForOwner(entry, options.signal);
+  const close = (status) => entry.messageId && editHtml(entry.messageId, `${html}\n\n${status}`);
+  if (result.aborted || result.timeout) {
+    await close(giveUpText(result));
+    return {
+      behavior: 'deny',
+      message: 'The owner did not answer the permission prompt.',
+      interrupt: result.timeout,
+    };
+  }
+  if (result.decision === 'allow' || result.decision === 'always') {
+    await close(
+      result.decision === 'always' ? '♾ <b>Дозволено до кінця сесії</b>' : '✅ <b>Дозволено</b>'
+    );
+    return {
+      behavior: 'allow',
+      updatedInput: input,
+      ...(result.decision === 'always' ? { updatedPermissions: options.suggestions } : {}),
+    };
+  }
+  if (result.answer) {
+    await close(`❌ <b>Відхилено:</b> ${escapeHtml(result.answer)}`);
+    return { behavior: 'deny', message: `The owner declined this and said: ${result.answer}` };
+  }
+  await close('❌ <b>Відхилено</b>');
+  return { behavior: 'deny', message: 'The owner declined this action.' };
+}
+
+/** Claude Code's permission callback: questions and plans go to the owner in every mode; other prompts by mode. */
+async function canUseTool(toolName, input, options) {
+  try {
+    if (toolName === 'AskUserQuestion') return await askQuestions(input, options.signal);
+    if (toolName === 'ExitPlanMode') return await reviewPlan(input, options);
+    if (toolName === 'EnterPlanMode') {
+      modeAfterTool.set(options.toolUseID, 'plan');
+      return { behavior: 'allow', updatedInput: input };
+    }
+    const mode = currentMode();
+    // Plan mode lets Claude Code write its own plan file
+    const planFile =
+      typeof input.file_path === 'string' && input.file_path.startsWith(CLAUDE_PLANS_DIR);
+    if (mode === 'bypass' || planFile) return { behavior: 'allow', updatedInput: input };
+    return await askPermission(toolName, input, options);
+  } catch (error) {
+    log('canUseTool failed', error);
+    return {
+      behavior: 'deny',
+      message: `The worker failed to ask the owner: ${String(error.message ?? error)}`,
+    };
+  }
+}
+
+/** A button pressed in the chat (forwarded by the dev-bot Lambda): { data, message_id }. */
+async function onCallback(callback) {
+  const { kind, id, value } = parseCallback(callback.data);
+  if (kind === 'mode') {
+    if (MODES[id] && id !== currentMode()) await setMode(id, { quiet: true });
+    await editHtml(callback.message_id, modeText(currentMode()), modeKeyboard(currentMode()));
+    return;
+  }
+  if (kind === 'plans') {
+    await sendPlan(Number(id));
+    return;
+  }
+  const entry = pending.get(id);
+  if (!entry || entry.kind !== kind) {
+    await editButtons(callback.message_id);
+    await say('ℹ️ Це питання вже неактуальне');
+    return;
+  }
+  if (kind === 'q') await onQuestionButton(entry, value);
+  else if (kind === 'p') await onPlanButton(entry, value);
+  else if (kind === 'perm') entry.resolve({ decision: value });
+}
+
+/** A text (or voice) message from the owner while a question / plan / prompt waits: it is the answer. */
+async function answerPending(message) {
+  const entry = textTarget;
+  let text = message.text?.trim() ?? '';
+  for (const attachment of message.attachments ?? []) {
+    if (attachment.kind !== 'voice' && attachment.kind !== 'audio') continue;
+    const path = await downloadTelegramFile(attachment.file_id, attachment.file_name);
+    const spoken = await transcribe(path, attachment.mime_type);
+    await say(spoken ? `🎙 Розпізнав: «${spoken}»` : '🎙 У аудіо не знайшов мови');
+    text = [text, spoken].filter(Boolean).join('\n');
+  }
+  if (!text) return;
+  entry.resolve(entry.kind === 'perm' ? { decision: 'deny', answer: text } : { answer: text });
+}
+
+/** Text answers go to a pending question only without photos / files (those are delivered as a message). */
+const answersPending = (message) =>
+  Boolean(textTarget) &&
+  (message.attachments ?? []).every((a) => a.kind === 'voice' || a.kind === 'audio');
+
+// ---------------------------------------------------------------------------------------------- /plans
+
+const PLANS_COMMAND = /^\/plans(@\w+)?$/i;
+/** The list `/plans` showed last (its buttons send a plan by index). */
+let plansListed = [];
+
+/** The saved plans, newest first: [{ name, title, decision }]. */
+function savedPlans() {
+  if (!existsSync(PLANS_DIR)) return [];
+  return (
+    readdirSync(PLANS_DIR)
+      .filter((name) => name.endsWith('.md'))
+      // "<date>-<title>.md" before "<date>-<title>-v2.md": compared without the extension
+      .sort((a, b) => (a.slice(0, -3) < b.slice(0, -3) ? 1 : -1))
+      .map((name) => {
+        const text = readFileSync(join(PLANS_DIR, name), 'utf8');
+        const decision = text.match(/_Decision \([^)]*\): (.*)_\s*$/)?.[1] ?? 'not decided';
+        const version = name.match(/-v(\d+)\.md$/)?.[1];
+        const [, day, hour, minute] = name.match(/^(\d{4}-\d\d-\d\d)T(\d\d)-(\d\d)/) ?? [];
+        const when = day
+          ? new Date(`${day}T${hour}:${minute}:00Z`).toLocaleString('uk-UA', {
+              timeZone: OWNER_TIME_ZONE,
+              dateStyle: 'short',
+              timeStyle: 'short',
+            })
+          : '';
+        return { name, title: planTitle(text), decision, version, when };
+      })
+  );
+}
+
+/** `/plans`: the newest plans with a button each that sends the plan file. */
+async function reportPlans() {
+  plansListed = savedPlans().slice(0, PLANS_LIST_MAX);
+  if (!plansListed.length) {
+    await say('📋 Збережених планів немає (вони зʼявляються в режимі plan: /mode plan)');
+    return;
+  }
+  const lines = plansListed.map(
+    (plan, i) =>
+      `<b>${i + 1}.</b> ${escapeHtml(plan.title)}${plan.version ? ` · v${plan.version}` : ''}\n<i>${escapeHtml(plan.when)} · ${escapeHtml(plan.decision)}</i>`
+  );
+  await sayHtml(`📋 <b>Плани</b> (s3: ${PLANS_PREFIX})\n\n${lines.join('\n')}`, {
+    inline_keyboard: [
+      plansListed.map((_, i) => ({ text: String(i + 1), callback_data: `plans:${i}` })),
+    ],
+  });
+}
+
+async function sendPlan(index) {
+  const plan = plansListed[index];
+  if (!plan || !existsSync(join(PLANS_DIR, plan.name))) {
+    await say('ℹ️ Цього плану вже немає в списку: /plans');
+    return;
+  }
+  await sendFile(join(PLANS_DIR, plan.name));
+}
+
+/** The index of saved plans for the system prompt of every session (the files are in PLANS_DIR). */
+function plansPromptNote() {
+  const plans = savedPlans().slice(0, 30);
+  if (!plans.length) return '';
+  return [
+    '',
+    '## Saved plans',
+    '',
+    `Plans from earlier plan-mode sessions, saved by the worker (S3 \`${PLANS_PREFIX}\`, local copies in ${PLANS_DIR}), newest first, with the owner's decision. Read one when the owner refers to it or when work continues an earlier plan:`,
+    ...plans.map((plan) => `- ${PLANS_DIR}/${plan.name}: ${plan.title} (${plan.decision})`),
+  ].join('\n');
+}
+
+// ---------------------------------------------------------------------------------------------- /compact
+
+const COMPACT_COMMAND = /^\/compact(@\w+)?(\s+([\s\S]+))?$/i;
+/** Context usage before a `/compact` in progress: its result is reported instead of an answer. */
+let compacting = null;
+
+async function compactCommand(instructions) {
+  if (turn || !session) {
+    await say('⏳ Зараз іде хід Claude: /compact — після відповіді');
+    return;
+  }
+  const before = await session.getContextUsage({ detail: 'summary' }).catch(() => null);
+  compacting = { before };
+  sendToClaude(`/compact${instructions ? ` ${instructions.trim()}` : ''}`);
+  ensureTurn();
+}
+
+/** The answer to `/compact`: context before → after. */
+async function compactReport(result) {
+  const { before } = compacting;
+  compacting = null;
+  const after = await session?.getContextUsage({ detail: 'summary' }).catch(() => null);
+  const usage = (c) =>
+    c ? `${Math.round(c.percentage)}% (${Math.round(c.totalTokens / 1000)}k)` : '?';
+  if (result.subtype !== 'success' || result.is_error) {
+    return `⚠️ /compact не вдався: ${(result.errors ?? []).join(' ') || result.result || result.subtype}`;
+  }
+  return `🗜 Контекст стиснуто: ${usage(before)} → ${usage(after)}`;
 }
 
 // ---------------------------------------------------------------------------------------------- /context
@@ -1157,10 +1693,14 @@ async function main() {
   }
   if (stopReason) return stop();
   const branch = (await sh('git', ['-C', REPO_DIR, 'branch', '--show-current'])).trim();
+  const modeNote =
+    currentMode() === DEFAULT_MODE
+      ? ''
+      : ` Режим: ${MODES[currentMode()].emoji} ${currentMode()} (/mode).`;
   await say(
-    meta?.sessionId
+    (meta?.sessionId
       ? `🟢 Воркер готовий (Opus). Контекст відновлено з сесії від ${new Date(meta.savedAt).toLocaleString('uk-UA', { timeZone: OWNER_TIME_ZONE })}; гілка ${branch || '(detached)'}${restored.workspace ? '' : ', робоча копія свіжа'}.`
-      : `🟢 Воркер готовий (Opus). Нова сесія; гілка ${branch || '(detached)'}.`
+      : `🟢 Воркер готовий (Opus). Нова сесія; гілка ${branch || '(detached)'}.`) + modeNote
   );
 
   lastActivity = Date.now();
@@ -1198,7 +1738,25 @@ async function main() {
       }
       lastActivity = Date.now();
       try {
+        if (message.callback) {
+          await onCallback(message.callback);
+          continue;
+        }
         const command = message.attachments?.length ? '' : (message.text?.trim() ?? '');
+        const mode = command.match(MODE_COMMAND);
+        if (mode) {
+          await modeCommand(mode[3]);
+          continue;
+        }
+        const compact = command.match(COMPACT_COMMAND);
+        if (compact) {
+          await compactCommand(compact[3]);
+          continue;
+        }
+        if (PLANS_COMMAND.test(command)) {
+          await reportPlans();
+          continue;
+        }
         if (CONTEXT_COMMAND.test(command)) {
           await reportContext();
           continue;
@@ -1210,6 +1768,11 @@ async function main() {
         const voice = command.match(VOICE_COMMAND);
         if (voice) {
           await voiceCommand(voice[3]);
+          continue;
+        }
+        // While a question / plan / permission prompt waits, the owner's text is its answer
+        if (!command.startsWith('/') && answersPending(message)) {
+          await answerPending(message);
           continue;
         }
         await deliver(message);

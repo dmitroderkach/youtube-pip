@@ -54,8 +54,8 @@ ENV TF_PLUGIN_CACHE_DIR=/home/worker/.terraform.d/plugin-cache
 # Agent SDK (bundles the Claude Code executable for linux-x64), installed from the lockfile
 COPY scripts/dev-worker/package.json scripts/dev-worker/package-lock.json /opt/dev-worker/
 RUN cd /opt/dev-worker && npm ci --omit=dev --no-audit --no-fund && rm -rf /root/.npm
-COPY --chown=worker:worker scripts/dev-worker/worker.mjs scripts/dev-worker/system-prompt.md \
-     scripts/dev-worker/english-only-hook.mjs /opt/dev-worker/
+COPY --chown=worker:worker scripts/dev-worker/worker.mjs scripts/dev-worker/telegram-format.mjs \
+     scripts/dev-worker/system-prompt.md scripts/dev-worker/english-only-hook.mjs /opt/dev-worker/
 # User settings: the PreToolUse hook that keeps text sent to GitHub / git history in English
 COPY --chown=worker:worker scripts/dev-worker/claude-settings.json /home/worker/.claude/settings.json
 COPY terraform/dev-worker/entrypoint.sh /entrypoint.sh
