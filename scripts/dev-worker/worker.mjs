@@ -7,8 +7,8 @@
  * A message that arrives while Claude is working moves its running commands to the background (they keep running,
  * like Ctrl+B) and is delivered at the turn's next step (priority 'next', right away once nothing blocks). Background tasks survive between turns; their
  * completion starts a turn of its own. Every turn's progress and final answer go to Telegram; the state is saved to
- * S3 after every answer and every few minutes of a long turn (the transcript as its epoch since the last compaction,
- * session-state.mjs); background tasks are recorded in S3 while they run and offered for restoring after a restart. Stops by itself after IDLE_TIMEOUT_SECONDS without activity (no turn and no background task)
+ * S3 after every answer and every few minutes of a long turn (Claude Code trims the transcript after a compaction
+ * itself, CLAUDE_CODE_TRANSCRIPT_LOCAL_GC); background tasks are recorded in S3 while they run and offered for restoring after a restart. Stops by itself after IDLE_TIMEOUT_SECONDS without activity (no turn and no background task)
  * (the dev-bot Lambda warns in the chat when a run stays up long after the last answer, docs/DEV_WORKER.md), and on SIGTERM (`/down`, ECS StopTask); every stop it initiates is reported in
  * the chat and ends with exit code 0 or REPORTED_EXIT_CODE, which the dev-bot Lambda does not report again.
  *
@@ -17,13 +17,7 @@
  *      CLAUDE_MODEL, TRANSCRIBE_LANGUAGE, GOOGLE_TTS_API_KEY, TTS_VOICE.
  */
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import {
-  backgroundRecord,
-  epochProject,
-  latestEpochKey,
-  restoreNote,
-  transcriptEpoch,
-} from './session-state.mjs';
+import { backgroundRecord, epochProject, latestEpochKey, restoreNote } from './session-state.mjs';
 import {
   backgroundRestoreHtml,
   backgroundRestoreKeyboard,
@@ -98,11 +92,12 @@ const WORKSPACE_KEY = 'state/workspace.tar.gz';
 const ACTIVITY_KEY = 'state/activity.json';
 const PROJECTS_PREFIX = 'claude/projects/';
 /**
- * The session's transcript, one object per epoch (since its last compaction):
- * `claude/transcripts/<project>/<session id>/<epoch>.jsonl`. The current epoch is uploaded on every save, earlier
- * ones stop changing and expire with the `claude/` lifecycle rule; a restore downloads only the newest.
+ * Transcripts of the epoch layout (#175, #176): `claude/transcripts/<project>/<session id>/<epoch>.jsonl`. Read once
+ * on restore (newer than the session's frozen transcript under PROJECTS_PREFIX) and deleted by the first save.
  */
 const TRANSCRIPTS_PREFIX = 'claude/transcripts/';
+/** Epoch-layout transcripts exist and are to be deleted once a save has uploaded the session's transcript. */
+let epochsToDrop = false;
 /** Live background tasks of the session, one JSON record each (session-state.mjs backgroundRecord). */
 const BACKGROUND_PREFIX = 'state/background/';
 /** Saves while a turn runs, so a crash in a long turn loses at most this much of it. */
@@ -377,8 +372,10 @@ async function restore() {
   await sh('git', ['-C', REPO_DIR, 'fetch', '--prune', 'origin']);
   mkdirSync(CLAUDE_PROJECTS_DIR, { recursive: true });
   const sessionId = meta?.sessionId ?? null;
-  const epochKey = sessionId ? latestEpochKey(await s3Keys(TRANSCRIPTS_PREFIX), sessionId) : null;
-  // With an epoch saved, the session's whole transcript of the old layout is not needed (it expires by itself)
+  const epochKeys = await s3Keys(TRANSCRIPTS_PREFIX);
+  epochsToDrop = epochKeys.length > 0;
+  const epochKey = sessionId ? latestEpochKey(epochKeys, sessionId) : null;
+  // Migration: the session's transcript under PROJECTS_PREFIX stopped changing when epochs were saved instead
   const legacy = epochKey ? ['--exclude', `*/${sessionId}.jsonl`] : [];
   // A project with memory under memory/ takes it only from there: the old copy under claude/projects/<project>/memory/
   // is no longer updated, so restoring it would bring back memory files Claude has deleted since (until it expires).
@@ -435,28 +432,6 @@ async function s3Keys(prefix) {
   return JSON.parse(out.trim() || 'null') ?? [];
 }
 
-/** The transcript of a session: { project, path }, or null. */
-function sessionTranscript(sessionId) {
-  if (!sessionId || !existsSync(CLAUDE_PROJECTS_DIR)) return null;
-  for (const project of readdirSync(CLAUDE_PROJECTS_DIR)) {
-    const path = join(CLAUDE_PROJECTS_DIR, project, `${sessionId}.jsonl`);
-    if (existsSync(path)) return { project, path };
-  }
-  return null;
-}
-
-/** Upload the session's current transcript epoch (from its last compaction on). */
-async function saveTranscript(sessionId) {
-  const transcript = sessionTranscript(sessionId);
-  if (!transcript) return;
-  const text = readFileSync(transcript.path, 'utf8');
-  const epoch = transcriptEpoch(text);
-  if (epoch.reason) log(`transcript kept whole: ${epoch.reason}`);
-  writeFileSync('/tmp/transcript-epoch.jsonl', epoch.text);
-  const key = `${TRANSCRIPTS_PREFIX}${transcript.project}/${sessionId}/${epoch.name}`;
-  await aws('s3', 'cp', '/tmp/transcript-epoch.jsonl', `s3://${BUCKET}/${key}`, '--quiet');
-}
-
 /** Upload each project's memory to MEMORY_PREFIX (files removed locally are removed there too, once restored). */
 async function saveMemory() {
   if (!existsSync(CLAUDE_PROJECTS_DIR)) return;
@@ -487,21 +462,23 @@ async function saveNow() {
   const excludes = WORKSPACE_EXCLUDES.flatMap((dir) => ['--exclude', `./${dir}`]);
   await sh('tar', ['czf', '/tmp/workspace.tar.gz', ...excludes, '-C', REPO_DIR, '.']);
   await aws('s3', 'cp', '/tmp/workspace.tar.gz', `s3://${BUCKET}/${WORKSPACE_KEY}`, '--quiet');
-  const sessionId = meta?.sessionId ?? null;
-  await saveTranscript(sessionId);
-  // Subagents and tool results of all projects; the session's own transcript went up as its epoch, memory below
-  const own = sessionId ? ['--exclude', `*/${sessionId}.jsonl`] : [];
+  // Transcripts (trimmed by Claude Code itself, CLAUDE_CODE_TRANSCRIPT_LOCAL_GC), subagents and tool results of all
+  // projects; memory below
   await aws(
     's3',
     'sync',
     CLAUDE_PROJECTS_DIR,
     `s3://${BUCKET}/${PROJECTS_PREFIX}`,
-    ...own,
     '--exclude',
     '*/memory/*',
     '--quiet'
   );
   await saveMemory();
+  // The epoch layout is migrated once the session's transcript is up in its usual place
+  if (epochsToDrop) {
+    await aws('s3', 'rm', `s3://${BUCKET}/${TRANSCRIPTS_PREFIX}`, '--recursive', '--quiet');
+    epochsToDrop = false;
+  }
   meta = { ...(meta ?? {}), sessionId: meta?.sessionId ?? null, savedAt: new Date().toISOString() };
   writeFileSync('/tmp/meta.json', JSON.stringify(meta));
   await aws('s3', 'cp', '/tmp/meta.json', `s3://${BUCKET}/${META_KEY}`, '--quiet');
@@ -884,6 +861,8 @@ async function runSession(resumeId) {
   delete childEnv.TELEGRAM_BOT_TOKEN;
   delete childEnv.TELEGRAM_CHAT_ID;
   delete childEnv.GOOGLE_TTS_API_KEY;
+  // Claude Code trims its transcript file after a compaction (once over 5 MB) instead of letting it grow for good
+  childEnv.CLAUDE_CODE_TRANSCRIPT_LOCAL_GC = '1';
   session = query({
     prompt: userMessages(),
     options: {
