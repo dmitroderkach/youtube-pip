@@ -11,7 +11,7 @@ Two entry points:
   (exit code other than 0 / REPORTED_EXIT_CODE, failed start, killed task) is reported in the chat.
 
 The gate of the dev worker's infrastructure changes (terraform/dev_worker_ops.tf): ✅ / 🚫 under a message of tf-plan
-(a plan of main) or of the dev-ops Lambda (publishing an image as :latest) is handled here, not by the worker. The
+(a plan of main) or of the dev-ops Lambda (publishing an image as :latest, setting the bot up) is handled here, not by the worker. The
 pressed message must be the one recorded in the ops bucket, unedited and with the same buttons, and not older than an
 hour; the decision is written once, then ✅ starts tf-apply / image-publish in CodeBuild.
 
@@ -67,6 +67,7 @@ PENDING_START_KEY = "state/pending-start.json"
 OPS_BUCKET = os.environ.get("OPS_BUCKET", "")
 TF_APPLY_PROJECT = os.environ.get("TF_APPLY_PROJECT", "")
 IMAGE_PUBLISH_PROJECT = os.environ.get("IMAGE_PUBLISH_PROJECT", "")
+TELEGRAM_SETUP_PROJECT = os.environ.get("TELEGRAM_SETUP_PROJECT", "")
 GATE_DATA = re.compile(r"^gate:([0-9a-f-]{36}):(ok|no)$")
 GATE_TTL_SECONDS = 3600
 
@@ -311,6 +312,8 @@ def start_gated_build(record):
         project, env = TF_APPLY_PROJECT, {"RUN_ID": record["id"]}
     elif record["kind"] == "image":
         project, env = IMAGE_PUBLISH_PROJECT, {"IMAGE": record["image"], "REF": record["sha"]}
+    elif record["kind"] == "telegram":
+        project, env = TELEGRAM_SETUP_PROJECT, {"REF": record["sha"]}
     else:
         raise ValueError(f"unknown kind {record['kind']}")
     build = codebuild.start_build(
@@ -378,7 +381,11 @@ def gate(query, request_id, decision):
         reply(f"🔴 Не вдалося запустити: {error}")
         return {"statusCode": 200, "body": "start failed"}
     answer("Запущено")
-    what = "Застосовую план" if record["kind"] == "tf" else f"Збираю і публікую {record['image']}:latest"
+    what = {
+        "tf": "Застосовую план",
+        "image": f"Збираю і публікую {record.get('image')}:latest",
+        "telegram": "Налаштовую бота",
+    }[record["kind"]]
     reply(f"▶️ {what}… Результат прийде сюди (CodeBuild {build_id.split(':')[-1][:8]})")
     return {"statusCode": 200, "body": "started"}
 

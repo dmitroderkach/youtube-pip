@@ -17,8 +17,10 @@ Usage:
                                         repository (neither CI nor the worker runs it); waits, prints the image
   dev-ops publish <runner|dev-worker>   ask the owner to publish :latest built from the current main commit (✅ in
                                         Telegram); the result comes to the chat
+  dev-ops telegram                      ask the owner to set the bot up from the current main commit
+                                        (scripts/dev-worker/setup-telegram.mjs: webhook, command menu; ✅ in Telegram)
   dev-ops status <build id>             status of a build and the end of its log
-  dev-ops runs                          latest builds of tf-plan, tf-apply, image-build, image-publish
+  dev-ops runs                          latest builds of the dev-ops CodeBuild projects
 EOF
 }
 
@@ -113,6 +115,11 @@ case "${1:-}" in
     response="$(invoke "$(jq -cn --arg image "$2" '{action: "publish", image: $image}')")"
     echo "Asked the owner in Telegram: publish $2:latest from main@$(jq -r '.sha[0:7]' <<<"$response")." \
       "On ✅ image-publish builds it and reports to the chat; follow it with: dev-ops runs"
+    ;;
+  telegram)
+    response="$(invoke '{"action":"telegram"}')"
+    echo "Asked the owner in Telegram: set the bot up from main@$(jq -r '.sha[0:7]' <<<"$response")" \
+      "($(jq -r .commands <<<"$response") menu commands). On ✅ telegram-setup runs and reports to the chat."
     ;;
   status)
     [ -n "${2:-}" ] || {

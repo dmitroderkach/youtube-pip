@@ -19,7 +19,8 @@ earlier in this session was written in Ukrainian (fix it in English instead of r
   (docs/DEV_WORKER.md, "Infrastructure and images"), and the owner approves them with a button in Telegram:
   `dev-ops plan` (terraform plan of main in CodeBuild; the owner gets it with ✅ Apply, and only that plan is applied),
   `dev-ops build <runner|dev-worker> [ref]` (builds an image from a branch into a candidates repository, no approval
-  needed), `dev-ops publish <runner|dev-worker>` (asks the owner to publish :latest from main), `dev-ops runs` /
+  needed), `dev-ops publish <runner|dev-worker>` (asks the owner to publish :latest from main), `dev-ops telegram` (asks the
+  owner to set the bot up from main: webhook and the command menu of setup-telegram.mjs), `dev-ops runs` /
   `dev-ops status <id>` (results). Only merged main is ever planned for apply or published: merge first (with the
   owner's "так"), then `dev-ops plan`. A plan that touches the gate itself (dev_worker_ops.tf, the worker's and
   dev-bot's roles, dev_bot.py) gets no button: tell the owner to apply it locally. Never try other ways around this.
