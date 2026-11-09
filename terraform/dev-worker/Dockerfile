@@ -23,8 +23,34 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && npx -y playwright@${PLAYWRIGHT_VERSION} install --with-deps --only-shell chromium \
     && rm -rf /var/lib/apt/lists/* /root/.npm
 
+# Terraform for checks of terraform/ (fmt, init -backend=false, validate). The worker has no AWS rights: no plan /
+# apply. Keep close to the owner's local version.
+ARG TERRAFORM_VERSION=1.15.4
+RUN cd /tmp \
+    && curl -fsSLO https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip \
+    && curl -fsSL https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_SHA256SUMS \
+      | grep " terraform_${TERRAFORM_VERSION}_linux_amd64.zip$" | sha256sum -c - \
+    && unzip -q terraform_${TERRAFORM_VERSION}_linux_amd64.zip terraform -d /usr/local/bin \
+    && rm terraform_${TERRAFORM_VERSION}_linux_amd64.zip
+
+# Python of the Lambda runtime (python3.12, terraform/lambda/*.py) with boto3, which the Lambdas import: compile and
+# test them with stubbed AWS clients. Copied from the official image of the same Debian release (node's /usr/local
+# stays as is); the libraries it links against come from apt.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libbz2-1.0 libffi8 libgdbm6 liblzma5 libncursesw6 libreadline8 libsqlite3-0 libssl3 libuuid1 zlib1g \
+    && rm -rf /var/lib/apt/lists/*
+COPY --from=python:3.12-slim-bookworm /usr/local/bin/python3.12 /usr/local/bin/python3.12
+COPY --from=python:3.12-slim-bookworm /usr/local/lib/python3.12 /usr/local/lib/python3.12
+COPY --from=python:3.12-slim-bookworm /usr/local/lib/libpython3.12.so.1.0 /usr/local/lib/
+RUN ldconfig \
+    && ln -s python3.12 /usr/local/bin/python3 && ln -s python3.12 /usr/local/bin/python \
+    && python3 -m pip install --no-cache-dir --root-user-action=ignore boto3
+
 # Claude Code refuses --dangerously-skip-permissions as root: run as a regular user
-RUN useradd -m -d /home/worker -s /bin/bash worker
+RUN useradd -m -d /home/worker -s /bin/bash worker \
+    && mkdir -p /home/worker/.terraform.d/plugin-cache && chown -R worker:worker /home/worker/.terraform.d
+# Providers are downloaded once per run into the cache (outside the workspace that is saved to S3)
+ENV TF_PLUGIN_CACHE_DIR=/home/worker/.terraform.d/plugin-cache
 # Agent SDK (bundles the Claude Code executable for linux-x64), installed from the lockfile
 COPY scripts/dev-worker/package.json scripts/dev-worker/package-lock.json /opt/dev-worker/
 RUN cd /opt/dev-worker && npm ci --omit=dev --no-audit --no-fund && rm -rf /root/.npm

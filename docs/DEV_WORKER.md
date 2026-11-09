@@ -92,6 +92,7 @@ The worker keeps one Claude Code session open for the whole run (Claude Agent SD
 | AWS (task role)            | only its S3 state bucket, its SQS queue and AWS Transcribe jobs: no infrastructure rights                                                                                                  |
 
 - The worker runs Claude Code with all tools (shell, edits, network) inside the container. The repository's `CLAUDE.md` rules apply: merges, tags / releases and anything outward-facing only after the owner's explicit "так" in the chat; infrastructure changes (`terraform apply`) are not done from the worker.
+- Checks without AWS: the image has Terraform (`fmt`, `init -backend=false`, `validate`; providers cached per run in `~/.terraform.d/plugin-cache`, outside the saved workspace) and Python 3.12 with boto3 (the Lambda runtime) for `terraform/lambda`. `terraform plan` / `apply` stay with the owner.
 - `main` stays protected (squash merge, required green `build`), so nothing lands without CI.
 - The worker reads data from the web (YouTube pages, CI logs): untrusted. The blast radius is bounded by the repository-scoped token and the absence of AWS rights; the GitHub token is rotated on expiry (the worker says so in the chat when GitHub rejects it).
 

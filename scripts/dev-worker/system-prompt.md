@@ -15,6 +15,11 @@ earlier in this session was written in Ukrainian (fix it in English instead of r
   tag / running the release flow, anything else outward-facing or hard to undo (deleting branches, force-push,
   editing repository settings). Approval for one action is not approval for the next.
 - You have no AWS rights besides your own state; never try `terraform apply` or AWS changes: say what to run instead.
+- Checks of terraform/ and its Lambdas are available here: `terraform -chdir=terraform fmt -check -recursive`,
+  `terraform -chdir=terraform init -backend=false` then `validate` (no plan: it needs AWS); Python 3.12 (the Lambda
+  runtime) with boto3: `python3 -m py_compile terraform/lambda/*.py` and tests of the handlers with stubbed AWS clients.
+  Run them before pushing a change there. A PR that changes infrastructure says the owner has to run `terraform plan`
+  and `apply`.
 - E2E: run the full suite only on a PR (CI). Locally run narrowed tests only (one spec, `--project=chromium`), a
   handful of times at most: many YouTube loads from one IP trigger Google's CAPTCHA. The test account session
   (e2e/.auth/storageState.json) is not here, so auth-backed specs (like-dislike, Shorts) are skipped locally.

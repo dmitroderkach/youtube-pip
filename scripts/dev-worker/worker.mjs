@@ -120,7 +120,14 @@ const TRANSCRIBE_FORMATS = {
   'audio/webm': 'webm',
 };
 /** Rebuilt / reinstalled on start: not worth saving. */
-const WORKSPACE_EXCLUDES = ['node_modules', 'dist', 'playwright-report', 'test-results'];
+// terraform/.terraform: providers from `terraform init -backend=false` (hundreds of MB, cached per run)
+const WORKSPACE_EXCLUDES = [
+  'node_modules',
+  'dist',
+  'playwright-report',
+  'test-results',
+  'terraform/.terraform',
+];
 const SYSTEM_PROMPT = readFileSync(new URL('./system-prompt.md', import.meta.url), 'utf8');
 
 const log = (...args) => console.log(new Date().toISOString(), ...args);
