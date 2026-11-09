@@ -28,6 +28,8 @@ resource "aws_lambda_function" "oncall_schedule" {
 
 resource "aws_iam_role" "oncall_schedule_lambda" {
   name = "${local.name_prefix}-oncall-schedule-lambda-role"
+  # Changeable by a gated apply of the dev worker (dev_worker_ops.tf), which needs the boundary on every role it changes
+  permissions_boundary = aws_iam_policy.project_boundary.arn
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -63,6 +65,8 @@ resource "aws_iam_role_policy" "oncall_schedule_lambda" {
 
 resource "aws_iam_role" "oncall_scheduler" {
   name = "${local.name_prefix}-oncall-scheduler-role"
+  # Changeable by a gated apply of the dev worker (dev_worker_ops.tf), which needs the boundary on every role it changes
+  permissions_boundary = aws_iam_policy.project_boundary.arn
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

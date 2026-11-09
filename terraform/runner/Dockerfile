@@ -1,4 +1,6 @@
-FROM ubuntu:24.04
+# Docker official image from its ECR Public mirror: CodeBuild (image-build / image-publish) hits Docker Hub's pull
+# limits on its shared addresses
+FROM public.ecr.aws/docker/library/ubuntu:24.04
 
 # Keep in sync with https://github.com/actions/runner/releases — old versions are rejected at connect time.
 ARG RUNNER_VERSION=2.338.2

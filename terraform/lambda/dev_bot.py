@@ -10,21 +10,35 @@ Two entry points:
 - EventBridge "ECS Task State Change" (STOPPED) of the dev-worker cluster: a stop the worker did not report itself
   (exit code other than 0 / REPORTED_EXIT_CODE, failed start, killed task) is reported in the chat.
 
+The gate of the dev worker's infrastructure changes (terraform/dev_worker_ops.tf): ✅ / 🚫 under a message of tf-plan
+(a plan of main) or of the dev-ops Lambda (publishing an image as :latest) is handled here, not by the worker. The
+pressed message must be the one recorded in the ops bucket, unedited and with the same buttons, and not older than an
+hour; the decision is written once, then ✅ starts tf-apply / image-publish in CodeBuild.
+
 Statuses go to the chat through the Bot API. Always answers Telegram with 200, so it never retries an update.
 """
 
 import json
 import os
+import re
 import time
 import urllib.request
 from datetime import datetime, timezone
 
 import boto3
+from botocore.exceptions import ClientError
 
 ecs = boto3.client("ecs")
 sqs = boto3.client("sqs")
 s3 = boto3.client("s3")
 secrets = boto3.client("secretsmanager")
+codebuild = boto3.client("codebuild")
+# Every PutObject through this client writes only when the key does not exist yet (If-None-Match: *, set on the
+# request itself, so it does not depend on the runtime's boto3 version)
+s3_once = boto3.client("s3")
+s3_once.meta.events.register(
+    "before-sign.s3.PutObject", lambda request, **_: request.headers.__setitem__("If-None-Match", "*")
+)
 
 CLUSTER_ARN = os.environ["CLUSTER_ARN"]
 TASK_DEFINITION_ARN = os.environ["TASK_DEFINITION_ARN"]
@@ -49,6 +63,12 @@ IDLE_ALERT_KEY = "state/idle-alert.json"
 IDLE_ALERT_MINUTES = int(os.environ.get("IDLE_ALERT_MINUTES", "15"))
 # Start requested while a stopped worker was still saving: consumed by the STOPPED event of that task
 PENDING_START_KEY = "state/pending-start.json"
+# Gate (terraform/dev_worker_ops.tf)
+OPS_BUCKET = os.environ.get("OPS_BUCKET", "")
+TF_APPLY_PROJECT = os.environ.get("TF_APPLY_PROJECT", "")
+IMAGE_PUBLISH_PROJECT = os.environ.get("IMAGE_PUBLISH_PROJECT", "")
+GATE_DATA = re.compile(r"^gate:([0-9a-f-]{36}):(ok|no)$")
+GATE_TTL_SECONDS = 3600
 
 _config = None
 
@@ -269,11 +289,108 @@ def forward(message, text, attachments):
         say("📥 Отримав, передам, щойно підніметься")
 
 
+def gate_problem(record, message):
+    """Why the pressed message must not start anything (None when it is the recorded request, as it was sent)."""
+    if not record:
+        return "Запит не знайдено"
+    same = (
+        record.get("message_id") == message.get("message_id")
+        and not message.get("edit_date")
+        and message.get("text") == record.get("text")
+        and (message.get("reply_markup") or {}) == (record.get("reply_markup") or {})
+    )
+    if not same:
+        return "Повідомлення не збігається із запитом: нічого не запускаю"
+    if time.time() - record.get("created_at", 0) > GATE_TTL_SECONDS:
+        return "Запит застарів (понад годину): попроси воркера зробити новий"
+    return None
+
+
+def start_gated_build(record):
+    if record["kind"] == "tf":
+        project, env = TF_APPLY_PROJECT, {"RUN_ID": record["id"]}
+    elif record["kind"] == "image":
+        project, env = IMAGE_PUBLISH_PROJECT, {"IMAGE": record["image"], "REF": record["sha"]}
+    else:
+        raise ValueError(f"unknown kind {record['kind']}")
+    build = codebuild.start_build(
+        projectName=project,
+        environmentVariablesOverride=[{"name": k, "value": v, "type": "PLAINTEXT"} for k, v in env.items()],
+    )
+    return build["build"]["id"]
+
+
+def gate(query, request_id, decision):
+    """✅ / 🚫 under a gated request (a plan of tf-plan, an image to publish): checked here, never by the worker."""
+    message = query.get("message") or {}
+    chat_id = config()["chat_id"]
+
+    def answer(text):
+        bot_api("answerCallbackQuery", {"callback_query_id": query["id"], "text": text})
+
+    def reply(text):
+        bot_api(
+            "sendMessage",
+            {
+                "chat_id": chat_id,
+                "text": text,
+                "reply_parameters": {"message_id": message.get("message_id"), "allow_sending_without_reply": True},
+            },
+        )
+
+    record = None
+    try:
+        record = json.loads(s3.get_object(Bucket=OPS_BUCKET, Key=f"gate/{request_id}.json")["Body"].read())
+    except Exception as error:
+        print(f"gate {request_id}: no record ({error})")
+    problem = gate_problem(record, message)
+    if problem:
+        print(f"gate {request_id}: refused: {problem}")
+        answer(problem)
+        return {"statusCode": 200, "body": "refused"}
+    # Once: a second press (or a retried update) finds the decision already written
+    try:
+        s3_once.put_object(
+            Bucket=OPS_BUCKET,
+            Key=f"gate/{request_id}.decision.json",
+            Body=json.dumps({"decision": decision, "at": int(time.time()), "user": (query.get("from") or {}).get("id")}),
+        )
+    except ClientError as error:
+        # 412: already written; 409: written at the same moment by a parallel press
+        if error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") in (409, 412):
+            answer("Вже вирішено")
+            return {"statusCode": 200, "body": "decided"}
+        raise
+    # The buttons go; the message stays as the record of the request
+    bot_api(
+        "editMessageReplyMarkup",
+        {"chat_id": chat_id, "message_id": message["message_id"], "reply_markup": {"inline_keyboard": []}},
+    )
+    if decision == "no":
+        answer("Відхилено")
+        reply("🚫 Відхилено")
+        return {"statusCode": 200, "body": "rejected"}
+    try:
+        build_id = start_gated_build(record)
+    except Exception as error:
+        print(f"gate {request_id}: start failed: {error!r}")
+        answer("Не вдалося запустити")
+        reply(f"🔴 Не вдалося запустити: {error}")
+        return {"statusCode": 200, "body": "start failed"}
+    answer("Запущено")
+    what = "Застосовую план" if record["kind"] == "tf" else f"Збираю і публікую {record['image']}:latest"
+    reply(f"▶️ {what}… Результат прийде сюди (CodeBuild {build_id.split(':')[-1][:8]})")
+    return {"statusCode": 200, "body": "started"}
+
+
 def callback(query):
     """A button under a worker message: stop Telegram's spinner, then hand it to the running worker."""
     chat_id = str(((query.get("message") or {}).get("chat") or {}).get("id"))
     if chat_id != config()["chat_id"]:
         return {"statusCode": 200, "body": "ignored"}
+    gated = GATE_DATA.match(query.get("data") or "")
+    if gated:
+        return gate(query, *gated.groups())
     running = any(t["lastStatus"] == "RUNNING" for t in worker_tasks())
     answer = {"callback_query_id": query["id"]}
     if not running:
