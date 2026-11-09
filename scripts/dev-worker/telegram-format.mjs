@@ -361,6 +361,43 @@ export function modeText(current) {
   ].join('\n');
 }
 
+/** Voice reply modes of `/voice` with what each does. */
+export const VOICE_MODE_ABOUT = {
+  auto: 'на твої голосові',
+  on: 'на кожну відповідь',
+  off: 'ніколи',
+};
+
+/** `/voice` keyboard: the reply mode, the voices (the current one marked) and the samples button. */
+export function voiceKeyboard(voices, mode, current) {
+  const mark = (on) => (on ? '✓ ' : '');
+  const rows = [
+    Object.keys(VOICE_MODE_ABOUT).map((name) => ({
+      text: `${mark(name === mode)}${name}`,
+      callback_data: callbackData('voice', 'mode', name),
+    })),
+  ];
+  for (let i = 0; i < voices.length; i += 3)
+    rows.push(
+      voices.slice(i, i + 3).map((name) => ({
+        text: `${mark(name === current)}${name}`,
+        callback_data: callbackData('voice', 'name', name),
+      }))
+    );
+  rows.push([{ text: '🔈 Зразки голосів', callback_data: callbackData('voice', 'samples') }]);
+  return { inline_keyboard: rows };
+}
+
+export function voiceText(mode, current) {
+  return [
+    `🔊 Голосові відповіді: <b>${escapeHtml(mode)}</b> · голос <b>${escapeHtml(current)}</b>`,
+    '',
+    ...Object.entries(VOICE_MODE_ABOUT).map(([name, about]) => `<b>${name}</b>: ${about}`),
+    '',
+    '<i>Вибір голосу надсилає його зразок. Або текстом: /voice auto | on | off | samples | &lt;імʼя&gt;</i>',
+  ].join('\n');
+}
+
 /** What a permission prompt asks for, in one HTML message: the action and its details (command, file, diff). */
 export function permissionHtml(toolName, input = {}, options = {}) {
   const title = options.title || `Claude хоче використати ${toolName}`;
