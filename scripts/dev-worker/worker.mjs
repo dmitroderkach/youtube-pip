@@ -44,6 +44,7 @@ import {
   voiceText,
 } from './telegram-format.mjs';
 import { execFile } from 'node:child_process';
+import { createSign } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -1039,15 +1040,80 @@ const voiceMode = () => (VOICE_MODES.includes(meta?.voiceMode) ? meta.voiceMode 
 const voiceName = () => meta?.voiceName ?? TTS_DEFAULT_VOICE;
 const voiceModel = () => (VOICE_MODELS[meta?.voiceModel] ? meta.voiceModel : 'chirp3');
 
+/**
+ * GOOGLE_TTS_API_KEY holds either a plain API key (Chirp 3 HD only) or the JSON key of a GCP service account (with
+ * Vertex AI User and Service Usage Consumer): Gemini-TTS takes only OAuth, and Google cannot put its API and
+ * Text-to-Speech in one API key. With the JSON, every request uses the account's token.
+ */
+const ttsServiceAccount = () =>
+  env.GOOGLE_TTS_API_KEY?.trim().startsWith('{') ? JSON.parse(env.GOOGLE_TTS_API_KEY) : null;
+
+/** OAuth access token of the service account in GOOGLE_TTS_API_KEY, cached. */
+let gcpToken = null;
+
+async function gcpAccessToken() {
+  if (gcpToken && gcpToken.expires > Date.now() + 60_000) return gcpToken;
+  const account = ttsServiceAccount();
+  const base64url = (value) => Buffer.from(value).toString('base64url');
+  const now = Math.floor(Date.now() / 1000);
+  const unsigned = `${base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))}.${base64url(
+    JSON.stringify({
+      iss: account.client_email,
+      scope: 'https://www.googleapis.com/auth/cloud-platform',
+      aud: account.token_uri,
+      iat: now,
+      exp: now + 3600,
+    })
+  )}`;
+  const signature = createSign('RSA-SHA256')
+    .update(unsigned)
+    .sign(account.private_key, 'base64url');
+  const res = await fetch(account.token_uri, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion: `${unsigned}.${signature}`,
+    }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || !json.access_token) {
+    throw new Error(
+      `Google OAuth ${res.status}: ${json.error_description ?? json.error ?? 'no token'}`
+    );
+  }
+  gcpToken = {
+    token: json.access_token,
+    project: account.project_id,
+    expires: Date.now() + (json.expires_in ?? 3600) * 1000,
+  };
+  return gcpToken;
+}
+
+/** Credentials of a Text-to-Speech request: the service account's token, else the API key (Chirp 3 HD only). */
+async function ttsHeaders(gemini) {
+  if (!env.GOOGLE_TTS_API_KEY) throw new Error('GOOGLE_TTS_API_KEY is not set');
+  if (ttsServiceAccount()) {
+    const { token, project } = await gcpAccessToken();
+    return { Authorization: `Bearer ${token}`, 'x-goog-user-project': project };
+  }
+  if (gemini) {
+    throw new Error(
+      'Gemini voices need a service account JSON key in google_tts_api_key, not an API key'
+    );
+  }
+  // The key in a header, never in the URL (URLs end up in error messages and logs)
+  return { 'X-Goog-Api-Key': env.GOOGLE_TTS_API_KEY };
+}
+
 /** OGG/Opus audio of `text` in the voice `name` with the speech model `model` (VOICE_MODELS), or throws. */
 async function synthesize(text, name = voiceName(), model = voiceModel()) {
-  if (!env.GOOGLE_TTS_API_KEY) throw new Error('GOOGLE_TTS_API_KEY is not set');
-  // The key in a header, never in the URL (URLs end up in error messages and logs)
+  const gemini = Boolean(VOICE_MODELS[model]?.model);
   const res = await fetch(TTS_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': env.GOOGLE_TTS_API_KEY },
+    headers: { 'Content-Type': 'application/json', ...(await ttsHeaders(gemini)) },
     body: JSON.stringify(
-      VOICE_MODELS[model]?.model
+      gemini
         ? {
             input: { text, prompt: TTS_STYLE_PROMPT },
             voice: { languageCode: TTS_LANGUAGE, name, modelName: VOICE_MODELS[model].model },
