@@ -251,21 +251,58 @@ function compactedLines(lines, plan) {
 }
 
 /**
+ * Why an epoch would not resume like the whole file, or null: the boundary must be in it, every message the
+ * compaction preserved, every row from the boundary on, and the parent of every message below the boundary
+ * (Claude Code's own invariants after compacting a file). A port that misses one falls back to the whole file.
+ */
+function epochProblem(lines, plan, epochText) {
+  const out = epochText.split('\n').filter(Boolean);
+  const kept = new Set(out);
+  const uuids = new Set();
+  for (const line of out) {
+    const row = parseRow(line);
+    if (row?.uuid) uuids.add(row.uuid);
+  }
+  const boundary = parseRow(lines[plan.boundaryIdx]);
+  if (!uuids.has(boundary?.uuid)) return 'boundary_missing';
+  const meta = boundary.compactMetadata ?? {};
+  const preserved = meta.preservedMessages?.uuids ?? [];
+  if (preserved.some((uuid) => !uuids.has(uuid))) return 'preserved_missing';
+  for (let idx = plan.boundaryIdx; idx < lines.length; idx++) {
+    if (plan.superseded.has(idx) || !lines[idx]) continue;
+    if (!kept.has(lines[idx].replace(/^\0+/, ''))) return 'row_missing';
+    const row = parseRow(lines[idx]);
+    if (rowKind(row?.type) === 'transcript' && row.parentUuid && !uuids.has(row.parentUuid))
+      return 'parent_missing';
+  }
+  return null;
+}
+
+/**
  * The current epoch of a transcript: `{ text, name, kind, reason }`. `text` is what Claude Code's own compaction
- * would leave of the file (the whole file when there is no boundary yet or Claude Code would not compact it); `name`
- * is `<boundary timestamp>-<boundary uuid 8>.jsonl` (sorts by time; before the first compaction: the first row's time
- * and `start`).
+ * would leave of the file's complete lines (a line still being written is left for the next save, as Claude Code
+ * does); the whole file when there is no boundary yet, when Claude Code would not compact it, or when the result
+ * fails the resume check (`epochProblem`). `name` is `<boundary timestamp>-<boundary uuid 8>.jsonl` (sorts by time;
+ * before the first compaction: the first row's time and `start`).
  */
 export function transcriptEpoch(text) {
-  const lines = text.split('\n');
-  if (text.endsWith('\n')) lines.pop();
+  const complete = text.slice(0, text.lastIndexOf('\n') + 1);
+  const lines = complete.split('\n');
+  lines.pop();
   const result = compactionPlan(lines);
   let boundary = null;
-  let epochText = text;
+  let epochText = complete;
+  let kind = result.kind;
+  let reason = result.reason;
   if (result.kind === 'plan') {
     boundary = parseRow(lines[result.plan.boundaryIdx]);
     const out = compactedLines(lines, result.plan);
-    epochText = out.length ? `${out.join('\n')}\n` : '';
+    const compacted = out.length ? `${out.join('\n')}\n` : '';
+    const problem = epochProblem(lines, result.plan, compacted);
+    if (problem) {
+      kind = 'abort';
+      reason = `check_${problem}`;
+    } else epochText = compacted;
   }
   let stamp = boundary?.timestamp;
   if (!stamp) {
@@ -279,8 +316,8 @@ export function transcriptEpoch(text) {
   return {
     text: epochText,
     name: `${time}-${id}.jsonl`,
-    kind: result.kind,
-    ...(result.reason ? { reason: result.reason } : {}),
+    kind,
+    ...(reason ? { reason } : {}),
   };
 }
 

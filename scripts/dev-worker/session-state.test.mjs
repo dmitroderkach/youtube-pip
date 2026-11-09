@@ -198,3 +198,25 @@ test('restore note: shells run again, subagents resumed by id with the prompt as
   );
   assert.match(note, /«Review the worker»/);
 });
+
+test('transcript epoch: a line still being written is left for the next save', () => {
+  const done = line({ type: 'user', uuid: 'a', timestamp: '2026-11-09T05:00:00.000Z' });
+  const epoch = transcriptEpoch(`${done}\n{"type":"assistant","uu`);
+  assert.equal(epoch.text, `${done}\n`);
+});
+
+test('transcript epoch: the resume check keeps the whole file when a kept message lost its parent', () => {
+  // A message below the boundary whose parent is in no row at all: Claude Code compacts, the check refuses
+  const text =
+    [
+      line({ type: 'user', uuid: 'a', parentUuid: null }),
+      boundary('dddddddddd', '2026-11-09T06:00:00.000Z'),
+      line({ type: 'user', uuid: 'sum', parentUuid: 'dddddddddd', isCompactSummary: true }),
+      line({ type: 'user', uuid: 'b', parentUuid: 'nowhere' }),
+    ].join('\n') + '\n';
+  const epoch = transcriptEpoch(text);
+  assert.deepEqual(
+    [epoch.text === text, epoch.kind, epoch.reason],
+    [true, 'abort', 'check_parent_missing']
+  );
+});
