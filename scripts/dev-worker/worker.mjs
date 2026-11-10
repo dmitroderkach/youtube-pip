@@ -536,6 +536,8 @@ async function saveNow() {
 async function saveMeta() {
   writeFileSync('/tmp/meta.json', JSON.stringify(meta ?? {}));
   await aws('s3', 'cp', '/tmp/meta.json', `s3://${BUCKET}/${META_KEY}`, '--quiet');
+  // Settings (mode, model, effort, voice, time zone) live in meta: the pinned status follows them
+  scheduleStatusUpdate();
 }
 
 // ---------------------------------------------------------------------------------------------- attachments
@@ -859,6 +861,7 @@ function resetText(resetsAt) {
  * whether the plan refused the request (`status: rejected`), and warn once at 80% and 90% of a window.
  */
 function onRateLimit(info = {}) {
+  scheduleStatusUpdate();
   const windows = info.unifiedWindows ?? (info.rateLimitType ? { [info.rateLimitType]: info } : {});
   for (const [name, window] of Object.entries(windows)) {
     if (typeof window?.utilization === 'number') {
@@ -1037,6 +1040,7 @@ async function finishTurn(result) {
       },
     });
   } else if (message) await say(`${label}${message}`);
+  scheduleStatusUpdate();
   lastAnswerAt = new Date().toISOString();
   publishActivity(false);
   if (text && !failed) await replyByVoice(text, spoken);
@@ -1322,6 +1326,7 @@ async function speechUsage() {
 }
 
 async function saveSpeechUsage(usage) {
+  scheduleStatusUpdate();
   writeFileSync('/tmp/voice-usage.json', JSON.stringify(usage));
   await aws(
     's3',
@@ -1496,6 +1501,106 @@ async function replyByVoice(text, spoken) {
 }
 
 const VOICE_COMMAND = /^\/voice(@\w+)?(\s+(.+))?$/i;
+
+// ---------------------------------------------------------------------------------------------- pinned status
+
+/**
+ * A message pinned at the top of the chat with the session's settings and limits, edited in place (silently) when
+ * they change; its id is kept in meta.json (`statusMessageId`). A lost or unpinned one is replaced.
+ */
+let statusTimer = null;
+let lastStatusBody = null;
+let statusUpdating = Promise.resolve();
+
+function scheduleStatusUpdate() {
+  if (statusTimer || stopping) return;
+  statusTimer = setTimeout(() => {
+    statusTimer = null;
+    void updateStatus();
+  }, 3000);
+  statusTimer.unref?.();
+}
+
+const percent = (value) => `${Math.round(value * 100)}%`;
+const shortTime = (date, withDay = false) =>
+  date.toLocaleString('uk-UA', {
+    timeZone: ownerTimeZone(),
+    ...(withDay ? { weekday: 'short' } : {}),
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+
+async function statusBody({ sleeping }) {
+  const lines = [];
+  lines.push(
+    `${sleeping ? `💤 Воркер спить з ${shortTime(new Date())}` : '🟢 Воркер працює'} · ${MODES[currentMode()].emoji} ${currentMode()}`
+  );
+  lines.push(
+    `🧠 ${modelName()}${sessionModel && sessionModel !== modelName() ? ` (${sessionModel})` : ''} · effort ${meta?.effort ?? 'default'}`
+  );
+  const windows = await planWindows().catch(() => ({}));
+  const window = (name, label) => {
+    const w = windows[name];
+    if (!w) return `${label} ?`;
+    const reset = w.resetsAt
+      ? ` ↻${shortTime(new Date(w.resetsAt * 1000), name !== 'five_hour')}`
+      : '';
+    return `${label} ${percent(w.utilization)}${reset}`;
+  };
+  let context = '';
+  if (!sleeping) {
+    const usage = await session?.getContextUsage({ detail: 'summary' }).catch(() => null);
+    if (usage) context = ` · контекст ${Math.round(usage.percentage)}%`;
+  }
+  lines.push(
+    `📊 Claude: ${window('five_hour', '5 год')} · ${window('seven_day', 'тиждень')}${context}`
+  );
+  const usage = await speechUsage().catch(() => null);
+  lines.push(
+    `🔊 ${voiceMode()} · ${VOICE_MODELS[voiceModel()].label} · ${voiceName()}` +
+      (usage ? ` · Gemini $${usage.usd.toFixed(2)} з $${TTS_MONTHLY_BUDGET_USD}` : '')
+  );
+  const scheduled = (await s3Keys(SCHEDULED_PREFIX).catch(() => [])).length;
+  lines.push(`🕐 ${ownerTimeZone()}${scheduled ? ` · ⏰ заплановано: ${scheduled}` : ''}`);
+  return lines.join('\n');
+}
+
+/** Edit the pinned status (or send and pin a new one). `sleeping`: the worker is stopping. */
+function updateStatus({ sleeping = false } = {}) {
+  statusUpdating = statusUpdating.then(async () => {
+    try {
+      const body = await statusBody({ sleeping });
+      if (body === lastStatusBody && meta?.statusMessageId) return;
+      const text = `${body}\n\nоновлено ${shortTime(new Date())}`;
+      if (meta?.statusMessageId) {
+        const edited = await telegramRequest(
+          'editMessageText',
+          () =>
+            JSON.stringify({
+              chat_id: env.TELEGRAM_CHAT_ID,
+              message_id: meta.statusMessageId,
+              text,
+            }),
+          { 'Content-Type': 'application/json' }
+        );
+        if (edited.ok || /not modified/i.test(edited.description ?? '')) {
+          lastStatusBody = body;
+          return;
+        }
+      }
+      const sent = await telegram('sendMessage', { text, disable_notification: true });
+      if (!sent?.message_id) return;
+      await telegram('pinChatMessage', { message_id: sent.message_id, disable_notification: true });
+      lastStatusBody = body;
+      meta = { ...(meta ?? {}), statusMessageId: sent.message_id };
+      writeFileSync('/tmp/meta.json', JSON.stringify(meta));
+      await aws('s3', 'cp', '/tmp/meta.json', `s3://${BUCKET}/${META_KEY}`, '--quiet');
+    } catch (error) {
+      log('status update failed', error);
+    }
+  });
+  return statusUpdating;
+}
 
 // ---------------------------------------------------------------------------------------------- /scheduled
 
@@ -3117,6 +3222,8 @@ async function stop() {
     crash: shuttingDown,
   }[reason];
   await say(text);
+  if (statusTimer) clearTimeout(statusTimer);
+  await Promise.race([updateStatus({ sleeping: true }), new Promise((r) => setTimeout(r, 5000))]);
   process.exit(0);
 }
 
@@ -3158,6 +3265,8 @@ async function main() {
       : `🟢 Воркер готовий (${modelName()}). Нова сесія; гілка ${branch || '(detached)'}.`) +
       modeNote
   );
+  // The pinned status at the top of the chat (sent and pinned on the first run)
+  scheduleStatusUpdate();
 
   // Background tasks the previous run left unfinished (read before this run records its own)
   const unfinished = await savedBackgroundTasks().catch((error) => {
