@@ -9,7 +9,9 @@ const { SDK, CLI, FROM_SDK, FROM_CLI, RUN_URL, GITHUB_REPOSITORY } = process.env
 const branch = `deps/claude-code-${CLI}`;
 const prefix = process.env.NAME_PREFIX || 'youtube-pip-prod';
 const { token } = await invoke(`${prefix}-oncall-schedule`, { action: 'app_token' });
-const git = (...args) => execFileSync('git', args, { stdio: 'inherit' });
+// Output to stderr: stdout is GITHUB_OUTPUT. The checkout's GITHUB_TOKEN header is cleared for the push, so the
+// app's token in the URL is used (a push as github-actions[bot] is refused and would start no checks).
+const git = (...args) => execFileSync('git', args, { stdio: ['ignore', 2, 2] });
 
 git('config', 'user.name', 'youtube-pip-fargate-runner[bot]');
 git('config', 'user.email', 'youtube-pip-fargate-runner[bot]@users.noreply.github.com');
@@ -26,6 +28,8 @@ git(
   `Claude Code ${CLI} (Agent SDK ${SDK})\n\nWeekly update check: unit tests, the SDK contract smoke test, the worker end to end and the on-call CLI smoke test passed (${RUN_URL}).`
 );
 git(
+  '-c',
+  'http.https://github.com/.extraheader=',
   'push',
   `https://x-access-token:${token}@github.com/${GITHUB_REPOSITORY}.git`,
   `HEAD:refs/heads/${branch}`

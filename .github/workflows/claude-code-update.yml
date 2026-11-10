@@ -63,6 +63,7 @@ jobs:
         if: steps.versions.outputs.update == 'true'
         continue-on-error: true
         run: |
+          set -o pipefail
           env -u TELEGRAM_BOT_TOKEN -u TELEGRAM_CHAT_ID node scripts/dev-worker/sdk-smoke.mjs | tee /tmp/sdk-smoke.txt
 
       - name: Worker end to end (fake AWS / Telegram, real Claude)
@@ -70,6 +71,7 @@ jobs:
         if: steps.versions.outputs.update == 'true'
         continue-on-error: true
         run: |
+          set -o pipefail
           env -u TELEGRAM_BOT_TOKEN -u TELEGRAM_CHAT_ID bash scripts/claude-update/worker-e2e.sh | tee /tmp/worker-e2e.txt
 
       - name: On-call CLI smoke test
