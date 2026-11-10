@@ -142,7 +142,13 @@ export function timeZoneChoices(results, query) {
     seen.add(label);
     choices.push({ label, timeZone: result.timezone, population: result.population ?? 0 });
   }
+  choices.sort((a, b) => b.population - a.population);
   const top = choices.slice(0, 4);
   const zones = new Set(top.map((choice) => choice.timeZone));
-  return { choices: top, auto: zones.size === 1 ? top[0].timeZone : null };
+  if (!top.length) return { choices: top, auto: null, guessed: false };
+  if (zones.size === 1) return { choices: top, auto: top[0]?.timeZone ?? null, guessed: false };
+  // One place far bigger than the rest (Warsaw, Poland vs the US towns): take it, the others stay one button away
+  const [first, second] = top;
+  const dominant = first.population >= 10000 && first.population >= 10 * (second.population || 0);
+  return { choices: top, auto: dominant ? first.timeZone : null, guessed: dominant };
 }

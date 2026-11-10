@@ -103,6 +103,29 @@ test('time zones: IANA names; geocoding answers to choices with exact names only
     'Париж'
   );
   assert.equal(paris.auto, null);
+  const warsaw = timeZoneChoices(
+    [
+      {
+        name: 'Warsaw',
+        admin1: 'Індіана',
+        country: 'США',
+        timezone: 'America/Indiana/Indianapolis',
+        population: 13559,
+      },
+      {
+        name: 'Варшава',
+        names: ['Warsaw'],
+        country: 'Польща',
+        timezone: 'Europe/Warsaw',
+        population: 1702139,
+      },
+    ],
+    'Warsaw'
+  );
+  assert.deepEqual(
+    [warsaw.auto, warsaw.guessed, warsaw.choices[0].label],
+    ['Europe/Warsaw', true, 'Варшава, Польща']
+  );
   assert.deepEqual(
     paris.choices.map((c) => [c.label, c.timeZone]),
     [
@@ -117,5 +140,5 @@ test('time zones: IANA names; geocoding answers to choices with exact names only
     ).auto,
     'Europe/Kyiv'
   );
-  assert.deepEqual(timeZoneChoices([], 'x'), { choices: [], auto: null });
+  assert.deepEqual(timeZoneChoices([], 'x'), { choices: [], auto: null, guessed: false });
 });

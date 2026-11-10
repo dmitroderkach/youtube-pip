@@ -1327,16 +1327,17 @@ const notesForClaude = [];
 const localTimeText = (timeZone) =>
   new Date().toLocaleString('uk-UA', { timeZone, hour: '2-digit', minute: '2-digit' });
 
-async function setTimeZone(timeZone, place) {
+async function setTimeZone(timeZone, place, keyboard) {
   meta = { ...(meta ?? {}), timeZone };
   await saveMeta().catch((error) => log('save meta failed', error));
   notesForClaude.push(
     `[Worker note: the owner's working time zone is now ${timeZone}${place ? ` (${place})` : ''}; read times the owner gives in it.]`
   );
-  await say(
+  const text =
     `🕐 Таймзона: ${timeZone}${place ? ` (${place})` : ''}, зараз ${localTimeText(timeZone)}.\n` +
-      'Щоденний онкол лишається за розкладом у terraform (18:00 Europe/Warsaw).'
-  );
+    'Щоденний онкол лишається за розкладом у terraform (18:00 Europe/Warsaw).';
+  if (keyboard) await telegram('sendMessage', { text, reply_markup: keyboard });
+  else await say(text);
 }
 
 /** `/timezone` [city | IANA name]: the owner's working time zone, answered by the worker. */
@@ -1367,12 +1368,22 @@ async function timeZoneCommand(argument) {
     );
     return;
   }
-  const { choices, auto } = timeZoneChoices(results, query);
+  const { choices, auto, guessed } = timeZoneChoices(results, query);
   if (!choices.length) {
     await say(
       `🔎 Не знайшов «${query}». Напиши інакше (наприклад англійською) або /timezone Europe/Kyiv`
     );
     return;
+  }
+  if (auto && guessed) {
+    // The biggest place by far is taken; the others are one button away
+    const id = newPendingId();
+    timeZoneOffers.set(id, choices);
+    return setTimeZone(auto, choices[0].label, {
+      inline_keyboard: [
+        [{ text: '🔁 Не те місто?', callback_data: callbackData('tz', id, 'more') }],
+      ],
+    });
   }
   if (auto) return setTimeZone(auto, choices.length === 1 ? choices[0].label : query);
   const id = newPendingId();
@@ -1385,8 +1396,12 @@ async function timeZoneCommand(argument) {
 
 /** A city button of `/timezone`. */
 async function onTimeZoneButton(messageId, id, value) {
-  const choice = timeZoneOffers.get(id)?.[Number(value)];
   await editButtons(messageId);
+  if (value === 'more' && timeZoneOffers.has(id)) {
+    await sayHtml('🔎 Яке місто?', timeZoneKeyboard(id, timeZoneOffers.get(id)));
+    return;
+  }
+  const choice = timeZoneOffers.get(id)?.[Number(value)];
   if (!choice) {
     await say('ℹ️ Це питання вже неактуальне');
     return;
