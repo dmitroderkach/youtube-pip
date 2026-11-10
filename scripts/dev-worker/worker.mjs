@@ -751,14 +751,79 @@ let deliveredMidTurn = false;
 /** Plan rate-limit windows from the last `rate_limit_event` of the session: { five_hour, seven_day } → { utilization 0-1, resetsAt unix s }. */
 const rateLimits = {};
 
-/** Remember the plan windows of a `rate_limit_event` (`unifiedWindows` has all of them; older CLIs send one window). */
+/** The plan limit that refused the last request: { type, resetsAt (unix s) }; null once a request passes again. */
+let limitBlock = null;
+/** Warnings already sent: `<window>:<resetsAt>:<step>`, so each step is said once per window cycle. */
+const limitWarnings = new Set();
+/** Usage steps that get a (silent) warning in the chat. */
+const LIMIT_WARNING_STEPS = [0.8, 0.9];
+const LIMIT_NAMES = {
+  five_hour: '5-годинний',
+  seven_day: 'тижневий',
+  seven_day_opus: 'тижневий Opus',
+  seven_day_sonnet: 'тижневий Sonnet',
+  seven_day_overage_included: 'тижневий',
+  overage: 'додаткового використання',
+};
+const limitName = (type) => LIMIT_NAMES[type] ?? type ?? 'плану';
+/** "скинеться пт, 21:40 (через 2h15m)" for a reset time, in the owner's time zone. */
+function resetText(resetsAt) {
+  if (!resetsAt) return 'час скидання невідомий';
+  const when = new Date(resetsAt * 1000).toLocaleString('uk-UA', {
+    timeZone: OWNER_TIME_ZONE,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+  return `скинеться ${when} (через ${untilText(resetsAt)})`;
+}
+
+/**
+ * Remember the plan windows of a `rate_limit_event` (`unifiedWindows` has all of them; older CLIs send one window),
+ * whether the plan refused the request (`status: rejected`), and warn once at 80% and 90% of a window.
+ */
 function onRateLimit(info = {}) {
   const windows = info.unifiedWindows ?? (info.rateLimitType ? { [info.rateLimitType]: info } : {});
   for (const [name, window] of Object.entries(windows)) {
     if (typeof window?.utilization === 'number') {
       rateLimits[name] = { utilization: window.utilization, resetsAt: window.resetsAt ?? null };
+      const step = LIMIT_WARNING_STEPS.filter((s) => window.utilization >= s).pop();
+      const key = `${name}:${window.resetsAt}:${step}`;
+      if (step && info.status !== 'rejected' && !limitWarnings.has(key)) {
+        limitWarnings.add(key);
+        void say(
+          `🟡 Використано ${Math.round(window.utilization * 100)}% ліміту Claude (${limitName(name)}), ${resetText(window.resetsAt)}`,
+          { silent: true }
+        );
+      }
     }
   }
+  if (info.status === 'rejected') {
+    limitBlock = { type: info.rateLimitType ?? null, resetsAt: info.resetsAt ?? null };
+  } else if (info.status) {
+    limitBlock = null;
+  }
+}
+
+/** Text of a turn refused by the plan limit (also recognised by Claude Code's own wording). */
+const LIMIT_TEXT_RE = /usage limit reached|hit your (?:\S+ )?limit/i;
+
+function limitMessage() {
+  const block = limitBlock ?? {};
+  return (
+    `⛔ Ліміт Claude вичерпано${block.type ? ` (${limitName(block.type)})` : ''}, ${resetText(block.resetsAt)}. ` +
+    'Напиши після цього; команди бота (/context, /background, /mode …) працюють і зараз.'
+  );
+}
+
+/** The limit is still in force: true until its reset time has passed. */
+function limitInForce() {
+  if (!limitBlock) return false;
+  if (limitBlock.resetsAt && limitBlock.resetsAt * 1000 <= Date.now()) {
+    limitBlock = null;
+    return false;
+  }
+  return true;
 }
 
 function describeTool(name, input = {}) {
@@ -832,12 +897,17 @@ async function finishTurn(result) {
   const superseded = failed && !answer && deliveredMidTurn;
   deliveredMidTurn = false;
   const seconds = Math.round((Date.now() - current.started) / 1000);
+  const limited =
+    failed &&
+    (limitInForce() || LIMIT_TEXT_RE.test(`${answer} ${(result.errors ?? []).join(' ')}`));
   if (current.progress) {
     const status = superseded
       ? '↪️ Перервано новим повідомленням'
-      : failed
-        ? '⚠️ Завершено з помилкою'
-        : '✅ Готово';
+      : limited
+        ? '⛔ Ліміт Claude вичерпано'
+        : failed
+          ? '⚠️ Завершено з помилкою'
+          : '✅ Готово';
     await edit(
       current.progress.message_id,
       `${status} за ${seconds} с, кроків: ${current.steps}` +
@@ -871,7 +941,10 @@ async function finishTurn(result) {
   const label =
     currentMode() === DEFAULT_MODE ? '' : `${MODES[currentMode()].emoji} ${currentMode()}\n`;
   // A successful turn with nothing to say (e.g. Claude only took note of background tasks that ended) posts nothing
-  const message = text || (result.errors ?? []).join('\n') || (failed ? `(${result.subtype})` : '');
+  const message = limited
+    ? limitMessage()
+    : text || (result.errors ?? []).join('\n') || (failed ? `(${result.subtype})` : '');
+  if (limited) log(`turn refused by the plan limit: ${answer.slice(0, 300)}`);
   if (message) await say(`${label}${message}`);
   lastAnswerAt = new Date().toISOString();
   publishActivity(false);
@@ -2441,6 +2514,11 @@ async function oncallNote() {
 
 /** Deliver one message from the owner; while Claude works, its running commands go to the background first. */
 async function deliver(message) {
+  // The plan limit is still in force: Claude would refuse it, so say when it resets instead of running a turn
+  if (limitInForce()) {
+    await say(`${limitMessage()}\nЦе повідомлення не передав: надішли його ще раз після скидання.`);
+    return;
+  }
   let status = null;
   const setStatus = async (text) => {
     if (status) await edit(status.message_id, text);
