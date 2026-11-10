@@ -52,6 +52,8 @@ function session(options) {
     backgroundTasks: 0,
     rateLimit: false,
     taskStarts: [],
+    subagentTexts: [],
+    toolResults: [],
   };
   let pendingResult = null;
   (async () => {
@@ -64,6 +66,14 @@ function session(options) {
       if (message.type === 'rate_limit_event') seen.rateLimit = true;
       if (message.type === 'system' && message.subtype === 'task_started')
         seen.taskStarts.push(message);
+      const content = Array.isArray(message.message?.content) ? message.message.content : [];
+      if (message.type === 'assistant' && message.agent_id)
+        for (const item of content)
+          if (item.type === 'text')
+            seen.subagentTexts.push({ agentId: message.agent_id, text: item.text });
+      if (message.type === 'user' && !message.parent_tool_use_id)
+        for (const item of content)
+          if (item.type === 'tool_result') seen.toolResults.push(item.tool_use_id);
       if (message.type === 'result') pendingResult?.(message);
     }
   })().catch((error) => pendingResult?.({ is_error: true, result: String(error) }));
