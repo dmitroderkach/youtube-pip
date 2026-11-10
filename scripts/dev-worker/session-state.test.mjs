@@ -140,5 +140,10 @@ test('time zones: IANA names; geocoding answers to choices with exact names only
     ).auto,
     'Europe/Kyiv'
   );
+  assert.equal(
+    timeZoneChoices([{ name: 'Краків', names: ['Krakow'], timezone: 'Europe/Warsaw' }], 'Kraków')
+      .auto,
+    'Europe/Warsaw'
+  );
   assert.deepEqual(timeZoneChoices([], 'x'), { choices: [], auto: null, guessed: false });
 });
