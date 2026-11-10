@@ -557,11 +557,12 @@ async function downloadTelegramFile(fileId, name) {
 
 /** Speech to text with AWS Transcribe (batch job on the file uploaded to the state bucket). */
 /**
- * Speech to text with Gemini 2.5 Flash on Vertex AI (the service account of the speech models, GOOGLE_TTS_API_KEY):
- * one synchronous request, ~1–3 s for a voice message, ~$0.003 per minute of audio (32 audio tokens per second at
- * $1 / 1M, thinking off). AWS Transcribe (a batch job, ~10 s, $0.024 / min) is the fallback.
+ * Speech to text with Gemini 3.5 Flash-Lite on Vertex AI (GA, `global`; the service account of the speech models,
+ * GOOGLE_TTS_API_KEY): one synchronous request, ~1–3 s for a voice message, ~$0.001 per minute of audio (32 audio
+ * tokens per second at $0.30 / 1M, text output $2.50 / 1M). Gemini 2.5 Flash answered 404 (no longer offered to the
+ * project). AWS Transcribe (a batch job, ~10 s, $0.024 / min) is the fallback.
  */
-const TRANSCRIBE_MODEL = 'gemini-2.5-flash';
+const TRANSCRIBE_MODEL = 'gemini-3.5-flash-lite';
 const TRANSCRIBE_PROMPT =
   'Transcribe this voice message verbatim. It is mostly Ukrainian and may contain English technical terms ' +
   '(PR, CI, merge, Terraform, Docker, Claude, Gemini, youtube-pip, Telegram). Output only the transcript text: no ' +
@@ -591,7 +592,7 @@ async function transcribeGemini(path, mimeType) {
           ],
         },
       ],
-      generationConfig: { temperature: 0, thinkingConfig: { thinkingBudget: 0 } },
+      generationConfig: { temperature: 0 },
     }),
   });
   const json = await res.json().catch(() => ({}));
