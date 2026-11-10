@@ -3,17 +3,23 @@
  * real Claude and the cheapest model: run by the weekly Claude Code update job (.github/workflows/claude-code-update.yml)
  * on a candidate SDK version. Needs CLAUDE_CODE_OAUTH_TOKEN. Prints one line per check and exits 1 when one fails.
  *
- * Checked: system/init with a session id; canUseTool allow (a Bash command runs) and deny (the session goes on);
+ * Checked: system/init with a session id; canUseTool allow (a Write is asked for and runs) and deny (nothing is
+ * written, the session goes on);
  * AskUserQuestion answered through updatedInput.answers; setPermissionMode reflected in a `status` message;
  * supportedModels() and setModel(); a background shell task in `background_tasks_changed`; a `rate_limit_event`
  * (soft: the plan may not send one); resume of the session from its transcript with CLAUDE_CODE_TRANSCRIPT_LOCAL_GC.
  */
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const MODEL = process.env.SMOKE_MODEL || 'haiku';
+/** A turn's outcome for the log: its text, or its error subtype and errors. */
+const describe = (result) =>
+  `${result?.is_error ? `error ${result.subtype ?? ''} ${(result.errors ?? []).join('; ')} ` : ''}${String(result?.result ?? '')}`
+    .trim()
+    .slice(0, 200);
 const TURN_TIMEOUT_MS = 120_000;
 const results = [];
 const check = (name, ok, detail = '', soft = false) => {
@@ -68,17 +74,19 @@ function session(options) {
   return { q, seen, send };
 }
 
-const decisions = { askedQuestion: false, denied: false };
+const decisions = { askedQuestion: false, allowed: false, denied: false };
 const canUseTool = async (toolName, input) => {
   if (toolName === 'AskUserQuestion') {
     decisions.askedQuestion = true;
     const answers = Object.fromEntries((input.questions ?? []).map((q) => [q.question, 'blue']));
     return { behavior: 'allow', updatedInput: { ...input, answers } };
   }
-  if (toolName === 'Bash' && String(input.command ?? '').includes('forbidden-smoke')) {
+  // Write needs a permission in the default mode (a harmless Bash command like `echo` may run without one)
+  if (toolName === 'Write' && String(input.file_path ?? '').includes('forbidden-smoke')) {
     decisions.denied = true;
     return { behavior: 'deny', message: 'Denied by the smoke test.' };
   }
+  if (toolName === 'Write') decisions.allowed = true;
   return { behavior: 'allow', updatedInput: input };
 };
 
@@ -96,23 +104,23 @@ let sessionId = null;
 try {
   const s = session(options);
   const first = await s.send(
-    'Use the Bash tool to run exactly `echo smoke-ok` and reply with its output only.'
+    'Use the Write tool to create the file allowed-smoke.txt containing exactly smoke-ok, then reply with: written'
   );
   sessionId = s.seen.init?.session_id ?? first.session_id;
   check('system/init with a session id', s.seen.init?.session_id, s.seen.init?.model);
   check(
-    'canUseTool allow: Bash ran',
-    /smoke-ok/.test(first.result ?? ''),
-    String(first.result).slice(0, 80)
+    'canUseTool allow: Write asked and ran',
+    decisions.allowed && existsSync(join(cwd, 'allowed-smoke.txt')),
+    describe(first)
   );
 
   const denied = await s.send(
-    'Use the Bash tool to run `echo forbidden-smoke`. If it is denied, reply with exactly: denied-ok'
+    'Use the Write tool to create forbidden-smoke.txt containing x. If it is denied, reply with exactly: denied-ok'
   );
   check(
-    'canUseTool deny: the session goes on',
-    decisions.denied && !denied.is_error,
-    String(denied.result).slice(0, 80)
+    'canUseTool deny: not written, the session goes on',
+    decisions.denied && !existsSync(join(cwd, 'forbidden-smoke.txt')) && !denied.is_error,
+    describe(denied)
   );
 
   const asked = await s.send(
@@ -122,7 +130,7 @@ try {
   check(
     'AskUserQuestion answered via updatedInput.answers',
     decisions.askedQuestion && /blue/i.test(asked.result ?? ''),
-    String(asked.result).slice(0, 80)
+    describe(asked)
   );
 
   await s.q.setPermissionMode('plan');
@@ -144,25 +152,25 @@ try {
   await s.q.setModel(MODEL);
   check('setModel()', true);
 
-  await s.send(
+  // Resume: the first session ends cleanly, a new Claude Code process continues it from its transcript
+  s.q.close();
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  const r = session({ ...options, resume: sessionId });
+  const resumed = await r.send(
+    'What text did you write into allowed-smoke.txt? Reply with that text only.'
+  );
+  check('resume from the transcript', /smoke-ok/.test(resumed.result ?? ''), describe(resumed));
+
+  await r.send(
     'Use the Bash tool with run_in_background set to true to run `sleep 20`, then reply with exactly: started'
   );
   check(
     'background task in background_tasks_changed',
-    s.seen.backgroundTasks > 0,
-    `max ${s.seen.backgroundTasks}`
+    r.seen.backgroundTasks > 0,
+    `max ${r.seen.backgroundTasks}`
   );
-  check('rate_limit_event', s.seen.rateLimit, '', true);
-  await s.q.interrupt().catch(() => {});
-  s.q.close();
-
-  const r = session({ ...options, resume: sessionId });
-  const resumed = await r.send('What did the first command print? Reply with that word only.');
-  check(
-    'resume from the transcript',
-    /smoke-ok/.test(resumed.result ?? ''),
-    String(resumed.result).slice(0, 80)
-  );
+  check('rate_limit_event', s.seen.rateLimit || r.seen.rateLimit, '', true);
+  await r.q.interrupt().catch(() => {});
   r.q.close();
 } catch (error) {
   check('session ran to the end', false, String(error.message ?? error).slice(0, 300));
