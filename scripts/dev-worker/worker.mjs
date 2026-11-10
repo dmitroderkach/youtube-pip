@@ -1530,39 +1530,35 @@ const shortTime = (date, withDay = false) =>
     minute: '2-digit',
   });
 
+/**
+ * The status text. Telegram's pinned bar shows only the start of the first line (~60 characters on a phone), so the
+ * first line is a dense summary (state, mode, model, Claude's windows, Gemini speech spend); the details follow.
+ */
 async function statusBody({ sleeping }) {
-  const lines = [];
-  lines.push(
-    `${sleeping ? `💤 Воркер спить з ${shortTime(new Date())}` : '🟢 Воркер працює'} · ${MODES[currentMode()].emoji} ${currentMode()}`
-  );
-  lines.push(
-    `🧠 ${modelName()}${sessionModel && sessionModel !== modelName() ? ` (${sessionModel})` : ''} · effort ${meta?.effort ?? 'default'}`
-  );
   const windows = await planWindows().catch(() => ({}));
-  const window = (name, label) => {
-    const w = windows[name];
-    if (!w) return `${label} ?`;
-    const reset = w.resetsAt
-      ? ` ↻${shortTime(new Date(w.resetsAt * 1000), name !== 'five_hour')}`
-      : '';
-    return `${label} ${percent(w.utilization)}${reset}`;
-  };
+  const used = (name) => (windows[name] ? percent(windows[name].utilization) : '?');
+  const reset = (name, withDay) =>
+    windows[name]?.resetsAt ? shortTime(new Date(windows[name].resetsAt * 1000), withDay) : '?';
+  const usage = await speechUsage().catch(() => null);
+  const spend = usage ? `$${usage.usd.toFixed(2)}/${TTS_MONTHLY_BUDGET_USD}` : '?';
+  const summary =
+    `${sleeping ? '💤' : '🟢'}${MODES[currentMode()].emoji} ${modelName()} · ` +
+    `5г ${used('five_hour')} · тж ${used('seven_day')} · 🔊${spend}`;
+
   let context = '';
   if (!sleeping) {
-    const usage = await session?.getContextUsage({ detail: 'summary' }).catch(() => null);
-    if (usage) context = ` · контекст ${Math.round(usage.percentage)}%`;
+    const contextUsage = await session?.getContextUsage({ detail: 'summary' }).catch(() => null);
+    if (contextUsage) context = ` · контекст ${Math.round(contextUsage.percentage)}%`;
   }
-  lines.push(
-    `📊 Claude: ${window('five_hour', '5 год')} · ${window('seven_day', 'тиждень')}${context}`
-  );
-  const usage = await speechUsage().catch(() => null);
-  lines.push(
-    `🔊 ${voiceMode()} · ${VOICE_MODELS[voiceModel()].label} · ${voiceName()}` +
-      (usage ? ` · Gemini $${usage.usd.toFixed(2)} з $${TTS_MONTHLY_BUDGET_USD}` : '')
-  );
   const scheduled = (await s3Keys(SCHEDULED_PREFIX).catch(() => [])).length;
-  lines.push(`🕐 ${ownerTimeZone()}${scheduled ? ` · ⏰ заплановано: ${scheduled}` : ''}`);
-  return lines.join('\n');
+  return [
+    summary,
+    '',
+    `${sleeping ? `💤 Спить з ${shortTime(new Date())}` : '🟢 Працює'} · режим ${currentMode()} · effort ${meta?.effort ?? 'default'}`,
+    `📊 5 год ↻${reset('five_hour', false)} · тиждень ↻${reset('seven_day', true)}${context}`,
+    `🔊 ${voiceMode()} · ${VOICE_MODELS[voiceModel()].label} · ${voiceName()}`,
+    `🕐 ${ownerTimeZone()}${scheduled ? ` · ⏰ ${scheduled}` : ''}`,
+  ].join('\n');
 }
 
 /** Edit the pinned status (or send and pin a new one). `sleeping`: the worker is stopping. */
