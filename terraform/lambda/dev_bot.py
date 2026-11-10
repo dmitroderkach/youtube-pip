@@ -470,7 +470,7 @@ def telegram_update(event):
             "Команди: /up — підняти воркера, /down — зупинити. Поки він працює, пиши йому сюди; "
             "/mode — режим (bypass, auto, manual, plan), /model, /effort, /agents — субагенти, /plans — збережені плани, "
             "/compact — стиснути контекст, /context — ліміти, /background — фонові задачі, /voice — голос, "
-            "/timezone — таймзона, /scheduled — заплановані задачі."
+            "/timezone — таймзона, /scheduled — заплановані задачі, /status — закріпити статус."
         )
     else:
         forward(message, text, attachments)
