@@ -1274,7 +1274,6 @@ async function ttsHeaders(gemini) {
   return { 'X-Goog-Api-Key': env.GOOGLE_TTS_API_KEY };
 }
 
-/** OGG/Opus audio of `text` in the voice `name` with the speech model `model` (VOICE_MODELS), or throws. */
 /**
  * Monthly budget of Gemini speech (TTS_MONTHLY_BUDGET_USD, Terraform `dev_worker_tts_monthly_budget_usd`): Gemini-TTS
  * is billed under Cloud Text-to-Speech, which Google's spend caps do not cover. The worker estimates each request
@@ -1299,12 +1298,25 @@ const speechMonth = () =>
 
 const SPEECH_USAGE_KEY = 'state/voice-usage.json';
 
+/**
+ * The month's usage. Only a missing object means "none yet": any other failure (network, throttling) throws, so a
+ * failed read is never saved over the month's total as zero.
+ */
 async function speechUsage() {
   let usage = null;
   try {
-    usage = JSON.parse(await aws('s3', 'cp', `s3://${BUCKET}/${SPEECH_USAGE_KEY}`, '-', '--quiet'));
-  } catch {
-    // none yet
+    await aws(
+      's3api',
+      'get-object',
+      '--bucket',
+      BUCKET,
+      '--key',
+      SPEECH_USAGE_KEY,
+      '/tmp/voice-usage-read.json'
+    );
+    usage = JSON.parse(readFileSync('/tmp/voice-usage-read.json', 'utf8'));
+  } catch (error) {
+    if (!/NoSuchKey/.test(`${error?.stderr ?? ''} ${error?.message ?? ''}`)) throw error;
   }
   return usage?.month === speechMonth() ? usage : { month: speechMonth(), usd: 0, seconds: 0 };
 }
@@ -1321,15 +1333,17 @@ async function saveSpeechUsage(usage) {
 }
 
 async function speechUsageText() {
-  const usage = await speechUsage();
+  const usage = await speechUsage().catch((error) => log('read speech usage failed', error));
+  if (!usage) return '';
   const minutes = Math.round(usage.seconds / 6) / 10;
   return `Gemini цього місяця: ${minutes} хв ≈ $${usage.usd.toFixed(2)} з $${TTS_MONTHLY_BUDGET_USD}`;
 }
 
 /** Throws SpeechBudgetError when the month's Gemini budget is spent (saying so once a month). */
 async function checkSpeechBudget() {
-  const usage = await speechUsage();
-  if (usage.usd < TTS_MONTHLY_BUDGET_USD) return;
+  // Unreadable usage does not block speech (the next request checks again)
+  const usage = await speechUsage().catch((error) => log('read speech usage failed', error));
+  if (!usage || usage.usd < TTS_MONTHLY_BUDGET_USD) return;
   if (!usage.exhaustedNoted) {
     await saveSpeechUsage({ ...usage, exhaustedNoted: true });
     await say(
@@ -1351,7 +1365,14 @@ async function recordSpeechUsage(model, audio, textChars) {
     audioUsdPerM: prices.audioUsdPerM ?? 20,
     textUsdPerM: prices.textUsdPerM ?? 1,
   });
-  const usage = addSpeechUsage(await speechUsage(), speechMonth(), usd, seconds);
+  let usage;
+  try {
+    usage = addSpeechUsage(await speechUsage(), speechMonth(), usd, seconds);
+  } catch (error) {
+    // Not counted rather than counted from zero over the month's total
+    log(`speech usage not recorded ($${usd.toFixed(4)})`, error);
+    return;
+  }
   const warn =
     !usage.warned80 &&
     usage.usd >= TTS_MONTHLY_BUDGET_USD * 0.8 &&
@@ -1367,6 +1388,7 @@ async function recordSpeechUsage(model, audio, textChars) {
   }
 }
 
+/** OGG/Opus audio of `text` in the voice `name` with the speech model `model` (VOICE_MODELS), or throws. */
 async function synthesize(text, name = voiceName(), model = voiceModel()) {
   const gemini = Boolean(VOICE_MODELS[model]?.model);
   if (gemini) await checkSpeechBudget();
