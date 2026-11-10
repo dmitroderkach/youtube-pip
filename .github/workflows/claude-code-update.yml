@@ -1,0 +1,112 @@
+name: Claude Code update
+
+# Weekly (EventBridge Scheduler -> workflow_dispatch, terraform/oncall_schedule.tf; docs/ONCALL.md, "Claude Code
+# updates"): try the newest Claude Code and Agent SDK against our integrations. Green: a PR bumping the pins (opened
+# as the GitHub App, so its checks run) and a Telegram message; after the merge, dev-worker-publish.yml asks the owner
+# to publish the worker image. Red: a Telegram message with what failed. Nothing is changed without the owner.
+on:
+  workflow_dispatch:
+    inputs:
+      force:
+        description: 'Run the checks even when the pins are already the newest versions'
+        type: boolean
+        default: false
+
+concurrency:
+  group: claude-code-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    # On-call runner: the Claude token and Telegram secrets, and the role that may get a GitHub App token
+    runs-on: [self-hosted, fargate, oncall]
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Versions
+        id: versions
+        env:
+          FORCE: ${{ inputs.force || false }}
+        run: |
+          node scripts/claude-update/versions.mjs >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+      - name: Bump the pins
+        if: steps.versions.outputs.update == 'true'
+        run: |
+          cd scripts/dev-worker
+          npm install --save-exact --no-audit --no-fund "@anthropic-ai/claude-agent-sdk@${{ steps.versions.outputs.sdk }}"
+          cd ../..
+          sed -i -E "s#@anthropic-ai/claude-code@[0-9][0-9.]*#@anthropic-ai/claude-code@${{ steps.versions.outputs.cli }}#" .github/workflows/e2e-manual.yml
+          git diff --stat
+
+      - name: Unit tests of the worker
+        id: unit
+        if: steps.versions.outputs.update == 'true'
+        continue-on-error: true
+        run: |
+          cd scripts/dev-worker
+          npm ci --no-audit --no-fund
+          node --check worker.mjs
+          node --test ./*.test.mjs
+
+      - name: SDK contract smoke test (real Claude)
+        id: sdk
+        if: steps.versions.outputs.update == 'true'
+        continue-on-error: true
+        run: |
+          env -u TELEGRAM_BOT_TOKEN -u TELEGRAM_CHAT_ID node scripts/dev-worker/sdk-smoke.mjs | tee /tmp/sdk-smoke.txt
+
+      - name: Worker end to end (fake AWS / Telegram, real Claude)
+        id: worker
+        if: steps.versions.outputs.update == 'true'
+        continue-on-error: true
+        run: |
+          env -u TELEGRAM_BOT_TOKEN -u TELEGRAM_CHAT_ID bash scripts/claude-update/worker-e2e.sh | tee /tmp/worker-e2e.txt
+
+      - name: On-call CLI smoke test
+        id: cli
+        if: steps.versions.outputs.update == 'true'
+        continue-on-error: true
+        run: |
+          env -u TELEGRAM_BOT_TOKEN -u TELEGRAM_CHAT_ID \
+            npx -y "@anthropic-ai/claude-code@${{ steps.versions.outputs.cli }}" -p "Reply with exactly: cli-ok" \
+              --model haiku --max-turns 1 --output-format stream-json --verbose > /tmp/cli.jsonl
+          grep -q '"type":"result"' /tmp/cli.jsonl && grep -q 'cli-ok' /tmp/cli.jsonl
+
+      - name: Open the PR (green)
+        id: pr
+        if: >-
+          steps.versions.outputs.update == 'true' && steps.unit.outcome == 'success' &&
+          steps.sdk.outcome == 'success' && steps.worker.outcome == 'success' && steps.cli.outcome == 'success'
+        env:
+          SDK: ${{ steps.versions.outputs.sdk }}
+          CLI: ${{ steps.versions.outputs.cli }}
+          FROM_SDK: ${{ steps.versions.outputs.from_sdk }}
+          FROM_CLI: ${{ steps.versions.outputs.from_cli }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/claude-update/open-pr.mjs >> "$GITHUB_OUTPUT"
+
+      - name: Report to Telegram
+        if: always() && steps.versions.outputs.update == 'true'
+        env:
+          SDK: ${{ steps.versions.outputs.sdk }}
+          CLI: ${{ steps.versions.outputs.cli }}
+          FROM_SDK: ${{ steps.versions.outputs.from_sdk }}
+          FROM_CLI: ${{ steps.versions.outputs.from_cli }}
+          UNIT: ${{ steps.unit.outcome }}
+          SMOKE: ${{ steps.sdk.outcome }}
+          WORKER: ${{ steps.worker.outcome }}
+          CLI_SMOKE: ${{ steps.cli.outcome }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          PR_OUTCOME: ${{ steps.pr.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: node scripts/claude-update/report.mjs

@@ -33,18 +33,24 @@ def _github_app_jwt():
     return jwt.encode(payload, private_key, algorithm="RS256")
 
 
-def _github_installation_token():
+def _github_installation_token(permissions=None):
+    """An installation token of the GitHub App; with `permissions`, narrowed to them and to this repository."""
     installation_id = os.environ["GITHUB_APP_INSTALLATION_ID"]
     jwt_token = _github_app_jwt()
     url = f"https://api.github.com/app/installations/{installation_id}/access_tokens"
+    body = None
+    if permissions:
+        body = json.dumps({"repositories": [os.environ["GITHUB_REPO"]], "permissions": permissions}).encode("utf-8")
 
     req = urllib.request.Request(
         url=url,
         method="POST",
+        data=body,
         headers={
             "Accept": "application/vnd.github+json",
             "Authorization": f"Bearer {jwt_token}",
             "X-GitHub-Api-Version": "2022-11-28",
+            "Content-Type": "application/json",
             "User-Agent": "github-runner-dispatcher-worker",
         },
     )
@@ -222,6 +228,12 @@ def schedule_handler(event, _context):
     GitHub disabled the schedule of this public repository for 60 days without activity; a dispatch through the
     GitHub App (Actions: write) runs at once and never gets disabled.
     """
+    if (event or {}).get("action") == "app_token":
+        # For the weekly Claude Code update job (on-call runner role only): push a branch and open a PR as the app,
+        # so the PR's checks run (a PR opened with GITHUB_TOKEN starts no workflows); workflows: the bump edits a
+        # workflow file. Valid for an hour.
+        token = _github_installation_token({"contents": "write", "pull_requests": "write", "workflows": "write"})
+        return {"token": token}
     workflow = (event or {}).get("workflow") or os.environ["SCHEDULED_WORKFLOW"]
     ref = (event or {}).get("ref") or os.environ.get("SCHEDULED_REF", "main")
     status = _github_dispatch_workflow(workflow, ref, _github_installation_token())

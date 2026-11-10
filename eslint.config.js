@@ -43,8 +43,13 @@ export default [
   },
   {
     // Node scripts (release tag, on-call)
-    files: ['scripts/**/*.{js,mjs}'],
+    files: ['scripts/**/*.{js,mjs,cjs}'],
     languageOptions: { globals: globals.node },
+  },
+  {
+    // CommonJS scripts run as plain executables (e.g. the fake `aws` of the worker end-to-end test)
+    files: ['scripts/**/*.cjs'],
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
   },
   eslintConfigPrettier,
 ];

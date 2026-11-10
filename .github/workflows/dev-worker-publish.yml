@@ -1,0 +1,41 @@
+name: Dev worker publish request
+
+# After a merge that changes the dev worker's Agent SDK (the weekly Claude Code update PR, claude-code-update.yml),
+# ask the owner to publish the worker image: the dev-ops Lambda sends the usual ✅ button to Telegram, so nobody has
+# to wake the dev worker for it. Only the owner's ✅ builds and publishes (docs/DEV_WORKER.md, "Infrastructure and
+# images").
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/dev-worker/package.json'
+      - 'scripts/dev-worker/package-lock.json'
+
+jobs:
+  publish-request:
+    # On-call runner: its role may invoke the dev-ops Lambda (terraform/oncall_schedule.tf)
+    runs-on: [self-hosted, fargate, oncall]
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Wait until the GitHub API shows this commit as main
+        # dev-ops reads main through the public API, which serves the previous commit for about a minute after a merge
+        run: |
+          # main is this commit or a later one (another merge may have landed meanwhile)
+          for _ in $(seq 1 20); do
+            status=$(curl -fsS "https://api.github.com/repos/${GITHUB_REPOSITORY}/compare/${GITHUB_SHA}...main" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).status))')
+            case "$status" in identical|ahead) exit 0 ;; esac
+            sleep 15
+          done
+          echo "main does not contain $GITHUB_SHA yet"; exit 1
+
+      - name: Ask the owner to publish the dev worker image
+        run: node scripts/claude-update/aws-invoke.mjs youtube-pip-prod-dev-ops '{"action":"publish","image":"dev-worker"}'
