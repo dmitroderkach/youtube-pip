@@ -156,6 +156,12 @@ variable "dev_worker_memory" {
   default     = 4096
 }
 
+variable "dev_worker_tts_monthly_budget_usd" {
+  description = "Monthly budget in USD of the dev worker's Gemini speech (voice replies; billed under Cloud Text-to-Speech, which Google spend caps do not cover). Estimated by the worker; once spent, it speaks with Chirp 3 HD until the month ends. 0 = Gemini speech off."
+  type        = number
+  default     = 10
+}
+
 variable "dev_worker_idle_alert_minutes" {
   description = "The dev-bot warns in the chat when the worker is still up this long after its last answer with no turn running. Keep it above the idle stop (dev_worker_idle_timeout_seconds)."
   type        = number

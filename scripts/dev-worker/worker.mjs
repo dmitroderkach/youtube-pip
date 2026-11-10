@@ -18,9 +18,12 @@
  */
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import {
+  addSpeechUsage,
   apiErrorKind,
   backgroundRecord,
+  geminiSpeechCost,
   isTimeZone,
+  oggDurationSeconds,
   restoreNote,
   timeZoneChoices,
 } from './session-state.mjs';
@@ -1271,9 +1274,124 @@ async function ttsHeaders(gemini) {
   return { 'X-Goog-Api-Key': env.GOOGLE_TTS_API_KEY };
 }
 
+/**
+ * Monthly budget of Gemini speech (TTS_MONTHLY_BUDGET_USD, Terraform `dev_worker_tts_monthly_budget_usd`): Gemini-TTS
+ * is billed under Cloud Text-to-Speech, which Google's spend caps do not cover. The worker estimates each request
+ * (audio length from the OGG file, the model's price) and keeps the month's total in its own S3 object, read before
+ * every change so an outside correction (e.g. usage from before this code) is never overwritten; at 80%
+ * a silent warning, at 100% Gemini is skipped (Chirp 3 HD, free tier) until the month ends. 0 = no Gemini speech.
+ */
+const TTS_MONTHLY_BUDGET_USD = (() => {
+  const value = Number.parseFloat(env.TTS_MONTHLY_BUDGET_USD ?? '');
+  return Number.isFinite(value) && value >= 0 ? value : 10;
+})();
+
+class SpeechBudgetError extends Error {}
+
+/** Month of the owner's working time zone: "2026-11". */
+const speechMonth = () =>
+  new Date().toLocaleDateString('en-CA', {
+    timeZone: ownerTimeZone(),
+    year: 'numeric',
+    month: '2-digit',
+  });
+
+const SPEECH_USAGE_KEY = 'state/voice-usage.json';
+
+/**
+ * The month's usage. Only a missing object means "none yet": any other failure (network, throttling) throws, so a
+ * failed read is never saved over the month's total as zero.
+ */
+async function speechUsage() {
+  let usage = null;
+  try {
+    await aws(
+      's3api',
+      'get-object',
+      '--bucket',
+      BUCKET,
+      '--key',
+      SPEECH_USAGE_KEY,
+      '/tmp/voice-usage-read.json'
+    );
+    usage = JSON.parse(readFileSync('/tmp/voice-usage-read.json', 'utf8'));
+  } catch (error) {
+    if (!/NoSuchKey/.test(`${error?.stderr ?? ''} ${error?.message ?? ''}`)) throw error;
+  }
+  return usage?.month === speechMonth() ? usage : { month: speechMonth(), usd: 0, seconds: 0 };
+}
+
+async function saveSpeechUsage(usage) {
+  writeFileSync('/tmp/voice-usage.json', JSON.stringify(usage));
+  await aws(
+    's3',
+    'cp',
+    '/tmp/voice-usage.json',
+    `s3://${BUCKET}/${SPEECH_USAGE_KEY}`,
+    '--quiet'
+  ).catch((error) => log('save speech usage failed', error));
+}
+
+async function speechUsageText() {
+  const usage = await speechUsage().catch((error) => log('read speech usage failed', error));
+  if (!usage) return '';
+  const minutes = Math.round(usage.seconds / 6) / 10;
+  return `Gemini цього місяця: ${minutes} хв ≈ $${usage.usd.toFixed(2)} з $${TTS_MONTHLY_BUDGET_USD}`;
+}
+
+/** Throws SpeechBudgetError when the month's Gemini budget is spent (saying so once a month). */
+async function checkSpeechBudget() {
+  // Unreadable usage does not block speech (the next request checks again)
+  const usage = await speechUsage().catch((error) => log('read speech usage failed', error));
+  if (!usage || usage.usd < TTS_MONTHLY_BUDGET_USD) return;
+  if (!usage.exhaustedNoted) {
+    await saveSpeechUsage({ ...usage, exhaustedNoted: true });
+    await say(
+      TTS_MONTHLY_BUDGET_USD > 0
+        ? `🔇 Ліміт Gemini-озвучки ($${TTS_MONTHLY_BUDGET_USD}) за ${usage.month} вичерпано: до кінця місяця відповідаю голосом Chirp 3 HD.`
+        : '🔇 Gemini-озвучку вимкнено (ліміт $0): відповідаю голосом Chirp 3 HD.'
+    );
+  }
+  throw new SpeechBudgetError('ліміт Gemini-озвучки на цей місяць вичерпано');
+}
+
+/** Add a Gemini request to the month's usage; a silent warning once at 80% of the budget. */
+async function recordSpeechUsage(model, audio, textChars) {
+  const prices = VOICE_MODELS[model];
+  const seconds = oggDurationSeconds(audio);
+  const usd = geminiSpeechCost({
+    seconds,
+    textChars,
+    audioUsdPerM: prices.audioUsdPerM ?? 20,
+    textUsdPerM: prices.textUsdPerM ?? 1,
+  });
+  let usage;
+  try {
+    usage = addSpeechUsage(await speechUsage(), speechMonth(), usd, seconds);
+  } catch (error) {
+    // Not counted rather than counted from zero over the month's total
+    log(`speech usage not recorded ($${usd.toFixed(4)})`, error);
+    return;
+  }
+  const warn =
+    !usage.warned80 &&
+    usage.usd >= TTS_MONTHLY_BUDGET_USD * 0.8 &&
+    usage.usd < TTS_MONTHLY_BUDGET_USD;
+  await saveSpeechUsage(warn ? { ...usage, warned80: true } : usage);
+  if (warn) {
+    await say(
+      `🟡 Gemini-озвучка: використано $${usage.usd.toFixed(2)} з $${TTS_MONTHLY_BUDGET_USD} за ${usage.month}.`,
+      {
+        silent: true,
+      }
+    ).catch(() => {});
+  }
+}
+
 /** OGG/Opus audio of `text` in the voice `name` with the speech model `model` (VOICE_MODELS), or throws. */
 async function synthesize(text, name = voiceName(), model = voiceModel()) {
   const gemini = Boolean(VOICE_MODELS[model]?.model);
+  if (gemini) await checkSpeechBudget();
   const res = await fetch(TTS_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...(await ttsHeaders(gemini)) },
@@ -1295,7 +1413,9 @@ async function synthesize(text, name = voiceName(), model = voiceModel()) {
   if (!res.ok || !json.audioContent) {
     throw new Error(`Text-to-Speech ${res.status}: ${json.error?.message ?? 'no audio'}`);
   }
-  return Buffer.from(json.audioContent, 'base64');
+  const audio = Buffer.from(json.audioContent, 'base64');
+  if (gemini) await recordSpeechUsage(model, audio, text.length + TTS_STYLE_PROMPT.length);
+  return audio;
 }
 
 async function sendVoice(audio, caption) {
@@ -1348,6 +1468,8 @@ async function synthesizeWithFallback(text) {
     return await synthesize(text, voiceName(), model);
   } catch (error) {
     if (!VOICE_MODELS[model]?.model) throw error;
+    // The budget is spent: Chirp without a note each time (the chat was told once)
+    if (error instanceof SpeechBudgetError) return synthesize(text, voiceName(), 'chirp3');
     log(`voice reply: ${model} failed, falling back to chirp3`, error);
     const audio = await synthesize(text, voiceName(), 'chirp3');
     await say(
@@ -1577,7 +1699,7 @@ async function onTimeZoneButton(messageId, id, value) {
 /** The `/voice` message: settings and buttons (`messageId`: edit that message instead of sending one). */
 async function voiceMenu(messageId) {
   const keyboard = voiceKeyboard(TTS_SAMPLE_VOICES, voiceMode(), voiceName(), voiceModel());
-  const html = voiceText(voiceMode(), voiceName(), voiceModel());
+  const html = voiceText(voiceMode(), voiceName(), voiceModel(), await speechUsageText());
   if (messageId) await editHtml(messageId, html, keyboard);
   else await sayHtml(html, keyboard);
 }
