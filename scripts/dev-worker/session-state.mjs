@@ -119,11 +119,15 @@ export function isTimeZone(name) {
   }
 }
 
+/** Lower case without diacritics and with one apostrophe: "Kraków" = "krakow", "Львів" = "львів". */
 const normalise = (text) =>
   String(text ?? '')
     .trim()
     .toLocaleLowerCase('uk')
-    .replace(/[’ʼ`]/g, "'");
+    .replace(/[’ʼ`]/g, "'")
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .normalize('NFC');
 
 /**
  * Time zone choices of an Open-Meteo geocoding answer for `query`: only exact name matches (it also returns names
