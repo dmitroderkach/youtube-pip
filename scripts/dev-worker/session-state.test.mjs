@@ -2,9 +2,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  addSpeechUsage,
   apiErrorKind,
   backgroundRecord,
+  geminiSpeechCost,
   isTimeZone,
+  oggDurationSeconds,
   restoreNote,
   timeZoneChoices,
 } from './session-state.mjs';
@@ -146,4 +149,23 @@ test('time zones: IANA names; geocoding answers to choices with exact names only
     'Europe/Warsaw'
   );
   assert.deepEqual(timeZoneChoices([], 'x'), { choices: [], auto: null, guessed: false });
+});
+
+test('Gemini speech budget: OGG duration, price, monthly usage', () => {
+  const page = Buffer.alloc(27);
+  page.write('OggS', 0);
+  page.writeBigUInt64LE(48000n * 30n, 6);
+  assert.equal(oggDurationSeconds(Buffer.concat([Buffer.from('junk'), page])), 30);
+  assert.equal(oggDurationSeconds(Buffer.from('no ogg here')), 0);
+  // 60 s at $20 / 1M audio tokens = 1500 tokens = $0.03; 4000 chars = 1000 tokens at $1 / 1M = $0.001
+  const cost = geminiSpeechCost({ seconds: 60, textChars: 4000, audioUsdPerM: 20, textUsdPerM: 1 });
+  assert.ok(Math.abs(cost - 0.031) < 1e-9, String(cost));
+  const first = addSpeechUsage(null, '2026-11', 0.03, 60);
+  assert.deepEqual(first, { month: '2026-11', usd: 0.03, seconds: 60 });
+  assert.equal(addSpeechUsage(first, '2026-11', 0.01, 20).seconds, 80);
+  assert.deepEqual(addSpeechUsage(first, '2026-12', 0.01, 20), {
+    month: '2026-12',
+    usd: 0.01,
+    seconds: 20,
+  });
 });

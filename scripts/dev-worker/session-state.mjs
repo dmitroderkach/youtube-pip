@@ -156,3 +156,27 @@ export function timeZoneChoices(results, query) {
   const dominant = first.population >= 10000 && first.population >= 10 * (second.population || 0);
   return { choices: top, auto: dominant ? first.timeZone : null, guessed: dominant };
 }
+
+/** Seconds of audio in an OGG/Opus file: the granule position of its last page at 48 kHz (0 when not OGG). */
+export function oggDurationSeconds(buffer) {
+  const data = Buffer.from(buffer ?? []);
+  const last = data.lastIndexOf(Buffer.from('OggS'));
+  if (last < 0 || last + 14 > data.length) return 0;
+  return Number(data.readBigUInt64LE(last + 6)) / 48000;
+}
+
+/**
+ * Estimated price of one Gemini-TTS request (Cloud Text-to-Speech pricing): audio output at 25 tokens per second,
+ * text input at about 4 characters per token.
+ */
+export function geminiSpeechCost({ seconds, textChars, audioUsdPerM, textUsdPerM }) {
+  return ((seconds * 25) / 1e6) * audioUsdPerM + (textChars / 4 / 1e6) * textUsdPerM;
+}
+
+/**
+ * The month's Gemini speech usage after adding a request: { month, usd, seconds } (a new month starts from zero).
+ */
+export function addSpeechUsage(usage, month, usd, seconds) {
+  const current = usage?.month === month ? usage : { month, usd: 0, seconds: 0 };
+  return { ...current, usd: current.usd + usd, seconds: current.seconds + seconds };
+}

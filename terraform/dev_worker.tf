@@ -224,6 +224,7 @@ resource "aws_ecs_task_definition" "dev_worker" {
         { name = "CLAUDE_MODEL", value = "opus" },
         { name = "TRANSCRIBE_LANGUAGE", value = "uk-UA" },
         { name = "IDLE_TIMEOUT_SECONDS", value = tostring(var.dev_worker_idle_timeout_seconds) },
+        { name = "TTS_MONTHLY_BUDGET_USD", value = tostring(var.dev_worker_tts_monthly_budget_usd) },
         { name = "GIT_USER_NAME", value = var.dev_worker_git_user_name },
         { name = "GIT_USER_EMAIL", value = var.dev_worker_git_user_email },
         # The test account session is not in the worker: auth-backed e2e specs are skipped there
