@@ -249,10 +249,14 @@ function splitMessage(text) {
   return chunks;
 }
 
-async function say(text) {
+/** Send text (split to Telegram's limit); `silent`: no sound or banner on the owner's phone. */
+async function say(text, { silent = false } = {}) {
   let last;
   for (const chunk of splitMessage(text || '(порожня відповідь)')) {
-    last = await telegram('sendMessage', { text: chunk });
+    last = await telegram('sendMessage', {
+      text: chunk,
+      ...(silent ? { disable_notification: true } : {}),
+    });
   }
   return last;
 }
@@ -1173,13 +1177,33 @@ function splitVoiceBlock(answer) {
 }
 
 /** After the text answer: the voice message, when the delivered message asked for one. */
+/**
+ * Audio of a voice reply: with a Gemini model chosen, a failed synthesis (quota, spend cap, a refused token, an
+ * outage) falls back to Chirp 3 HD, so the reply still gets its voice; the fallback is logged and noted silently.
+ */
+async function synthesizeWithFallback(text) {
+  const model = voiceModel();
+  try {
+    return await synthesize(text, voiceName(), model);
+  } catch (error) {
+    if (!VOICE_MODELS[model]?.model) throw error;
+    log(`voice reply: ${model} failed, falling back to chirp3`, error);
+    const audio = await synthesize(text, voiceName(), 'chirp3');
+    await say(
+      `ℹ️ ${VOICE_MODELS[model].label} не озвучив (${String(error.message ?? error).slice(0, 200)}), озвучено Chirp 3 HD`,
+      { silent: true }
+    ).catch(() => {});
+    return audio;
+  }
+}
+
 async function replyByVoice(text, spoken) {
   if (!voiceReplyPending) return;
   voiceReplyPending = false;
   const speech = (spoken ?? speakable(text)).slice(0, TTS_MAX_CHARS * 2);
   if (!speech) return;
   try {
-    await sendVoice(await synthesize(speech));
+    await sendVoice(await synthesizeWithFallback(speech));
   } catch (error) {
     log('voice reply failed', error);
     await say(
