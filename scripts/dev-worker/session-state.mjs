@@ -107,3 +107,48 @@ export function apiErrorKind(text) {
   }
   return null;
 }
+
+/** A valid IANA time zone name (`Europe/Kyiv`), as the runtime knows them. */
+export function isTimeZone(name) {
+  if (!/^[A-Za-z_]+(?:\/[A-Za-z0-9_+-]+)+$/.test(String(name ?? ''))) return false;
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: name });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const normalise = (text) =>
+  String(text ?? '')
+    .trim()
+    .toLocaleLowerCase('uk')
+    .replace(/[’ʼ`]/g, "'");
+
+/**
+ * Time zone choices of an Open-Meteo geocoding answer for `query`: only exact name matches (it also returns names
+ * that merely start with the query; `names` may carry the place's names in other languages, e.g. "Kyiv" for "Київ"), one per place, the largest first, at most four. `auto` is the zone when all of
+ * them share it (no question needed), else null.
+ */
+export function timeZoneChoices(results, query) {
+  const wanted = normalise(query);
+  const seen = new Set();
+  const choices = [];
+  for (const result of results ?? []) {
+    const names = [result?.name, ...(result?.names ?? [])].map(normalise);
+    if (!result?.timezone || !names.includes(wanted)) continue;
+    const label = [result.name, result.admin1, result.country].filter(Boolean).join(', ');
+    if (seen.has(label)) continue;
+    seen.add(label);
+    choices.push({ label, timeZone: result.timezone, population: result.population ?? 0 });
+  }
+  choices.sort((a, b) => b.population - a.population);
+  const top = choices.slice(0, 4);
+  const zones = new Set(top.map((choice) => choice.timeZone));
+  if (!top.length) return { choices: top, auto: null, guessed: false };
+  if (zones.size === 1) return { choices: top, auto: top[0]?.timeZone ?? null, guessed: false };
+  // One place far bigger than the rest (Warsaw, Poland vs the US towns): take it, the others stay one button away
+  const [first, second] = top;
+  const dominant = first.population >= 10000 && first.population >= 10 * (second.population || 0);
+  return { choices: top, auto: dominant ? first.timeZone : null, guessed: dominant };
+}

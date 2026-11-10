@@ -562,3 +562,15 @@ export function backgroundRestoreKeyboard(id, records, picked = new Set()) {
   ]);
   return { inline_keyboard: rows };
 }
+
+/** `/timezone` city buttons: "<place> · <IANA zone>" per choice. */
+export function timeZoneKeyboard(id, choices) {
+  return {
+    inline_keyboard: choices.map((choice, i) => [
+      {
+        text: `${choice.label} · ${choice.timeZone}`.slice(0, 60),
+        callback_data: callbackData('tz', id, String(i)),
+      },
+    ]),
+  };
+}
