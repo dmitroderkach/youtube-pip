@@ -530,6 +530,7 @@ async function saveNow() {
   writeFileSync('/tmp/meta.json', JSON.stringify(meta));
   await aws('s3', 'cp', '/tmp/meta.json', `s3://${BUCKET}/${META_KEY}`, '--quiet');
   log(`saved: session=${meta.sessionId}`);
+  scheduleStatusUpdate();
 }
 
 /** Upload meta.json only (settings such as the mode change between full saves). */
@@ -1660,6 +1661,7 @@ async function reportScheduled(messageId) {
 
 async function onScheduledButton(messageId, id) {
   if (/^[\w-]+$/.test(id)) {
+    log(`scheduled task ${id} cancelled by the owner's button`);
     await aws('s3', 'rm', `s3://${BUCKET}/${SCHEDULED_PREFIX}${id}.json`, '--quiet').catch(
       (error) => log('cancel scheduled failed', error)
     );
@@ -1817,6 +1819,7 @@ async function voiceMenu(messageId) {
 
 function setVoiceMode(mode) {
   meta = { ...(meta ?? {}), voiceMode: mode };
+  scheduleStatusUpdate();
   save().catch((error) => log('save failed', error));
 }
 
@@ -1858,6 +1861,7 @@ async function setVoiceModel(key) {
     return false;
   }
   meta = { ...(meta ?? {}), voiceModel: key };
+  scheduleStatusUpdate();
   save().catch((error) => log('save failed', error));
   return true;
 }
@@ -1871,6 +1875,7 @@ async function setVoice(name) {
     return false;
   }
   meta = { ...(meta ?? {}), voiceName: name };
+  scheduleStatusUpdate();
   save().catch((error) => log('save failed', error));
   return true;
 }
