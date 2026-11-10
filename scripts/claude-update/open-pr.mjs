@@ -15,6 +15,22 @@ const git = (...args) => execFileSync('git', args, { stdio: ['ignore', 2, 2] });
 
 git('config', 'user.name', 'youtube-pip-fargate-runner[bot]');
 git('config', 'user.email', 'youtube-pip-fargate-runner[bot]@users.noreply.github.com');
+// A forced run on the current versions (workflow input `force`): checks only, nothing to propose
+if (
+  execFileSync('git', [
+    'status',
+    '--porcelain',
+    '--',
+    'scripts/dev-worker',
+    '.github/workflows/e2e-manual.yml',
+  ])
+    .toString()
+    .trim() === ''
+) {
+  console.error('the pins are the newest versions: no PR');
+  console.log('url=');
+  process.exit(0);
+}
 git('checkout', '-b', branch);
 git(
   'add',

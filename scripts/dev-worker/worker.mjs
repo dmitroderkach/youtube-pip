@@ -16,7 +16,7 @@
  *      GITHUB_TOKEN, renamed by entrypoint.sh), GITHUB_REPO, UP_AT (unix seconds of /up), IDLE_TIMEOUT_SECONDS,
  *      CLAUDE_MODEL, TRANSCRIBE_LANGUAGE, GOOGLE_TTS_API_KEY, TTS_VOICE.
  */
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { getSubagentMessages, query } from '@anthropic-ai/claude-agent-sdk';
 import {
   addSpeechUsage,
   apiErrorKind,
@@ -1081,6 +1081,8 @@ async function runSession(resumeId) {
       },
       // user: the English-only hook (~/.claude/settings.json); project: CLAUDE.md and the repository settings
       settingSources: ['user', 'project', 'local'],
+      // Subagents' text comes through the stream too (agent_id = their task id): /agents shows it from there
+      forwardSubagentText: true,
       env: childEnv,
       stderr: (data) => log(`claude: ${String(data).trim().slice(0, 2000)}`),
     },
@@ -1089,6 +1091,14 @@ async function runSession(resumeId) {
     lastActivity = Date.now();
     if (message.session_id && message.session_id !== meta?.sessionId) {
       meta = { ...(meta ?? {}), sessionId: message.session_id };
+    }
+    // A subagent's message (forwardSubagentText): for /agents only, not a step of the main turn
+    if (
+      (message.type === 'assistant' || message.type === 'user') &&
+      (message.agent_id || message.parent_tool_use_id)
+    ) {
+      if (message.type === 'assistant') onSubagentMessage(message);
+      continue;
     }
     if (message.type === 'assistant') {
       ensureTurn();
@@ -1108,6 +1118,7 @@ async function runSession(resumeId) {
       for (const item of message.message.content) {
         if (item.type !== 'tool_result') continue;
         foregroundToolIds.delete(item.tool_use_id);
+        onAgentToolResult(item.tool_use_id);
         // Leaving / entering plan mode: the mode the owner chose (Claude Code restores its own otherwise)
         const mode = modeAfterTool.get(item.tool_use_id);
         const self = selfModeTools.delete(item.tool_use_id);
@@ -2436,19 +2447,18 @@ async function effortCommand(argument) {
 
 /**
  * `/agents` (like Claude Code's agent view): the main agent and the running subagents as buttons; picking a
- * subagent streams its messages to the chat (read from its transcript, `<session>/subagents/agent-<id>.jsonl`) and
- * holds the main agent's answers until the owner switches back. Questions and permission prompts always come through.
+ * subagent shows its messages in the chat and holds the main agent's answers until the owner switches back.
+ * Questions and permission prompts always come through. Only SDK APIs: the subagent's last messages from
+ * `getSubagentMessages()`, then its text and tool calls as they stream in (`forwardSubagentText`, `agent_id`).
  */
 const AGENTS_COMMAND = /^\/agents(@\w+)?$/i;
-const AGENT_POLL_MS = 3000;
 const AGENT_TEXT_MAX = 3500;
 /** Subagents of the session: task_id → { description, type, toolUseId, since, ended }. */
 const agents = new Map();
 /** The list `/agents` showed last (button index - 1). */
 let agentsListed = [];
-/** The subagent shown in the chat: { taskId, path, offset, partial, steps, stepsMessage } or null (main). */
+/** The subagent shown in the chat: { taskId, steps, stepsMessage, sending } or null (main). */
 let viewing = null;
-let viewTimer = null;
 /** Main agent answers held while a subagent is shown. */
 const heldAnswers = [];
 
@@ -2474,50 +2484,22 @@ function onTaskEvent(message) {
       toolUses: message.usage?.tool_uses ?? null,
       endedAt: Date.now(),
     });
-    // Let the last lines of its transcript arrive, then go back to the main agent
+    // Let its last streamed lines be sent, then go back to the main agent
     if (viewing?.taskId === message.task_id)
-      setTimeout(() => void endView(message.status, message.task_id), AGENT_POLL_MS + 500);
+      setTimeout(() => void endView(message.status, message.task_id), 1000);
   }
 }
 
-/** Transcript of a subagent: the meta file with its tool_use id, else agent-<task id>.jsonl. */
-function agentTranscript(taskId) {
-  const agent = agents.get(taskId);
-  if (!meta?.sessionId || !existsSync(CLAUDE_PROJECTS_DIR)) return null;
-  for (const project of readdirSync(CLAUDE_PROJECTS_DIR)) {
-    const dir = join(CLAUDE_PROJECTS_DIR, project, meta.sessionId, 'subagents');
-    if (!existsSync(dir)) continue;
-    const direct = join(dir, `agent-${taskId}.jsonl`);
-    if (existsSync(direct)) return direct;
-    for (const name of readdirSync(dir).filter((n) => n.endsWith('.meta.json'))) {
-      try {
-        const info = JSON.parse(readFileSync(join(dir, name), 'utf8'));
-        if (agent?.toolUseId && info.toolUseId === agent.toolUseId) {
-          return join(dir, name.replace(/\.meta\.json$/, '.jsonl'));
-        }
-      } catch {
-        // a meta file being written
-      }
-    }
-  }
-  return null;
-}
-
-/** The subagent's meta file says it has finished (foreground subagents may end without a task notification). */
-function agentFinished(taskId) {
-  const path = agentTranscript(taskId)?.replace(/\.jsonl$/, '.meta.json');
-  try {
-    return Boolean(path && existsSync(path) && JSON.parse(readFileSync(path, 'utf8')).finished);
-  } catch {
-    return false;
+/** The result of the Agent tool call: a foreground subagent has ended (it may get no task notification). */
+function onAgentToolResult(toolUseId) {
+  for (const [taskId, agent] of agents) {
+    if (agent.toolUseId !== toolUseId || agent.ended) continue;
+    Object.assign(agent, { ended: 'completed', endedAt: Date.now() });
+    if (viewing?.taskId === taskId) setTimeout(() => void endView('completed', taskId), 1000);
   }
 }
 
-const runningAgents = () =>
-  [...agents.entries()].filter(([taskId, agent]) => {
-    if (!agent.ended && agentFinished(taskId)) agent.ended = 'completed';
-    return !agent.ended;
-  });
+const runningAgents = () => [...agents.entries()].filter(([, agent]) => !agent.ended);
 
 function agentsKeyboard() {
   agentsListed = runningAgents().map(([taskId]) => taskId);
@@ -2557,68 +2539,47 @@ async function reportAgents() {
   await sayHtml(agentsHtml(), keyboard);
 }
 
-/** One transcript entry → what the chat shows: { texts: [...], steps: [...] }. */
-function transcriptEntry(line) {
-  let entry;
-  try {
-    entry = JSON.parse(line);
-  } catch {
-    return { texts: [], steps: [] };
-  }
+/** The text and tool calls of a message's content: { texts: [...], steps: [...] }. */
+function contentParts(content) {
   const texts = [];
   const steps = [];
-  if (entry.type === 'assistant') {
-    for (const item of entry.message?.content ?? []) {
-      if (item.type === 'text' && item.text?.trim()) texts.push(item.text.trim());
-      if (item.type === 'tool_use') steps.push(describeTool(item.name, item.input));
-    }
+  for (const item of Array.isArray(content) ? content : []) {
+    if (item.type === 'text' && item.text?.trim()) texts.push(item.text.trim());
+    if (item.type === 'tool_use') steps.push(describeTool(item.name, item.input));
   }
   return { texts, steps };
 }
 
-/** Send what the shown subagent wrote since the last poll. */
-async function pollView() {
-  const view = viewing;
-  if (!view) return;
-  view.path ??= agentTranscript(view.taskId);
-  if (!view.path || !existsSync(view.path)) return;
-  const content = readFileSync(view.path);
-  if (content.length <= view.offset) {
-    const agent = agents.get(view.taskId);
-    if (!agent?.ended && agentFinished(view.taskId)) {
-      agent.ended = 'completed';
-      await endView('completed');
-    }
-    return;
-  }
-  const chunk = view.partial + content.subarray(view.offset).toString('utf8');
-  view.offset = content.length;
-  const lines = chunk.split('\n');
-  view.partial = lines.pop() ?? '';
+/** Show one subagent message in the chat: texts as messages, tool calls in one message edited in place. */
+async function showAgentParts(view, { texts, steps }) {
   const name = agents.get(view.taskId)?.description ?? 'субагент';
-  for (const line of lines) {
+  for (const text of texts) {
     if (viewing !== view) return;
-    const { texts, steps } = transcriptEntry(line);
-    for (const text of texts) {
-      view.stepsMessage = null;
-      view.steps = [];
-      await say(
-        `🤖 ${name}:\n${text.slice(0, AGENT_TEXT_MAX)}${text.length > AGENT_TEXT_MAX ? '…' : ''}`
-      );
-    }
-    if (!steps.length) continue;
-    // Tool calls go into one message edited in place (a new one after each text)
-    view.steps.push(...steps);
-    const body = `🔧 ${name}\n${view.steps.slice(-8).join('\n')}${view.steps.length > 8 ? `\n(кроків: ${view.steps.length})` : ''}`;
-    if (view.stepsMessage) await edit(view.stepsMessage.message_id, body);
-    else view.stepsMessage = await telegram('sendMessage', { text: body });
+    view.stepsMessage = null;
+    view.steps = [];
+    await say(
+      `🤖 ${name}:\n${text.slice(0, AGENT_TEXT_MAX)}${text.length > AGENT_TEXT_MAX ? '…' : ''}`
+    );
   }
+  if (!steps.length || viewing !== view) return;
+  view.steps.push(...steps);
+  const body = `🔧 ${name}\n${view.steps.slice(-8).join('\n')}${view.steps.length > 8 ? `\n(кроків: ${view.steps.length})` : ''}`;
+  if (view.stepsMessage) await edit(view.stepsMessage.message_id, body);
+  else view.stepsMessage = await telegram('sendMessage', { text: body });
+}
+
+/** A streamed subagent message (forwardSubagentText): shown when that subagent is in the chat, in order. */
+function onSubagentMessage(message) {
+  const view = viewing;
+  if (!view || message.agent_id !== view.taskId) return;
+  const parts = contentParts(message.message?.content);
+  view.sending = view.sending
+    .then(() => showAgentParts(view, parts))
+    .catch((error) => log('agent view failed', error));
 }
 
 /** Show a subagent (taskId) or the main agent (null) in the chat. */
 async function switchView(taskId) {
-  clearInterval(viewTimer);
-  viewTimer = null;
   if (!taskId) {
     viewing = null;
     const held = heldAnswers.splice(0);
@@ -2631,32 +2592,29 @@ async function switchView(taskId) {
     return;
   }
   const agent = agents.get(taskId);
-  const path = agentTranscript(taskId);
-  // Start at the last few messages, like opening the agent's view
-  let offset = 0;
-  if (path && existsSync(path)) {
-    const lines = readFileSync(path, 'utf8').split('\n');
-    const withText = lines
-      .map((line, i) => [i, transcriptEntry(line).texts.length])
-      .filter(([, n]) => n);
-    const from = withText.length > 2 ? withText[withText.length - 2][0] : 0;
-    offset = Buffer.byteLength(lines.slice(0, from).join('\n') + (from ? '\n' : ''));
-  }
-  viewing = { taskId, path, offset, partial: '', steps: [], stepsMessage: null };
+  const view = { taskId, steps: [], stepsMessage: null, sending: Promise.resolve() };
+  viewing = view;
   await say(
     `👁 Тепер у чаті 🤖 ${agent?.description ?? taskId} (${agent?.type ?? 'agent'}). Твої повідомлення передаю йому. /agents — перемкнути`
   );
-  await pollView().catch((error) => log('agent view failed', error));
-  viewTimer = setInterval(
-    () => void pollView().catch((error) => log('agent view failed', error)),
-    AGENT_POLL_MS
+  // Start at its last two texts, like opening the agent's view; the rest streams in
+  const history = await getSubagentMessages(meta?.sessionId ?? '', taskId).catch((error) => {
+    log('getSubagentMessages failed', error);
+    return [];
+  });
+  const texts = history
+    .filter((m) => m.type === 'assistant')
+    .flatMap((m) => contentParts(m.message?.content).texts);
+  view.sending = view.sending.then(() =>
+    showAgentParts(view, { texts: texts.slice(-2), steps: [] })
   );
-  viewTimer.unref();
+  await view.sending;
 }
 
 async function endView(status, taskId = viewing?.taskId) {
-  if (!viewing || viewing.taskId !== taskId) return;
-  await pollView().catch(() => {});
+  const view = viewing;
+  if (!view || view.taskId !== taskId) return;
+  await view.sending.catch(() => {});
   const agent = agents.get(taskId) ?? {};
   const icon = { completed: '✅', failed: '🔴', stopped: '⏹' }[status] ?? '⚪';
   const verb = { completed: 'завершив', failed: 'впав', stopped: 'зупинений' }[status] ?? status;
