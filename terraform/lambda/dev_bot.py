@@ -72,6 +72,17 @@ OPS_BUCKET = os.environ.get("OPS_BUCKET", "")
 TF_APPLY_PROJECT = os.environ.get("TF_APPLY_PROJECT", "")
 IMAGE_PUBLISH_PROJECT = os.environ.get("IMAGE_PUBLISH_PROJECT", "")
 TELEGRAM_SETUP_PROJECT = os.environ.get("TELEGRAM_SETUP_PROJECT", "")
+# Service messages of a private chat with the bot: never forwarded, never answered
+SERVICE_MESSAGE_KEYS = (
+    "pinned_message",
+    "message_auto_delete_timer_changed",
+    "new_chat_photo",
+    "delete_chat_photo",
+    "new_chat_title",
+    "users_shared",
+    "chat_shared",
+    "write_access_allowed",
+)
 GATE_DATA = re.compile(r"^gate:([0-9a-f-]{36}):(ok|no)$")
 GATE_TTL_SECONDS = 3600
 
@@ -441,6 +452,9 @@ def telegram_update(event):
     message = update.get("message") or {}
     if str((message.get("chat") or {}).get("id")) != cfg["chat_id"]:
         return {"statusCode": 200, "body": "ignored"}
+    # Telegram's service messages (a message pinned or unpinned, the auto-delete timer changed, …) are no request
+    if any(key in message for key in SERVICE_MESSAGE_KEYS):
+        return {"statusCode": 200, "body": "service message"}
     text = (message.get("text") or message.get("caption") or "").strip()
     attachments = attachments_of(message)
     if not text and not attachments:
@@ -455,7 +469,8 @@ def telegram_update(event):
         say(
             "Команди: /up — підняти воркера, /down — зупинити. Поки він працює, пиши йому сюди; "
             "/mode — режим (bypass, auto, manual, plan), /model, /effort, /agents — субагенти, /plans — збережені плани, "
-            "/compact — стиснути контекст."
+            "/compact — стиснути контекст, /context — ліміти, /background — фонові задачі, /voice — голос, "
+            "/timezone — таймзона, /scheduled — заплановані задачі, /status — закріпити статус."
         )
     else:
         forward(message, text, attachments)
