@@ -260,7 +260,7 @@ jobs:
         run: |
           # Read-only tools, no network / shell: it reads data downloaded from YouTube. Telegram secrets removed.
           env -u TELEGRAM_BOT_TOKEN -u TELEGRAM_CHAT_ID \
-            npx -y @anthropic-ai/claude-code@2.1.319 -p "$(cat scripts/oncall/investigate-prompt.md)" \
+            npx -y @anthropic-ai/claude-code@2.1.322 -p "$(cat scripts/oncall/investigate-prompt.md)" \
               --allowedTools "Read,Grep,Glob" \
               --disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task" \
               --model sonnet --max-turns 40 \
