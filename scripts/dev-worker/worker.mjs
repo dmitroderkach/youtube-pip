@@ -1532,7 +1532,8 @@ const shortTime = (date, withDay = false) =>
 
 /**
  * The status text. Telegram's pinned bar shows only the start of the first line (~60 characters on a phone), so the
- * first line is a dense summary (state, mode, model, Claude's windows, Gemini speech spend); the details follow.
+ * first line is a dense summary (state, mode, model, context, Claude's windows, Gemini speech spend); the details
+ * follow.
  */
 async function statusBody({ sleeping }) {
   const windows = await planWindows().catch(() => ({}));
@@ -1541,21 +1542,21 @@ async function statusBody({ sleeping }) {
     windows[name]?.resetsAt ? shortTime(new Date(windows[name].resetsAt * 1000), withDay) : '?';
   const usage = await speechUsage().catch(() => null);
   const spend = usage ? `$${usage.usd.toFixed(2)}/${TTS_MONTHLY_BUDGET_USD}` : '?';
-  const summary =
-    `${sleeping ? '💤' : '🟢'}${MODES[currentMode()].emoji} ${modelName()} · ` +
-    `5г ${used('five_hour')} · тж ${used('seven_day')} · 🔊${spend}`;
-
   let context = '';
   if (!sleeping) {
     const contextUsage = await session?.getContextUsage({ detail: 'summary' }).catch(() => null);
-    if (contextUsage) context = ` · контекст ${Math.round(contextUsage.percentage)}%`;
+    if (contextUsage) context = ` · ctx ${Math.round(contextUsage.percentage)}%`;
   }
+  const summary =
+    `${sleeping ? '💤' : '🟢'}${MODES[currentMode()].emoji} ${modelName()}${context} · ` +
+    `5г ${used('five_hour')} · тж ${used('seven_day')} · 🔊${spend}`;
+
   const scheduled = (await s3Keys(SCHEDULED_PREFIX).catch(() => [])).length;
   return [
     summary,
     '',
     `${sleeping ? `💤 Спить з ${shortTime(new Date())}` : '🟢 Працює'} · режим ${currentMode()} · effort ${meta?.effort ?? 'default'}`,
-    `📊 5 год ↻${reset('five_hour', false)} · тиждень ↻${reset('seven_day', true)}${context}`,
+    `📊 5 год ↻${reset('five_hour', false)} · тиждень ↻${reset('seven_day', true)}`,
     `🔊 ${voiceMode()} · ${VOICE_MODELS[voiceModel()].label} · ${voiceName()}`,
     `🕐 ${ownerTimeZone()}${scheduled ? ` · ⏰ ${scheduled}` : ''}`,
   ].join('\n');
