@@ -63,7 +63,8 @@ COPY --chown=worker:worker scripts/dev-worker/claude-settings.json /home/worker/
 COPY terraform/dev-worker/entrypoint.sh /entrypoint.sh
 # Terraform plans of main and Docker images through CodeBuild (docs/DEV_WORKER.md, "Infrastructure and images")
 COPY scripts/dev-worker/dev-ops.sh /usr/local/bin/dev-ops
-RUN chmod +x /entrypoint.sh /usr/local/bin/dev-ops
+COPY scripts/dev-worker/schedule.sh /usr/local/bin/schedule
+RUN chmod +x /entrypoint.sh /usr/local/bin/dev-ops /usr/local/bin/schedule
 
 USER worker
 WORKDIR /home/worker

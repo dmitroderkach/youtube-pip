@@ -1314,6 +1314,65 @@ async function replyByVoice(text, spoken) {
 
 const VOICE_COMMAND = /^\/voice(@\w+)?(\s+(.+))?$/i;
 
+// ---------------------------------------------------------------------------------------------- /scheduled
+
+const SCHEDULED_COMMAND = /^\/scheduled(@\w+)?$/i;
+/** Tasks the owner scheduled (`schedule` command of the image, scripts/dev-worker/schedule.sh); dev-bot fires them. */
+const SCHEDULED_PREFIX = 'state/scheduled/';
+
+async function scheduledTasks() {
+  const tasks = [];
+  for (const key of await s3Keys(SCHEDULED_PREFIX)) {
+    try {
+      tasks.push(JSON.parse(await aws('s3', 'cp', `s3://${BUCKET}/${key}`, '-', '--quiet')));
+    } catch (error) {
+      log(`scheduled task ${key} unreadable`, error);
+    }
+  }
+  return tasks.sort((a, b) => String(a.dueAt).localeCompare(String(b.dueAt)));
+}
+
+/** `/scheduled`: the owner's scheduled tasks with a cancel button each, answered by the worker. */
+async function reportScheduled(messageId) {
+  const tasks = await scheduledTasks().catch((error) => {
+    log('scheduled tasks failed', error);
+    return [];
+  });
+  const html = tasks.length
+    ? [
+        `⏰ <b>Заплановані задачі</b> (${escapeHtml(ownerTimeZone())})`,
+        '',
+        ...tasks.map((task, i) => {
+          const when = new Date(task.dueAt).toLocaleString('uk-UA', {
+            timeZone: ownerTimeZone(),
+            weekday: 'short',
+            day: '2-digit',
+            month: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+          return `<b>${i + 1}.</b> ${escapeHtml(when)} — ${escapeHtml(String(task.text).slice(0, 300))}`;
+        }),
+      ].join('\n')
+    : '⏰ Запланованих задач немає. Напиши, наприклад: «о 18:00 перевір CI».';
+  const keyboard = {
+    inline_keyboard: tasks.map((task, i) => [
+      { text: `🗑 Скасувати ${i + 1}`, callback_data: callbackData('sch', task.id) },
+    ]),
+  };
+  if (messageId) await editHtml(messageId, html, keyboard);
+  else await sayHtml(html, keyboard);
+}
+
+async function onScheduledButton(messageId, id) {
+  if (/^[\w-]+$/.test(id)) {
+    await aws('s3', 'rm', `s3://${BUCKET}/${SCHEDULED_PREFIX}${id}.json`, '--quiet').catch(
+      (error) => log('cancel scheduled failed', error)
+    );
+  }
+  await reportScheduled(messageId);
+}
+
 // ---------------------------------------------------------------------------------------------- /timezone
 
 const TIMEZONE_COMMAND = /^\/timezone(@\w+)?(\s+(.+))?$/i;
@@ -1930,6 +1989,10 @@ async function onCallback(callback) {
   if (kind === 'agents') {
     await onAgentsButton(Number(id));
     await editHtml(callback.message_id, agentsHtml(), agentsKeyboard());
+    return;
+  }
+  if (kind === 'sch') {
+    await onScheduledButton(callback.message_id, id);
     return;
   }
   if (kind === 'tz') {
@@ -3002,6 +3065,10 @@ async function main() {
         }
         if (BACKGROUND_COMMAND.test(command)) {
           await reportBackground();
+          continue;
+        }
+        if (SCHEDULED_COMMAND.test(command)) {
+          await reportScheduled();
           continue;
         }
         const timeZone = command.match(TIMEZONE_COMMAND);
