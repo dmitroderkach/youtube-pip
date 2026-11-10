@@ -557,17 +557,19 @@ async function downloadTelegramFile(fileId, name) {
 
 /** Speech to text with AWS Transcribe (batch job on the file uploaded to the state bucket). */
 /**
- * Speech to text with Gemini 3.5 Flash-Lite on Vertex AI (GA, `global`; the service account of the speech models,
- * GOOGLE_TTS_API_KEY): one synchronous request, ~1–3 s for a voice message, ~$0.001 per minute of audio (32 audio
- * tokens per second at $0.30 / 1M, text output $2.50 / 1M). Gemini 2.5 Flash answered 404 (no longer offered to the
- * project). AWS Transcribe (a batch job, ~10 s, $0.024 / min) is the fallback.
+ * Speech to text with Gemini 3.5 Flash on Vertex AI (GA, `global`; the service account of the speech models,
+ * GOOGLE_TTS_API_KEY): one synchronous request, ~1–3 s for a voice message, ~$0.005 per minute of audio (32 audio
+ * tokens per second at $1.50 / 1M, text output $9 / 1M). Flash-Lite was cheaper but put in words the owner never
+ * said. AWS Transcribe (a batch job, ~10 s, $0.024 / min) is the fallback.
  */
-const TRANSCRIBE_MODEL = 'gemini-3.5-flash-lite';
+const TRANSCRIBE_MODEL = 'gemini-3.5-flash';
 const TRANSCRIBE_PROMPT =
-  'Transcribe this voice message verbatim. It is mostly Ukrainian and may contain English technical terms ' +
-  '(PR, CI, merge, Terraform, Docker, Claude, Gemini, youtube-pip, Telegram). Output only the transcript text: no ' +
-  "comments, quotes, labels or timestamps. Keep the speaker's own words, slang and surzhyk included; do not " +
-  'translate or correct them; write English terms in Latin script. If there is no speech, output nothing.';
+  'Transcribe this voice message word for word, exactly as spoken. It is mostly Ukrainian and may contain English ' +
+  'technical terms (PR, CI, merge, Terraform, Docker, Claude, Gemini, youtube-pip, Telegram). Strict rules: never ' +
+  'add, drop, reorder, replace or "improve" words; never guess what the speaker meant; keep repetitions, slang, ' +
+  'surzhyk and unfinished sentences as they are; do not translate; write English terms in Latin script; when a ' +
+  'word is not clear, write [нерозбірливо] instead of guessing. Output only the transcript text: no comments, ' +
+  'quotes, labels or timestamps. If there is no speech, output nothing.';
 
 async function transcribeGemini(path, mimeType) {
   const { token, project } = await gcpAccessToken();
