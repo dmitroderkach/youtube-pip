@@ -9,7 +9,7 @@
  * supportedModels() and setModel(); a background shell task in `background_tasks_changed`; a `rate_limit_event`
  * (soft: the plan may not send one); resume of the session from its transcript with CLAUDE_CODE_TRANSCRIPT_LOCAL_GC;
  * what the worker's /agents uses: a subagent's text streamed with agent_id (forwardSubagentText), getSubagentMessages(),
- * and the end of a foreground subagent with the Agent tool's result.
+ * the end of a foreground subagent with the Agent tool's result, and `async_launched` for a background one.
  */
 import { getSubagentMessages, query } from '@anthropic-ai/claude-agent-sdk';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -54,6 +54,7 @@ function session(options) {
     taskStarts: [],
     subagentTexts: [],
     toolResults: [],
+    resultStatuses: new Map(),
   };
   let pendingResult = null;
   (async () => {
@@ -73,7 +74,10 @@ function session(options) {
             seen.subagentTexts.push({ agentId: message.agent_id, text: item.text });
       if (message.type === 'user' && !message.parent_tool_use_id)
         for (const item of content)
-          if (item.type === 'tool_result') seen.toolResults.push(item.tool_use_id);
+          if (item.type === 'tool_result') {
+            seen.toolResults.push(item.tool_use_id);
+            seen.resultStatuses.set(item.tool_use_id, message.tool_use_result?.status);
+          }
       if (message.type === 'result') pendingResult?.(message);
     }
   })().catch((error) => pendingResult?.({ is_error: true, result: String(error) }));
@@ -227,6 +231,21 @@ try {
     'foreground subagent ends with the Agent tool result',
     r.seen.toolResults.includes(started?.tool_use_id),
     ''
+  );
+  // A background subagent: its Agent call returns at once with status async_launched (the worker must not take
+  // that result as the end of the subagent)
+  const before = r.seen.taskStarts.length;
+  await r.send(
+    'Use the Agent tool once with run_in_background set to true, a general-purpose subagent and the prompt ' +
+      '"Run sleep 5 with Bash, then reply with exactly: bg-ok". Do not wait for it; reply with exactly: launched'
+  );
+  const bg = r.seen.taskStarts
+    .slice(before)
+    .find((t) => t.task_type === 'local_agent' || t.subagent_type);
+  check(
+    'background subagent: Agent tool result has status async_launched',
+    bg && r.seen.resultStatuses.get(bg.tool_use_id) === 'async_launched',
+    String(r.seen.resultStatuses.get(bg?.tool_use_id))
   );
   await r.q.interrupt().catch(() => {});
   r.q.close();

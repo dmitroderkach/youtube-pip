@@ -1118,7 +1118,11 @@ async function runSession(resumeId) {
       for (const item of message.message.content) {
         if (item.type !== 'tool_result') continue;
         foregroundToolIds.delete(item.tool_use_id);
-        onAgentToolResult(item.tool_use_id);
+        // A background subagent's Agent call returns at once (`async_launched`): it runs on, so it has not ended
+        const launched = ['async_launched', 'remote_launched'].includes(
+          message.tool_use_result?.status
+        );
+        if (!launched) onAgentToolResult(item.tool_use_id);
         // Leaving / entering plan mode: the mode the owner chose (Claude Code restores its own otherwise)
         const mode = modeAfterTool.get(item.tool_use_id);
         const self = selfModeTools.delete(item.tool_use_id);
