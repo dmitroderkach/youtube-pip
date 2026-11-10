@@ -4,7 +4,7 @@
  * - generates the webhook secret token if `youtube-pip-dev-worker` has none (kept in that secret, never printed);
  * - points the on-call bot's webhook at the dev-bot Lambda URL with that secret (`message` updates and
  *   `callback_query` for the worker's buttons, one connection at a time so commands and messages arrive in order);
- * - sets the bot's command menu (/up, /down, /mode, /model, /effort, /agents, /plans, /compact, /context, /background, /voice, /timezone).
+ * - sets the bot's command menu (/up, /down, /mode, /model, /effort, /agents, /plans, /compact, /context, /background, /voice, /timezone, /scheduled).
  *
  * Safe to re-run (e.g. after a menu change): the secret is kept and the webhook set again.
  *
@@ -94,11 +94,12 @@ await bot('setMyCommands', {
     { command: 'context', description: 'Контекст сесії і ліміти Claude (5 год, тиждень)' },
     { command: 'background', description: 'Фонові задачі Claude' },
     { command: 'voice', description: 'Голосові відповіді: режим, голос, зразки' },
+    { command: 'scheduled', description: 'Заплановані задачі (скасувати)' },
     { command: 'timezone', description: 'Робоча таймзона: назва міста або Europe/Kyiv' },
   ],
 });
 console.log(
-  'commands: /up, /down, /mode, /model, /effort, /agents, /plans, /compact, /context, /background, /voice, /timezone'
+  'commands: /up, /down, /mode, /model, /effort, /agents, /plans, /compact, /context, /background, /voice, /timezone, /scheduled'
 );
 const info = await bot('getWebhookInfo', {});
 console.log(

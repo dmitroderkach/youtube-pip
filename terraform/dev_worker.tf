@@ -327,6 +327,18 @@ resource "aws_iam_role_policy" "dev_bot" {
         Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/pending-start.json"
       },
       {
+        # Scheduled tasks of the owner (written by the worker): due ones are read, sent and removed
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:DeleteObject"]
+        Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/scheduled/*"
+      },
+      {
+        Effect    = "Allow"
+        Action    = "s3:ListBucket"
+        Resource  = aws_s3_bucket.dev_worker_state.arn
+        Condition = { StringLike = { "s3:prefix" = ["state/scheduled/*"] } }
+      },
+      {
         # Gate (dev_worker_ops.tf): what the owner is asked to approve, and the answer, written once
         Effect   = "Allow"
         Action   = "s3:GetObject"
@@ -438,8 +450,8 @@ resource "aws_lambda_permission" "dev_bot_events" {
 # its last answer with no turn running, and warns in the chat once per answer.
 resource "aws_cloudwatch_event_rule" "dev_worker_idle_watch" {
   name                = "${local.name_prefix}-dev-worker-idle-watch"
-  description         = "Dev worker idle watchdog (docs/DEV_WORKER.md)"
-  schedule_expression = "rate(5 minutes)"
+  description         = "Dev worker scheduled tasks (due ones go to the worker) and idle watchdog (docs/DEV_WORKER.md)"
+  schedule_expression = "rate(1 minute)"
 }
 
 resource "aws_cloudwatch_event_target" "dev_worker_idle_watch" {

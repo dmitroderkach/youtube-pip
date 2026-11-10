@@ -7,6 +7,8 @@ Two entry points:
   (marker state/pending-start.json in the state bucket). Only requests with the webhook secret token from the owner's chat are served.
   A button pressed under a worker message (callback_query: questions, plan approval, permission prompts, /mode) is
   acknowledged and queued for the running worker; with no worker running it only gets a notice.
+- EventBridge schedule (every minute): scheduled tasks of the owner that are due (state/scheduled/, written by the
+  worker's `schedule` command) go to the worker as messages, starting it when needed; then the idle watchdog.
 - EventBridge "ECS Task State Change" (STOPPED) of the dev-worker cluster: a stop the worker did not report itself
   (exit code other than 0 / REPORTED_EXIT_CODE, failed start, killed task) is reported in the chat.
 
@@ -63,6 +65,8 @@ IDLE_ALERT_KEY = "state/idle-alert.json"
 IDLE_ALERT_MINUTES = int(os.environ.get("IDLE_ALERT_MINUTES", "15"))
 # Start requested while a stopped worker was still saving: consumed by the STOPPED event of that task
 PENDING_START_KEY = "state/pending-start.json"
+# Tasks the owner scheduled (scripts/dev-worker/schedule.sh): {id, dueAt (UTC ISO), timeZone, text, createdAt}
+SCHEDULED_PREFIX = "state/scheduled/"
 # Gate (terraform/dev_worker_ops.tf)
 OPS_BUCKET = os.environ.get("OPS_BUCKET", "")
 TF_APPLY_PROJECT = os.environ.get("TF_APPLY_PROJECT", "")
@@ -546,11 +550,51 @@ def idle_watch():
     return {"status": "warned"}
 
 
+def due_tasks():
+    """Scheduled: every task of state/scheduled/ whose time has come goes to the worker as the owner's message."""
+    fired = 0
+    now = time.time()
+    listing = s3.list_objects_v2(Bucket=STATE_BUCKET, Prefix=SCHEDULED_PREFIX)
+    for item in listing.get("Contents", []):
+        task = read_json(item["Key"])
+        if not task:
+            continue
+        try:
+            due = datetime.fromisoformat(task["dueAt"].replace("Z", "+00:00")).timestamp()
+        except Exception:
+            print(f"scheduled task {item['Key']}: bad dueAt")
+            continue
+        if due > now:
+            continue
+        # Removed before it is sent: a retried invocation never sends it twice
+        s3.delete_object(Bucket=STATE_BUCKET, Key=item["Key"])
+        text = str(task.get("text", ""))[:4000]
+        zone = task.get("timeZone") or "UTC"
+        say(f"⏰ Запланована задача: {text[:300]}")
+        message = {
+            "date": int(now),
+            "chat": {"id": config()["chat_id"]},
+            "message_id": f"scheduled-{task.get('id', item['Key'])}",
+        }
+        note = (
+            f"[Scheduled task: the owner set it at {task.get('createdAt', '?')} for {task['dueAt']} "
+            f"({zone}); it is due now. Do it as if the owner had just written it.]"
+        )
+        forward(message, f"{note}\n\n{text}", [])
+        fired += 1
+    return fired
+
+
 def handler(event, _context):
     if event.get("source") == "aws.ecs":
         return task_stopped(event)
     if event.get("source") == "aws.events" and event.get("detail-type") == "Scheduled Event":
-        return idle_watch()
+        try:
+            fired = due_tasks()
+        except Exception as error:
+            print(f"scheduled tasks failed: {error}")
+            fired = 0
+        return {"scheduled": fired, **idle_watch()}
     try:
         return telegram_update(event)
     except Exception as error:
