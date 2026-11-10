@@ -17,10 +17,11 @@
  *      CLAUDE_MODEL, TRANSCRIBE_LANGUAGE, GOOGLE_TTS_API_KEY, TTS_VOICE.
  */
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { backgroundRecord, restoreNote } from './session-state.mjs';
+import { apiErrorKind, backgroundRecord, restoreNote } from './session-state.mjs';
 import {
   backgroundRestoreHtml,
   backgroundRestoreKeyboard,
+  callbackData,
   DEFAULT_MODE,
   EFFORT_LEVELS,
   MODES,
@@ -941,11 +942,26 @@ async function finishTurn(result) {
   const label =
     currentMode() === DEFAULT_MODE ? '' : `${MODES[currentMode()].emoji} ${currentMode()}\n`;
   // A successful turn with nothing to say (e.g. Claude only took note of background tasks that ended) posts nothing
+  const raw = text || (result.errors ?? []).join('\n');
+  // A Claude API failure Claude Code gave up on: plain words, the raw error as details, a retry button if transient
+  const apiError = failed && !limited ? apiErrorKind(raw) : null;
   const message = limited
     ? limitMessage()
-    : text || (result.errors ?? []).join('\n') || (failed ? `(${result.subtype})` : '');
+    : apiError
+      ? `${apiError.text}\nДеталі: ${raw.slice(0, 300)}`
+      : raw || (failed ? `(${result.subtype})` : '');
   if (limited) log(`turn refused by the plan limit: ${answer.slice(0, 300)}`);
-  if (message) await say(`${label}${message}`);
+  if (apiError) log(`turn failed with an API error: ${raw.slice(0, 500)}`);
+  if (apiError?.retry && lastPrompt) {
+    const id = newPendingId();
+    retryPrompts.set(id, lastPrompt);
+    await telegram('sendMessage', {
+      text: `${label}${message}`,
+      reply_markup: {
+        inline_keyboard: [[{ text: '🔁 Повторити', callback_data: callbackData('retry', id) }]],
+      },
+    });
+  } else if (message) await say(`${label}${message}`);
   lastAnswerAt = new Date().toISOString();
   publishActivity(false);
   if (text && !failed) await replyByVoice(text, spoken);
@@ -1765,6 +1781,10 @@ async function onCallback(callback) {
     await editHtml(callback.message_id, agentsHtml(), agentsKeyboard());
     return;
   }
+  if (kind === 'retry') {
+    await onRetryButton(callback.message_id, id);
+    return;
+  }
   if (kind === 'bg') {
     await onRestoreButton(callback.message_id, id, value);
     return;
@@ -2568,7 +2588,35 @@ async function deliver(message) {
     );
     await say(moved ? '📨 Передав одразу; поточні команди пішли у фон' : '📨 Передав одразу');
   } else {
+    lastPrompt = text;
     sendToClaude(text);
+    ensureTurn();
+  }
+}
+
+/** The last owner message sent to Claude as a new turn (what `🔁 Повторити` sends again). */
+let lastPrompt = null;
+/** Retry buttons: id → the prompt to send again (once). */
+const retryPrompts = new Map();
+
+/** `🔁 Повторити` under an API error: the same message to Claude again, once. */
+async function onRetryButton(messageId, id) {
+  const prompt = retryPrompts.get(id);
+  await editButtons(messageId);
+  if (!prompt) {
+    await say('ℹ️ Цей повтор уже неактуальний');
+    return;
+  }
+  retryPrompts.delete(id);
+  if (limitInForce()) {
+    await say(limitMessage());
+    return;
+  }
+  if (turn) {
+    sendToClaude(prompt, 'next');
+  } else {
+    lastPrompt = prompt;
+    sendToClaude(prompt);
     ensureTurn();
   }
 }

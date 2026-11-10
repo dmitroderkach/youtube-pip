@@ -1,7 +1,7 @@
 /** Unit tests of session-state.mjs: `node --test scripts/dev-worker/*.test.mjs`. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { backgroundRecord, restoreNote } from './session-state.mjs';
+import { apiErrorKind, backgroundRecord, restoreNote } from './session-state.mjs';
 
 test('background record: command or prompt from the tool call, the purpose clipped', () => {
   const now = new Date('2026-11-09T15:00:00Z');
@@ -59,4 +59,16 @@ test('restore note: shells run again, subagents resumed by id with the prompt as
     /2\. Subagent \(general-purpose\) "Review", task id a1\. Resume it with SendMessage to "a1"/
   );
   assert.match(note, /«Review the worker»/);
+});
+
+test('API errors in plain words: overloaded, auth, context, 429, 5xx, network; others unknown', () => {
+  assert.deepEqual(apiErrorKind('API Error: 529 {"type":"overloaded_error"}').retry, true);
+  assert.match(apiErrorKind('API Error: 529 Overloaded').text, /перевантажений/);
+  assert.equal(apiErrorKind('API Error: 401 authentication_error: invalid token').retry, false);
+  assert.match(apiErrorKind('Prompt is too long').text, /compact/);
+  assert.match(apiErrorKind('API Error: 429 rate_limit_error').text, /Забагато/);
+  assert.match(apiErrorKind('API Error: 500 {"type":"api_error"}').text, /5xx/);
+  assert.match(apiErrorKind('Request timed out').text, /таймаут/);
+  assert.equal(apiErrorKind('Some tool failed: file not found'), null);
+  assert.equal(apiErrorKind(''), null);
 });

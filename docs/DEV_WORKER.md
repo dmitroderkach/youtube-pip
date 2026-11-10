@@ -72,6 +72,12 @@ The worker stops after 10 minutes without a turn or a background task. A backgro
 - A turn refused by the plan limit (`status: rejected`, or Claude Code's "usage limit reached" / "hit your … limit" text) ends as `⛔ Ліміт Claude вичерпано` with a plain message: which limit, when it resets (owner's time zone) and that the bot's own commands still work.
 - While the limit is in force (until its reset time), a new message is not sent to Claude: the worker answers with the reset time and asks to send it again after the reset. `/context` shows the windows as before.
 
+## Claude API errors
+
+- Transient API failures (529 overloaded, 5xx, dropped connections) are retried by Claude Code itself with backoff; the turn just takes longer.
+- When Claude Code gives up, the turn's error is put in plain words (`apiErrorKind`, `session-state.mjs`): overloaded, Anthropic 5xx, too many requests (429), timeout / network, a refused Claude token (renew `claude_code_oauth_token` with `claude setup-token`), a too long context (`/compact`); the raw error follows as details. Transient ones get a `🔁 Повторити` button that sends the same message to Claude again (once). Unknown errors are shown as before.
+- A crash of the Claude Code process restarts the session with the same context (`⚠️ Сесія Claude перезапускається`), at most 3 times in a row.
+
 ## Modes, questions and plans
 
 One `/mode` command, four modes (Claude Code's permission modes; the session switches at once, the mode survives restarts in `state/meta.json`; outside `bypass` every answer starts with the mode's label, and the ready message names it):

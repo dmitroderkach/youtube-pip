@@ -60,3 +60,50 @@ export function restoreNote(records) {
     `${lines.join('\n')}]`
   );
 }
+
+/**
+ * A Claude API failure Claude Code gave up on (after its own retries), in plain words: { text, retry } or null when
+ * the text is not a known API error. `retry`: a transient failure, worth sending the same message again.
+ */
+export function apiErrorKind(text) {
+  const value = String(text ?? '');
+  if (/\b529\b|overloaded/i.test(value)) {
+    return { text: '🌩 Claude зараз перевантажений (529). Спробуй за кілька хвилин.', retry: true };
+  }
+  if (/\b(401|403)\b|authentication|invalid (?:x-api-key|api key|token)|oauth token/i.test(value)) {
+    return {
+      text:
+        '🔑 Claude не приймає токен (помилка автентифікації). Можливо, протермінований claude_code_oauth_token ' +
+        'у секреті youtube-pip-oncall: онови його через claude setup-token.',
+      retry: false,
+    };
+  }
+  if (
+    /prompt is too long|context (?:length|window)|exceeds? the (?:maximum|context)/i.test(value)
+  ) {
+    return {
+      text: '📚 Контекст переповнений: стисни його через /compact і повтори.',
+      retry: false,
+    };
+  }
+  if (/\b429\b|rate_limit_error|too many requests/i.test(value)) {
+    return {
+      text: '⏳ Забагато запитів до Claude за короткий час. Спробуй за хвилину.',
+      retry: true,
+    };
+  }
+  if (/\b5\d\d\b|api_error|internal server error|service unavailable|bad gateway/i.test(value)) {
+    return {
+      text: '🌩 Збій на боці Anthropic (5xx). Зазвичай минає за кілька хвилин.',
+      retry: true,
+    };
+  }
+  if (
+    /timed? ?out|ETIMEDOUT|ECONNRESET|ECONNREFUSED|socket hang up|fetch failed|network error/i.test(
+      value
+    )
+  ) {
+    return { text: "📡 Обрив зв'язку з Claude або таймаут.", retry: true };
+  }
+  return null;
+}
