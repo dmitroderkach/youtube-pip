@@ -1562,11 +1562,20 @@ async function statusBody({ sleeping }) {
   ].join('\n');
 }
 
-/** Edit the pinned status (or send and pin a new one). `sleeping`: the worker is stopping. */
-function updateStatus({ sleeping = false } = {}) {
+const STATUS_COMMAND = /^\/status(@\w+)?$/i;
+
+/**
+ * Edit the pinned status (or send and pin a new one). `sleeping`: the worker is stopping; `fresh` (`/status`): a new
+ * message at the bottom of the chat, pinned instead of the old one.
+ */
+function updateStatus({ sleeping = false, fresh = false } = {}) {
   statusUpdating = statusUpdating.then(async () => {
     try {
       const body = await statusBody({ sleeping });
+      if (fresh && meta?.statusMessageId) {
+        await telegram('unpinChatMessage', { message_id: meta.statusMessageId });
+        meta = { ...meta, statusMessageId: null };
+      }
       if (body === lastStatusBody && meta?.statusMessageId) return;
       const text = `${body}\n\nоновлено ${shortTime(new Date())}`;
       if (meta?.statusMessageId) {
@@ -3354,6 +3363,10 @@ async function main() {
         }
         if (BACKGROUND_COMMAND.test(command)) {
           await reportBackground();
+          continue;
+        }
+        if (STATUS_COMMAND.test(command)) {
+          await updateStatus({ fresh: true });
           continue;
         }
         if (SCHEDULED_COMMAND.test(command)) {
