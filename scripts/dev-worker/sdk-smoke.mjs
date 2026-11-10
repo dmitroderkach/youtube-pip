@@ -7,9 +7,11 @@
  * written, the session goes on);
  * AskUserQuestion answered through updatedInput.answers; setPermissionMode reflected in a `status` message;
  * supportedModels() and setModel(); a background shell task in `background_tasks_changed`; a `rate_limit_event`
- * (soft: the plan may not send one); resume of the session from its transcript with CLAUDE_CODE_TRANSCRIPT_LOCAL_GC.
+ * (soft: the plan may not send one); resume of the session from its transcript with CLAUDE_CODE_TRANSCRIPT_LOCAL_GC;
+ * what the worker's /agents uses: a subagent's text streamed with agent_id (forwardSubagentText), getSubagentMessages(),
+ * and the end of a foreground subagent with the Agent tool's result.
  */
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { getSubagentMessages, query } from '@anthropic-ai/claude-agent-sdk';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -44,7 +46,15 @@ function session(options) {
     }
   }
   const q = query({ prompt: input(), options });
-  const seen = { init: null, statusModes: [], backgroundTasks: 0, rateLimit: false };
+  const seen = {
+    init: null,
+    statusModes: [],
+    backgroundTasks: 0,
+    rateLimit: false,
+    taskStarts: [],
+    subagentTexts: [],
+    toolResults: [],
+  };
   let pendingResult = null;
   (async () => {
     for await (const message of q) {
@@ -54,6 +64,16 @@ function session(options) {
       if (message.type === 'system' && message.subtype === 'background_tasks_changed')
         seen.backgroundTasks = Math.max(seen.backgroundTasks, (message.tasks ?? []).length);
       if (message.type === 'rate_limit_event') seen.rateLimit = true;
+      if (message.type === 'system' && message.subtype === 'task_started')
+        seen.taskStarts.push(message);
+      const content = Array.isArray(message.message?.content) ? message.message.content : [];
+      if (message.type === 'assistant' && message.agent_id)
+        for (const item of content)
+          if (item.type === 'text')
+            seen.subagentTexts.push({ agentId: message.agent_id, text: item.text });
+      if (message.type === 'user' && !message.parent_tool_use_id)
+        for (const item of content)
+          if (item.type === 'tool_result') seen.toolResults.push(item.tool_use_id);
       if (message.type === 'result') pendingResult?.(message);
     }
   })().catch((error) => pendingResult?.({ is_error: true, result: String(error) }));
@@ -97,6 +117,7 @@ const options = {
   permissionMode: 'default',
   canUseTool,
   settingSources: [],
+  forwardSubagentText: true,
   maxTurns: 8,
 };
 
@@ -170,6 +191,43 @@ try {
     `max ${r.seen.backgroundTasks}`
   );
   check('rate_limit_event', s.seen.rateLimit || r.seen.rateLimit, '', true);
+
+  // /agents of the worker: a subagent's text streams in with agent_id = its task id (forwardSubagentText), its
+  // earlier messages come from getSubagentMessages(), and a foreground one ends with the Agent tool's result
+  const sub = await r.send(
+    'Use the Agent tool once, in the foreground (not in the background), with a general-purpose subagent and the ' +
+      'prompt "Reply with exactly: sub-ok". Then reply with exactly what it answered.'
+  );
+  const started = r.seen.taskStarts.find((t) => t.task_type === 'local_agent' || t.subagent_type);
+  check(
+    'subagent task_started (task id, tool_use id)',
+    started?.task_id && started?.tool_use_id,
+    describe(sub)
+  );
+  const streamed = r.seen.subagentTexts.filter((m) => m.agentId === started?.task_id);
+  check(
+    'subagent text streamed with agent_id (forwardSubagentText)',
+    streamed.some((m) => /sub-ok/.test(m.text)),
+    streamed
+      .map((m) => m.text)
+      .join(' | ')
+      .slice(0, 120)
+  );
+  const history = started
+    ? await getSubagentMessages(r.seen.init?.session_id ?? sessionId, started.task_id).catch(
+        () => []
+      )
+    : [];
+  check(
+    'getSubagentMessages() returns its messages',
+    JSON.stringify(history.map((m) => m.message)).includes('sub-ok'),
+    `${history.length} message(s)`
+  );
+  check(
+    'foreground subagent ends with the Agent tool result',
+    r.seen.toolResults.includes(started?.tool_use_id),
+    ''
+  );
   await r.q.interrupt().catch(() => {});
   r.q.close();
 } catch (error) {
