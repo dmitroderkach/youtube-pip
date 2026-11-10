@@ -1,7 +1,13 @@
 /** Unit tests of session-state.mjs: `node --test scripts/dev-worker/*.test.mjs`. */
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { apiErrorKind, backgroundRecord, restoreNote } from './session-state.mjs';
+import {
+  apiErrorKind,
+  backgroundRecord,
+  isTimeZone,
+  restoreNote,
+  timeZoneChoices,
+} from './session-state.mjs';
 
 test('background record: command or prompt from the tool call, the purpose clipped', () => {
   const now = new Date('2026-11-09T15:00:00Z');
@@ -71,4 +77,45 @@ test('API errors in plain words: overloaded, auth, context, 429, 5xx, network; o
   assert.match(apiErrorKind('Request timed out').text, /таймаут/);
   assert.equal(apiErrorKind('Some tool failed: file not found'), null);
   assert.equal(apiErrorKind(''), null);
+});
+
+test('time zones: IANA names; geocoding answers to choices with exact names only', () => {
+  assert.equal(isTimeZone('Europe/Kyiv'), true);
+  assert.equal(isTimeZone('America/Argentina/Buenos_Aires'), true);
+  assert.equal(isTimeZone('Europe/Atlantis'), false);
+  assert.equal(isTimeZone('Самбір'), false);
+  const sambir = [
+    {
+      name: 'Самбір',
+      admin1: 'Львівська Область',
+      country: 'Україна',
+      timezone: 'Europe/Kyiv',
+      population: 34152,
+    },
+  ];
+  assert.deepEqual(timeZoneChoices(sambir, ' самбір ').auto, 'Europe/Kyiv');
+  const paris = timeZoneChoices(
+    [
+      { name: 'Париж', admin1: 'Іль-де-Франс', country: 'Франція', timezone: 'Europe/Paris' },
+      { name: 'Париж', admin1: 'Техас', country: 'США', timezone: 'America/Chicago' },
+      { name: 'Парижлє', country: 'Словенія', timezone: 'Europe/Ljubljana' },
+    ],
+    'Париж'
+  );
+  assert.equal(paris.auto, null);
+  assert.deepEqual(
+    paris.choices.map((c) => [c.label, c.timeZone]),
+    [
+      ['Париж, Іль-де-Франс, Франція', 'Europe/Paris'],
+      ['Париж, Техас, США', 'America/Chicago'],
+    ]
+  );
+  assert.equal(
+    timeZoneChoices(
+      [{ name: 'Київ', names: ['Kyiv'], country: 'Україна', timezone: 'Europe/Kyiv' }],
+      'kyiv'
+    ).auto,
+    'Europe/Kyiv'
+  );
+  assert.deepEqual(timeZoneChoices([], 'x'), { choices: [], auto: null });
 });
