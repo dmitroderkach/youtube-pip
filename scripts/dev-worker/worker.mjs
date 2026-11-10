@@ -556,7 +556,65 @@ async function downloadTelegramFile(fileId, name) {
 }
 
 /** Speech to text with AWS Transcribe (batch job on the file uploaded to the state bucket). */
+/**
+ * Speech to text with Gemini 2.5 Flash on Vertex AI (the service account of the speech models, GOOGLE_TTS_API_KEY):
+ * one synchronous request, ~1–3 s for a voice message, ~$0.003 per minute of audio (32 audio tokens per second at
+ * $1 / 1M, thinking off). AWS Transcribe (a batch job, ~10 s, $0.024 / min) is the fallback.
+ */
+const TRANSCRIBE_MODEL = 'gemini-2.5-flash';
+const TRANSCRIBE_PROMPT =
+  'Transcribe this voice message verbatim. It is mostly Ukrainian and may contain English technical terms ' +
+  '(PR, CI, merge, Terraform, Docker, Claude, Gemini, youtube-pip, Telegram). Output only the transcript text: no ' +
+  "comments, quotes, labels or timestamps. Keep the speaker's own words, slang and surzhyk included; do not " +
+  'translate or correct them; write English terms in Latin script. If there is no speech, output nothing.';
+
+async function transcribeGemini(path, mimeType) {
+  const { token, project } = await gcpAccessToken();
+  const url =
+    `https://aiplatform.googleapis.com/v1/projects/${project}/locations/global/publishers/google/models/` +
+    `${TRANSCRIBE_MODEL}:generateContent`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            {
+              inlineData: {
+                mimeType: mimeType || 'audio/ogg',
+                data: readFileSync(path).toString('base64'),
+              },
+            },
+            { text: TRANSCRIBE_PROMPT },
+          ],
+        },
+      ],
+      generationConfig: { temperature: 0, thinkingConfig: { thinkingBudget: 0 } },
+    }),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${json.error?.message ?? 'no transcript'}`);
+  return (json.candidates?.[0]?.content?.parts ?? [])
+    .map((part) => part.text ?? '')
+    .join('')
+    .trim();
+}
+
+/** Text of a voice message or audio file: Gemini when the service account is there, AWS Transcribe otherwise. */
 async function transcribe(path, mimeType) {
+  if (ttsServiceAccount()) {
+    try {
+      return await transcribeGemini(path, mimeType);
+    } catch (error) {
+      log('Gemini transcription failed, falling back to AWS Transcribe', error);
+    }
+  }
+  return transcribeAws(path, mimeType);
+}
+
+async function transcribeAws(path, mimeType) {
   const format = TRANSCRIBE_FORMATS[mimeType] ?? 'ogg';
   const key = `${INBOX_PREFIX}${path.slice(path.lastIndexOf('/') + 1)}`;
   const job = `dev-worker-${Date.now()}`;
