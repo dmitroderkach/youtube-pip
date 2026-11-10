@@ -396,7 +396,7 @@ resource "aws_ecs_task_definition" "runner_oncall" {
   cpu                      = tostring(var.oncall_runner_cpu)
   memory                   = tostring(var.oncall_runner_memory)
   execution_role_arn       = aws_iam_role.task_execution.arn
-  task_role_arn            = aws_iam_role.task_role.arn
+  task_role_arn            = aws_iam_role.oncall_task.arn
 
   container_definitions = jsonencode([
     {
@@ -489,7 +489,8 @@ resource "aws_iam_role_policy" "lambda" {
         Action = "iam:PassRole"
         Resource = [
           aws_iam_role.task_execution.arn,
-          aws_iam_role.task_role.arn
+          aws_iam_role.task_role.arn,
+          aws_iam_role.oncall_task.arn
         ]
       },
       {
@@ -656,7 +657,7 @@ resource "aws_lambda_function" "dispatcher_worker" {
       USE_FARGATE_SPOT                  = tostring(var.runner_use_fargate_spot)
       TASK_DEFINITION_ONCALL_ARN        = aws_ecs_task_definition.runner_oncall.arn
       ONCALL_LABEL                      = "oncall"
-      ONCALL_ALLOWED_EVENTS             = "schedule,workflow_dispatch"
+      ONCALL_ALLOWED_EVENTS             = "schedule,workflow_dispatch,push"
       ONCALL_BRANCH                     = var.oncall_branch
     }
   }

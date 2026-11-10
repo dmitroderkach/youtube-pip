@@ -76,6 +76,12 @@ variable "oncall_schedule" {
   default     = "cron(0 18 * * ? *)"
 }
 
+variable "claude_code_update_schedule" {
+  description = "EventBridge Scheduler expression of the weekly Claude Code update check (claude-code-update.yml), in oncall_schedule_timezone."
+  type        = string
+  default     = "cron(0 21 ? * MON *)"
+}
+
 variable "oncall_schedule_timezone" {
   description = "Time zone of oncall_schedule (follows daylight saving time)."
   type        = string

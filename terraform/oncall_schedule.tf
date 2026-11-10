@@ -113,3 +113,58 @@ resource "aws_scheduler_schedule" "oncall" {
     }
   }
 }
+
+# Weekly Claude Code update (docs/ONCALL.md, "Claude Code updates"): the same Lambda dispatches
+# claude-code-update.yml, which tries the newest Claude Code / Agent SDK and opens a PR (or reports what broke).
+resource "aws_scheduler_schedule" "claude_code_update" {
+  name = "${local.name_prefix}-claude-code-update-weekly"
+
+  schedule_expression          = var.claude_code_update_schedule
+  schedule_expression_timezone = var.oncall_schedule_timezone
+
+  flexible_time_window {
+    mode = "OFF"
+  }
+
+  target {
+    arn      = aws_lambda_function.oncall_schedule.arn
+    role_arn = aws_iam_role.oncall_scheduler.arn
+    input    = jsonencode({ workflow = "claude-code-update.yml" })
+
+    retry_policy {
+      maximum_retry_attempts       = 3
+      maximum_event_age_in_seconds = 3600
+    }
+  }
+}
+
+# Role of the on-call runner tasks (runner-oncall): only scheduled / manual / push runs of main get them (dispatcher
+# check). It may get a short-lived GitHub App token for a PR (oncall-schedule Lambda, action app_token) and ask the
+# owner to publish an image (dev-ops Lambda, which sends the ✅ button).
+resource "aws_iam_role" "oncall_task" {
+  name                 = "${local.name_prefix}-oncall-task-role"
+  permissions_boundary = aws_iam_policy.project_boundary.arn
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "oncall_task" {
+  name = "${local.name_prefix}-oncall-task-policy"
+  role = aws_iam_role.oncall_task.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = "lambda:InvokeFunction"
+      Resource = [aws_lambda_function.oncall_schedule.arn, aws_lambda_function.dev_ops.arn]
+    }]
+  })
+}
