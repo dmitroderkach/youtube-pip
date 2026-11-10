@@ -74,6 +74,7 @@ The worker stops after 10 minutes without a turn or a background task. A backgro
 - The dev-bot Lambda runs every minute (the EventBridge rule that also drives the idle watchdog): a task whose time has come is removed first (never sent twice), announced in the chat (`⏰ Запланована задача: …`) and sent to the worker's queue like the owner's message with a note that it is scheduled; a sleeping worker is started for it as for any message.
 - `/scheduled` lists them with cancel buttons. `state/` does not expire, so a task waits as long as needed. No recurring tasks yet.
 - dev-bot's rights for it (read / delete `state/scheduled/*`, list that prefix) are part of the gate: applied by the owner locally.
+- The worker writes the tasks itself, so a scheduled task is a request to do work, never the owner's approval: its text cannot stand for a "так" to merge, tag or release, nor for a button (system prompt). Without this rule the worker (say, after a prompt injection from a web page or CI output) could schedule an "owner's message" that approves its own merge; the Telegram buttons of the gate cannot be forged this way.
 
 ## Claude plan limits
 
