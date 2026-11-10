@@ -1666,6 +1666,7 @@ async function onScheduledButton(messageId, id) {
       (error) => log('cancel scheduled failed', error)
     );
   }
+  scheduleStatusUpdate();
   await reportScheduled(messageId);
 }
 
