@@ -70,21 +70,49 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "dev_worker_state"
   }
 }
 
+# Versioning: a deleted or overwritten object (a memory file, a plan, a transcript trimmed by Claude Code) can be
+# restored from its previous version for a while; how long per prefix: var.dev_worker_state_noncurrent_days.
+resource "aws_s3_bucket_versioning" "dev_worker_state" {
+  bucket = aws_s3_bucket.dev_worker_state.id
+  versioning_configuration {
+    status = "Enabled"
+  }
+}
+
 resource "aws_s3_bucket_lifecycle_configuration" "dev_worker_state" {
   bucket = aws_s3_bucket.dev_worker_state.id
+  # Rules on noncurrent versions need versioning on first
+  depends_on = [aws_s3_bucket_versioning.dev_worker_state]
 
-  # Temporary prefixes only (S3 lifecycle filters cannot exclude a prefix, so each expiring prefix has its own rule)
+  # One rule per prefix (S3 lifecycle filters cannot exclude a prefix): previous versions expire after the prefix's
+  # days; the temporary prefixes (claude/, inbox/) also expire themselves a week after they were written.
   dynamic "rule" {
-    for_each = toset(["claude/", "inbox/"])
+    for_each = var.dev_worker_state_noncurrent_days
     content {
-      id     = "expire-${trimsuffix(rule.value, "/")}-after-a-week"
+      id     = "${rule.key}-versions"
       status = "Enabled"
       filter {
-        prefix = rule.value
+        prefix = "${rule.key}/"
       }
-      expiration {
-        days = var.dev_worker_state_retention_days
+      dynamic "expiration" {
+        for_each = contains(["claude", "inbox"], rule.key) ? [var.dev_worker_state_retention_days] : []
+        content {
+          days = expiration.value
+        }
       }
+      noncurrent_version_expiration {
+        noncurrent_days = rule.value
+      }
+    }
+  }
+
+  # Delete markers left alone once their object's previous versions have expired
+  rule {
+    id     = "expired-delete-markers"
+    status = "Enabled"
+    filter {}
+    expiration {
+      expired_object_delete_marker = true
     }
   }
 

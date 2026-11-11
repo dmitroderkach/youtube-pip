@@ -186,6 +186,19 @@ variable "dev_worker_state_retention_days" {
   default     = 7
 }
 
+variable "dev_worker_state_noncurrent_days" {
+  description = "Dev worker state bucket (versioned): days a previous version of an object (overwritten or deleted) is kept, per prefix. Small and precious (memory, plans): a year; transcripts (Claude Code trims them after a compaction): a month; the working copy and temporary files, rewritten after every answer: a day."
+  type        = map(number)
+  default = {
+    memory      = 365
+    plans       = 365
+    transcripts = 30
+    state       = 1
+    claude      = 1
+    inbox       = 1
+  }
+}
+
 variable "dev_worker_git_user_name" {
   description = "Git author name of the dev worker's commits."
   type        = string
