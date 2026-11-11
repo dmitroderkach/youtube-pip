@@ -123,6 +123,8 @@ const PLANS_PREFIX = 'plans/';
 const MEMORY_PREFIX = 'memory/';
 /** Memory was restored from S3 this run: only then may a save delete memory files that are gone locally. */
 let memoryRestored = false;
+/** Plans were restored from S3 this run: only then may a save delete plans that are gone locally. */
+let plansRestored = false;
 /** Claude Code writes the plan of plan mode here (when ExitPlanMode's input has no `plan`). */
 const CLAUDE_PLANS_DIR = join(homedir(), '.claude', 'plans');
 /** Local copy of the saved plans (synced from S3 on start, listed in the system prompt of every session). */
@@ -445,6 +447,7 @@ async function restore() {
   memoryRestored = true;
   mkdirSync(PLANS_DIR, { recursive: true });
   await aws('s3', 'sync', `s3://${BUCKET}/${PLANS_PREFIX}`, PLANS_DIR, '--quiet');
+  plansRestored = true;
   log(`restored: session=${meta?.sessionId ?? 'none'} workspace=${workspace}`);
   return { workspace };
 }
@@ -526,9 +529,16 @@ async function saveNow() {
     '--quiet'
   );
   await saveMemory();
-  // Plans edited by hand (e.g. an addendum the owner asked for) go up like memory; never deleted there
+  // Plans edited, renamed or deleted by hand (the owner's request) go up like memory
   if (existsSync(PLANS_DIR))
-    await aws('s3', 'sync', PLANS_DIR, `s3://${BUCKET}/${PLANS_PREFIX}`, '--quiet');
+    await aws(
+      's3',
+      'sync',
+      PLANS_DIR,
+      `s3://${BUCKET}/${PLANS_PREFIX}`,
+      ...(plansRestored ? ['--delete'] : []),
+      '--quiet'
+    );
   meta = { ...(meta ?? {}), sessionId: meta?.sessionId ?? null, savedAt: new Date().toISOString() };
   writeFileSync('/tmp/meta.json', JSON.stringify(meta));
   await aws('s3', 'cp', '/tmp/meta.json', `s3://${BUCKET}/${META_KEY}`, '--quiet');
