@@ -374,19 +374,14 @@ export const VOICE_MODE_ABOUT = {
  */
 export const VOICE_MODELS = {
   chirp3: { label: 'Chirp 3 HD', model: null },
-  // Gemini prices: Cloud Text-to-Speech pricing, USD per 1M tokens (audio output: 25 tokens per second)
   flash: {
     label: 'Gemini 2.5 Flash',
     model: 'gemini-2.5-flash-tts',
-    audioUsdPerM: 10,
-    textUsdPerM: 0.5,
   },
-  pro: { label: 'Gemini 2.5 Pro', model: 'gemini-2.5-pro-tts', audioUsdPerM: 20, textUsdPerM: 1 },
+  pro: { label: 'Gemini 2.5 Pro', model: 'gemini-2.5-pro-tts' },
   flash31: {
     label: 'Gemini 3.1 Flash (preview)',
     model: 'gemini-3.1-flash-tts-preview',
-    audioUsdPerM: 20,
-    textUsdPerM: 1,
   },
 };
 
