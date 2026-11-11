@@ -526,6 +526,9 @@ async function saveNow() {
     '--quiet'
   );
   await saveMemory();
+  // Plans edited by hand (e.g. an addendum the owner asked for) go up like memory; never deleted there
+  if (existsSync(PLANS_DIR))
+    await aws('s3', 'sync', PLANS_DIR, `s3://${BUCKET}/${PLANS_PREFIX}`, '--quiet');
   meta = { ...(meta ?? {}), sessionId: meta?.sessionId ?? null, savedAt: new Date().toISOString() };
   writeFileSync('/tmp/meta.json', JSON.stringify(meta));
   await aws('s3', 'cp', '/tmp/meta.json', `s3://${BUCKET}/${META_KEY}`, '--quiet');
