@@ -2,12 +2,12 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
-  addSpeechUsage,
+  budgetLevel,
+  budgetStates,
+  latestBudgetState,
   apiErrorKind,
   backgroundRecord,
-  geminiSpeechCost,
   isTimeZone,
-  oggDurationSeconds,
   restoreNote,
   timeZoneChoices,
 } from './session-state.mjs';
@@ -151,21 +151,57 @@ test('time zones: IANA names; geocoding answers to choices with exact names only
   assert.deepEqual(timeZoneChoices([], 'x'), { choices: [], auto: null, guessed: false });
 });
 
-test('Gemini speech budget: OGG duration, price, monthly usage', () => {
-  const page = Buffer.alloc(27);
-  page.write('OggS', 0);
-  page.writeBigUInt64LE(48000n * 30n, 6);
-  assert.equal(oggDurationSeconds(Buffer.concat([Buffer.from('junk'), page])), 30);
-  assert.equal(oggDurationSeconds(Buffer.from('no ogg here')), 0);
-  // 60 s at $20 / 1M audio tokens = 1500 tokens = $0.03; 4000 chars = 1000 tokens at $1 / 1M = $0.001
-  const cost = geminiSpeechCost({ seconds: 60, textChars: 4000, audioUsdPerM: 20, textUsdPerM: 1 });
-  assert.ok(Math.abs(cost - 0.031) < 1e-9, String(cost));
-  const first = addSpeechUsage(null, '2026-11', 0.03, 60);
-  assert.deepEqual(first, { month: '2026-11', usd: 0.03, seconds: 60 });
-  assert.equal(addSpeechUsage(first, '2026-11', 0.01, 20).seconds, 80);
-  assert.deepEqual(addSpeechUsage(first, '2026-12', 0.01, 20), {
-    month: '2026-12',
-    usd: 0.01,
-    seconds: 20,
+test('Gemini speech budget: Google budget notifications only', () => {
+  const pubsub = (data, attributes = { budgetId: 'b', billingAccountId: 'a' }, publishTime) => ({
+    ackId: 'x',
+    message: {
+      data: Buffer.from(typeof data === 'string' ? data : JSON.stringify(data)).toString('base64'),
+      attributes,
+      publishTime,
+    },
   });
+  const note = (usd, publishTime, period = '2026-11-01T07:00:00Z') =>
+    pubsub(
+      {
+        budgetDisplayName: 'tts-voice-monthly',
+        costAmount: usd,
+        costIntervalStart: period,
+        budgetAmount: 10,
+        currencyCode: 'USD',
+      },
+      undefined,
+      publishTime
+    );
+  const states = budgetStates([
+    note(0.93, '2026-11-11T10:00:00Z'),
+    note(1.2, '2026-11-11T12:00:00Z'),
+    pubsub('test', {}),
+    pubsub({ budgetDisplayName: 'other', costAmount: 5, costIntervalStart: 'x', budgetAmount: 1 }),
+    pubsub('{not json'),
+  ]);
+  assert.equal(states.length, 2);
+  assert.deepEqual(states[0], {
+    period: '2026-11-01T07:00:00Z',
+    usd: 0.93,
+    budget: 10,
+    currency: 'USD',
+    updatedAt: '2026-11-11T10:00:00Z',
+  });
+  // The newest of the period wins, whatever the order; flags of the same period are kept
+  const latest = latestBudgetState({ ...states[1], warned: '2026-11-01T07:00:00Z' }, [states[0]]);
+  assert.equal(latest.usd, 1.2);
+  assert.equal(latest.warned, '2026-11-01T07:00:00Z');
+  assert.equal(latestBudgetState(null, states.slice().reverse()).usd, 1.2);
+  // A new period replaces the old one (and its flags)
+  const [december] = budgetStates([note(0.1, '2026-12-01T09:00:00Z', '2026-12-01T08:00:00Z')]);
+  assert.deepEqual(latestBudgetState(latest, [december]), december);
+  assert.equal(latestBudgetState(december, [states[1]]), december);
+
+  const now = Date.parse('2026-11-11T12:00:00Z');
+  assert.equal(budgetLevel(null, now), 'none');
+  assert.equal(budgetLevel(latest, now), 'ok');
+  assert.equal(budgetLevel({ ...latest, usd: 8 }, now), 'warn');
+  assert.equal(budgetLevel({ ...latest, usd: 10 }, now), 'exhausted');
+  // A figure of the previous month says nothing about this one
+  assert.equal(budgetLevel({ ...latest, usd: 10 }, Date.parse('2026-12-02T00:00:00Z')), 'none');
 });

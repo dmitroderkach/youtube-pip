@@ -163,7 +163,7 @@ variable "dev_worker_memory" {
 }
 
 variable "dev_worker_tts_monthly_budget_usd" {
-  description = "Monthly budget in USD of the dev worker's Gemini speech (voice replies; billed under Cloud Text-to-Speech, which Google spend caps do not cover). Estimated by the worker; once spent, it speaks with Chirp 3 HD until the month ends. 0 = Gemini speech off."
+  description = "Off switch of the dev worker's Gemini speech: 0 = off (Chirp 3 HD only); any other value = on. The limit itself is Google's: the Cloud Billing budget tts-voice-monthly, read by the worker through Pub/Sub (docs/DEV_WORKER.md)."
   type        = number
   default     = 10
 }

@@ -157,26 +157,64 @@ export function timeZoneChoices(results, query) {
   return { choices: top, auto: dominant ? first.timeZone : null, guessed: dominant };
 }
 
-/** Seconds of audio in an OGG/Opus file: the granule position of its last page at 48 kHz (0 when not OGG). */
-export function oggDurationSeconds(buffer) {
-  const data = Buffer.from(buffer ?? []);
-  const last = data.lastIndexOf(Buffer.from('OggS'));
-  if (last < 0 || last + 14 > data.length) return 0;
-  return Number(data.readBigUInt64LE(last + 6)) / 48000;
+/** Name of the Cloud Billing budget whose Pub/Sub notifications give the Gemini speech spend (docs/DEV_WORKER.md). */
+export const SPEECH_BUDGET_NAME = 'tts-voice-monthly';
+
+/**
+ * Budget states from pulled Pub/Sub messages (`receivedMessages` of subscriptions.pull): only real budget notifications
+ * (attributes `budgetId` and `billingAccountId`, `budgetDisplayName` = SPEECH_BUDGET_NAME), anything else (a test
+ * message published by hand) is skipped. Each: { period, usd, budget, currency, updatedAt } with Google's figures.
+ */
+export function budgetStates(received, name = SPEECH_BUDGET_NAME) {
+  const states = [];
+  for (const item of received ?? []) {
+    const message = item?.message ?? {};
+    const attributes = message.attributes ?? {};
+    if (!attributes.budgetId || !attributes.billingAccountId) continue;
+    let data;
+    try {
+      data = JSON.parse(Buffer.from(message.data ?? '', 'base64').toString('utf8'));
+    } catch {
+      continue;
+    }
+    if (data?.budgetDisplayName !== name) continue;
+    const usd = Number(data.costAmount);
+    const budget = Number(data.budgetAmount);
+    if (!Number.isFinite(usd) || !Number.isFinite(budget) || !data.costIntervalStart) continue;
+    states.push({
+      period: data.costIntervalStart,
+      usd,
+      budget,
+      currency: data.currencyCode ?? 'USD',
+      updatedAt: message.publishTime ?? null,
+    });
+  }
+  return states;
+}
+
+/** The newest budget state: a later period wins, then a later publish time (`current` may be null). */
+export function latestBudgetState(current, states) {
+  let best = current?.period ? current : null;
+  for (const state of states ?? []) {
+    const newer =
+      !best ||
+      Date.parse(state.period) > Date.parse(best.period) ||
+      (state.period === best.period &&
+        Date.parse(state.updatedAt ?? 0) > Date.parse(best.updatedAt ?? 0));
+    if (newer) best = { ...(best?.period === state.period ? best : {}), ...state };
+  }
+  return best;
 }
 
 /**
- * Estimated price of one Gemini-TTS request (Cloud Text-to-Speech pricing): audio output at 25 tokens per second,
- * text input at about 4 characters per token.
+ * How far the budget is spent: 'none' (no figure for the current period yet: Google's budget period is a calendar
+ * month, so a state whose period started over a month ago is stale), 'ok', 'warn' (80%) or 'exhausted' (100%).
  */
-export function geminiSpeechCost({ seconds, textChars, audioUsdPerM, textUsdPerM }) {
-  return ((seconds * 25) / 1e6) * audioUsdPerM + (textChars / 4 / 1e6) * textUsdPerM;
-}
-
-/**
- * The month's Gemini speech usage after adding a request: { month, usd, seconds } (a new month starts from zero).
- */
-export function addSpeechUsage(usage, month, usd, seconds) {
-  const current = usage?.month === month ? usage : { month, usd: 0, seconds: 0 };
-  return { ...current, usd: current.usd + usd, seconds: current.seconds + seconds };
+export function budgetLevel(state, now = Date.now()) {
+  if (!state?.period || !(state.budget > 0)) return 'none';
+  const end = new Date(state.period);
+  end.setUTCMonth(end.getUTCMonth() + 1);
+  if (now >= end.getTime()) return 'none';
+  if (state.usd >= state.budget) return 'exhausted';
+  return state.usd >= state.budget * 0.8 ? 'warn' : 'ok';
 }

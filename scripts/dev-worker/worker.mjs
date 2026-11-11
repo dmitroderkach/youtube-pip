@@ -18,12 +18,13 @@
  */
 import { getSubagentMessages, query } from '@anthropic-ai/claude-agent-sdk';
 import {
-  addSpeechUsage,
   apiErrorKind,
+  budgetLevel,
+  budgetStates,
+  latestBudgetState,
+  SPEECH_BUDGET_NAME,
   backgroundRecord,
-  geminiSpeechCost,
   isTimeZone,
-  oggDurationSeconds,
   restoreNote,
   timeZoneChoices,
 } from './session-state.mjs';
@@ -1308,35 +1309,30 @@ async function ttsHeaders(gemini) {
 }
 
 /**
- * Monthly budget of Gemini speech (TTS_MONTHLY_BUDGET_USD, Terraform `dev_worker_tts_monthly_budget_usd`): Gemini-TTS
- * is billed under Cloud Text-to-Speech, which Google's spend caps do not cover. The worker estimates each request
- * (audio length from the OGG file, the model's price) and keeps the month's total in its own S3 object, read before
- * every change so an outside correction (e.g. usage from before this code) is never overwritten; at 80%
- * a silent warning, at 100% Gemini is skipped (Chirp 3 HD, free tier) until the month ends. 0 = no Gemini speech.
+ * Gemini speech budget from Google's own figures: the Cloud Billing budget `tts-voice-monthly` (Text-to-Speech of the
+ * project; Gemini-TTS is billed there and Google's spend caps do not cover it) publishes its state to the Pub/Sub
+ * topic `tts-budget` several times a day; the worker pulls the subscription BUDGET_SUBSCRIPTION_ID with the service
+ * account in GOOGLE_TTS_API_KEY and keeps the newest figure in SPEECH_USAGE_KEY. No price formulas: the spend, the
+ * budget and the period are Google's. At 80% a silent warning, at 100% Gemini is skipped (Chirp 3 HD) until the
+ * period ends. TTS_MONTHLY_BUDGET_USD (Terraform `dev_worker_tts_monthly_budget_usd`) is only the off switch: 0 = no
+ * Gemini speech.
  */
-const TTS_MONTHLY_BUDGET_USD = (() => {
-  const value = Number.parseFloat(env.TTS_MONTHLY_BUDGET_USD ?? '');
-  return Number.isFinite(value) && value >= 0 ? value : 10;
-})();
+const GEMINI_SPEECH_OFF = Number.parseFloat(env.TTS_MONTHLY_BUDGET_USD ?? '') === 0;
+const BUDGET_SUBSCRIPTION_ID = 'tts-budget-worker';
+/** Pull Google's budget figure this often while running (and before a Gemini reply when the last pull is older). */
+const BUDGET_PULL_MS = 15 * 60 * 1000;
+/** No figure from Google for this long while Gemini speech is in use: say so (the topic or the role may be missing). */
+const BUDGET_STALE_MS = 48 * 60 * 60 * 1000;
 
 class SpeechBudgetError extends Error {}
-
-/** Month of the owner's working time zone: "2026-11". */
-const speechMonth = () =>
-  new Date().toLocaleDateString('en-CA', {
-    timeZone: ownerTimeZone(),
-    year: 'numeric',
-    month: '2-digit',
-  });
 
 const SPEECH_USAGE_KEY = 'state/voice-usage.json';
 
 /**
- * The month's usage. Only a missing object means "none yet": any other failure (network, throttling) throws, so a
- * failed read is never saved over the month's total as zero.
+ * The saved budget state ({ period, usd, budget, currency, updatedAt, …flags }) or null. Only a missing object means
+ * "none yet": any other failure (network, throttling) throws, so a failed read never replaces Google's figure.
  */
 async function speechUsage() {
-  let usage = null;
   try {
     await aws(
       's3api',
@@ -1347,11 +1343,13 @@ async function speechUsage() {
       SPEECH_USAGE_KEY,
       '/tmp/voice-usage-read.json'
     );
-    usage = JSON.parse(readFileSync('/tmp/voice-usage-read.json', 'utf8'));
+    const usage = JSON.parse(readFileSync('/tmp/voice-usage-read.json', 'utf8'));
+    // The earlier estimate (`month`, `seconds`) is not Google's figure: ignored, replaced by the first pull
+    return usage?.period ? usage : { waitingSince: usage?.waitingSince ?? null };
   } catch (error) {
     if (!/NoSuchKey/.test(`${error?.stderr ?? ''} ${error?.message ?? ''}`)) throw error;
   }
-  return usage?.month === speechMonth() ? usage : { month: speechMonth(), usd: 0, seconds: 0 };
+  return null;
 }
 
 async function saveSpeechUsage(usage) {
@@ -1366,60 +1364,122 @@ async function saveSpeechUsage(usage) {
   ).catch((error) => log('save speech usage failed', error));
 }
 
-async function speechUsageText() {
-  const usage = await speechUsage().catch((error) => log('read speech usage failed', error));
-  if (!usage) return '';
-  const minutes = Math.round(usage.seconds / 6) / 10;
-  return `Gemini цього місяця: ${minutes} хв ≈ $${usage.usd.toFixed(2)} з $${TTS_MONTHLY_BUDGET_USD}`;
+const usd = (value) => `$${Number(value).toFixed(2)}`;
+
+let lastBudgetPull = 0;
+let lastBudgetError = '';
+
+/**
+ * Pull Google's budget notifications, keep the newest figure and acknowledge everything pulled (test messages too);
+ * the 80% warning and the stale-data note are sent from here.
+ */
+async function pullSpeechBudget() {
+  const account = ttsServiceAccount();
+  if (!account || GEMINI_SPEECH_OFF) return;
+  lastBudgetPull = Date.now();
+  const subscription = `projects/${account.project_id}/subscriptions/${BUDGET_SUBSCRIPTION_ID}`;
+  let received = [];
+  try {
+    const { token, project } = await gcpAccessToken();
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      'x-goog-user-project': project,
+      'Content-Type': 'application/json',
+    };
+    const res = await fetch(`https://pubsub.googleapis.com/v1/${subscription}:pull`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ maxMessages: 100 }),
+      // A pull with nothing queued may wait: an empty answer is fine
+      signal: AbortSignal.timeout(20_000),
+    }).catch((error) => {
+      if (error?.name === 'TimeoutError') return null;
+      throw error;
+    });
+    if (res) {
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok)
+        throw new Error(`Pub/Sub ${res.status}: ${json.error?.message ?? 'pull failed'}`);
+      received = json.receivedMessages ?? [];
+    }
+    lastBudgetError = '';
+    const states = budgetStates(received);
+    const saved = await speechUsage();
+    let usage = latestBudgetState(saved?.period ? saved : null, states) ?? {
+      waitingSince: saved?.waitingSince ?? new Date().toISOString(),
+    };
+    const level = budgetLevel(usage);
+    const warn = level === 'warn' && usage.warned !== usage.period;
+    if (warn) usage = { ...usage, warned: usage.period };
+    const stale = budgetStale(usage);
+    if (stale) usage = { ...usage, staleNoted: usage.updatedAt ?? usage.waitingSince };
+    if (states.length || warn || stale || !saved) await saveSpeechUsage(usage);
+    // Acknowledged only once saved, so a failed save gets the figures again next time
+    if (received.length) {
+      await fetch(`https://pubsub.googleapis.com/v1/${subscription}:acknowledge`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ ackIds: received.map((item) => item.ackId) }),
+      }).catch((error) => log('budget acknowledge failed', error));
+    }
+    if (warn) {
+      await say(
+        `🟡 Gemini-озвучка: за даними Google витрачено ${usd(usage.usd)} з ${usd(usage.budget)} цього місяця.`,
+        { silent: true }
+      ).catch(() => {});
+    }
+    if (stale) await sayBudgetStale(usage);
+  } catch (error) {
+    lastBudgetError = String(error?.message ?? error).slice(0, 300);
+    log('budget pull failed', error);
+  }
 }
 
-/** Throws SpeechBudgetError when the month's Gemini budget is spent (saying so once a month). */
+/** Gemini speech is in use, but Google's figure is older than BUDGET_STALE_MS (said once per figure). */
+function budgetStale(usage) {
+  if (!VOICE_MODELS[voiceModel()]?.model) return false;
+  const since = usage.updatedAt ?? usage.waitingSince;
+  return (
+    Boolean(since) && Date.now() - Date.parse(since) > BUDGET_STALE_MS && usage.staleNoted !== since
+  );
+}
+
+async function sayBudgetStale(usage) {
+  await say(
+    `🟡 Google не надсилає суму бюджету ${SPEECH_BUDGET_NAME} понад 48 год` +
+      (usage.updatedAt
+        ? ` (остання: ${usd(usage.usd)}, ${shortTime(new Date(usage.updatedAt), true)})`
+        : '') +
+      `: перевір, що бюджет підключено до топіка tts-budget, підписку ${BUDGET_SUBSCRIPTION_ID} і роль Pub/Sub ` +
+      `Subscriber для сервісного акаунта.${lastBudgetError ? `\n${lastBudgetError}` : ''}`,
+    { silent: true }
+  ).catch(() => {});
+}
+
+async function speechUsageText() {
+  if (GEMINI_SPEECH_OFF) return 'Gemini-озвучку вимкнено (TTS_MONTHLY_BUDGET_USD = 0)';
+  const usage = await speechUsage().catch((error) => log('read speech usage failed', error));
+  if (budgetLevel(usage) === 'none')
+    return `Gemini: Google ще не надіслав суму бюджету ${SPEECH_BUDGET_NAME}`;
+  const age = Math.max(0, Math.round((Date.now() - Date.parse(usage.updatedAt)) / 3_600_000));
+  return `Gemini цього місяця: ${usd(usage.usd)} з ${usd(usage.budget)} (Google, ${age} год тому)`;
+}
+
+/** Throws SpeechBudgetError when Google's figure says the budget is spent (saying so once a period). */
 async function checkSpeechBudget() {
+  if (GEMINI_SPEECH_OFF) throw new SpeechBudgetError('Gemini-озвучку вимкнено');
+  if (Date.now() - lastBudgetPull > BUDGET_PULL_MS) await pullSpeechBudget();
   // Unreadable usage does not block speech (the next request checks again)
   const usage = await speechUsage().catch((error) => log('read speech usage failed', error));
-  if (!usage || usage.usd < TTS_MONTHLY_BUDGET_USD) return;
-  if (!usage.exhaustedNoted) {
-    await saveSpeechUsage({ ...usage, exhaustedNoted: true });
+  if (budgetLevel(usage) !== 'exhausted') return;
+  if (usage.exhausted !== usage.period) {
+    await saveSpeechUsage({ ...usage, exhausted: usage.period });
     await say(
-      TTS_MONTHLY_BUDGET_USD > 0
-        ? `🔇 Ліміт Gemini-озвучки ($${TTS_MONTHLY_BUDGET_USD}) за ${usage.month} вичерпано: до кінця місяця відповідаю голосом Chirp 3 HD.`
-        : '🔇 Gemini-озвучку вимкнено (ліміт $0): відповідаю голосом Chirp 3 HD.'
+      `🔇 Ліміт Gemini-озвучки вичерпано: за даними Google ${usd(usage.usd)} з ${usd(usage.budget)}. ` +
+        'До кінця місяця відповідаю голосом Chirp 3 HD.'
     );
   }
   throw new SpeechBudgetError('ліміт Gemini-озвучки на цей місяць вичерпано');
-}
-
-/** Add a Gemini request to the month's usage; a silent warning once at 80% of the budget. */
-async function recordSpeechUsage(model, audio, textChars) {
-  const prices = VOICE_MODELS[model];
-  const seconds = oggDurationSeconds(audio);
-  const usd = geminiSpeechCost({
-    seconds,
-    textChars,
-    audioUsdPerM: prices.audioUsdPerM ?? 20,
-    textUsdPerM: prices.textUsdPerM ?? 1,
-  });
-  let usage;
-  try {
-    usage = addSpeechUsage(await speechUsage(), speechMonth(), usd, seconds);
-  } catch (error) {
-    // Not counted rather than counted from zero over the month's total
-    log(`speech usage not recorded ($${usd.toFixed(4)})`, error);
-    return;
-  }
-  const warn =
-    !usage.warned80 &&
-    usage.usd >= TTS_MONTHLY_BUDGET_USD * 0.8 &&
-    usage.usd < TTS_MONTHLY_BUDGET_USD;
-  await saveSpeechUsage(warn ? { ...usage, warned80: true } : usage);
-  if (warn) {
-    await say(
-      `🟡 Gemini-озвучка: використано $${usage.usd.toFixed(2)} з $${TTS_MONTHLY_BUDGET_USD} за ${usage.month}.`,
-      {
-        silent: true,
-      }
-    ).catch(() => {});
-  }
 }
 
 /** OGG/Opus audio of `text` in the voice `name` with the speech model `model` (VOICE_MODELS), or throws. */
@@ -1448,7 +1508,6 @@ async function synthesize(text, name = voiceName(), model = voiceModel()) {
     throw new Error(`Text-to-Speech ${res.status}: ${json.error?.message ?? 'no audio'}`);
   }
   const audio = Buffer.from(json.audioContent, 'base64');
-  if (gemini) await recordSpeechUsage(model, audio, text.length + TTS_STYLE_PROMPT.length);
   return audio;
 }
 
@@ -1570,7 +1629,8 @@ async function statusBody({ sleeping }) {
   const reset = (name, withDay) =>
     windows[name]?.resetsAt ? shortTime(new Date(windows[name].resetsAt * 1000), withDay) : '?';
   const usage = await speechUsage().catch(() => null);
-  const spend = usage ? `$${usage.usd.toFixed(2)}/${TTS_MONTHLY_BUDGET_USD}` : '?';
+  const spend =
+    budgetLevel(usage) === 'none' ? '?' : `$${usage.usd.toFixed(2)}/${Number(usage.budget)}`;
   let context = '';
   if (!sleeping) {
     const contextUsage = await session?.getContextUsage({ detail: 'summary' }).catch(() => null);
@@ -3272,6 +3332,9 @@ async function main() {
   publishActivity(false);
   void keepSession();
   setInterval(checkLimits, LIMITS_CHECK_MS).unref();
+  // Google's figure of the Gemini speech budget (Pub/Sub), now and every BUDGET_PULL_MS
+  void pullSpeechBudget();
+  setInterval(() => void pullSpeechBudget(), BUDGET_PULL_MS).unref();
   // A long turn is saved every few minutes too, not only after its answer
   setInterval(() => {
     if (turn && !stopping) save().catch((error) => log('periodic save failed', error));
