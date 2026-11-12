@@ -147,6 +147,8 @@ def _process_message(body):
     run_task_args = {
         "cluster": os.environ["ECS_CLUSTER_ARN"],
         "taskDefinition": task_definition,
+        # The task carries the task definition's tags (Project): its Fargate cost counts in the project budget
+        "propagateTags": "TASK_DEFINITION",
         "networkConfiguration": {
             "awsvpcConfiguration": {
                 "subnets": os.environ["SUBNET_IDS"].split(","),

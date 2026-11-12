@@ -151,6 +151,8 @@ def start_worker(up_at):
             launchType="FARGATE",
             count=1,
             startedBy=STARTED_BY,
+            # The task carries the task definition's tags (Project): its Fargate cost counts in the project budget
+            propagateTags="TASK_DEFINITION",
             networkConfiguration={
                 "awsvpcConfiguration": {
                     "subnets": SUBNET_IDS,

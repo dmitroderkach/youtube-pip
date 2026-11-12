@@ -485,6 +485,13 @@ resource "aws_iam_role_policy" "lambda" {
         }
       },
       {
+        # propagateTags: tagging the task it starts (the account requires ecs:TagResource for tags on create)
+        Effect    = "Allow"
+        Action    = "ecs:TagResource"
+        Resource  = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task/${aws_ecs_cluster.runner.name}/*"
+        Condition = { StringEquals = { "ecs:CreateAction" = "RunTask" } }
+      },
+      {
         Effect = "Allow"
         Action = "iam:PassRole"
         Resource = [

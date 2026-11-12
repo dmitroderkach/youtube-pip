@@ -313,6 +313,13 @@ resource "aws_iam_role_policy" "dev_bot" {
         Resource = ["${aws_ecs_task_definition.dev_worker.arn_without_revision}:*"]
       },
       {
+        # propagateTags: tagging the task it starts (the account requires ecs:TagResource for tags on create)
+        Effect    = "Allow"
+        Action    = "ecs:TagResource"
+        Resource  = "arn:aws:ecs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:task/${aws_ecs_cluster.dev_worker.name}/*"
+        Condition = { StringEquals = { "ecs:CreateAction" = "RunTask" } }
+      },
+      {
         Effect    = "Allow"
         Action    = ["ecs:ListTasks", "ecs:DescribeTasks", "ecs:StopTask"]
         Resource  = "*"
