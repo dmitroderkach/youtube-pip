@@ -142,7 +142,11 @@ const credential = await asClaudeRunAsync('sh', [
 ]);
 check(
   'git credential helper as Claude uses the broker',
-  credential.out.includes('password=broker-token')
+  credential.out.includes('password=broker-token'),
+  credential.out
+    .replace(/password=.*/, 'password=…')
+    .trim()
+    .slice(0, 160)
 );
 server.close();
 

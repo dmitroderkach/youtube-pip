@@ -85,9 +85,10 @@ COPY scripts/dev-worker/gh-wrapper.sh /usr/local/bin/gh
 RUN chmod +x /entrypoint.sh /usr/local/bin/dev-ops /usr/local/bin/schedule /usr/local/bin/github-app-token \
       /usr/local/bin/github-token /usr/local/bin/gh \
     && chmod 755 /opt/dev-worker && chmod 644 /opt/dev-worker/*.mjs /opt/dev-worker/*.md \
-    && printf '%s\n' '[credential "https://github.com"]' \
-      '\thelper = "!f() { [ \"$1\" = get ] || exit 0; echo username=x-access-token; echo \"password=$(github-token)\"; }; f"' \
-      '[init]' '\tdefaultBranch = main' '[pull]' '\trebase = false' > /home/worker/.gitconfig \
+    && git config --file /home/worker/.gitconfig credential.https://github.com.helper \
+      '!f() { [ "$1" = get ] || exit 0; echo username=x-access-token; echo "password=$(github-token)"; }; f' \
+    && git config --file /home/worker/.gitconfig init.defaultBranch main \
+    && git config --file /home/worker/.gitconfig pull.rebase false \
     && chown worker:worker /home/worker/.gitconfig
 
 # Claude Code's user and home (isolation.mjs); the broker's socket
