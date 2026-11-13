@@ -9,12 +9,17 @@
  *   1. re-run with all suspects forced on (the failed attempt's state) — passes → not reproduced by these flags;
  *   2. re-run with all suspects forced off — still fails → not caused by these flags;
  *   3. otherwise bisect with the suspects on: turn off half until one flag remains (or report the interacting set).
- * Failed tests first, then flaky ones; at most MAX_TESTS per run.
+ * Failed tests first, then tests carried over from earlier runs, then flaky ones; at most MAX_TESTS per run. Tests
+ * over the limit are carried over (<pending.json>, kept between runs by the workflow's cache) with their suspects, so
+ * the next runs check them even when they pass there; a carried test is dropped after PENDING_DAYS or when the current
+ * run has fresh data for the same test.
  *
- * Usage: node scripts/oncall/confirm-flag-culprit.mjs <results.json> <page-flags-dir> <out-dir>
+ * Usage: node scripts/oncall/confirm-flag-culprit.mjs <results.json> <page-flags-dir> <out-dir> [<pending.json>]
  * Writes <out-dir>/summary.json:
- *   [{ project, title, file, line, status, suspects, result, culprit?, set?, runs }]
+ *   [{ project, title, file, line, status, suspects, result, culprit?, set?, runs, carriedFrom? }]
  *   result: culprit | interaction | not_reproduced | not_flags | no_suspects | skipped_limit
+ *   carriedFrom: { run, date } of the run the test failed in, for a test carried over
+ * and rewrites <pending.json> with the tests skipped over the limit.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
@@ -24,7 +29,10 @@ import { summarizePlaywrightReport } from './lib/playwright-results.mjs';
 /** At most this many tests per run: each bisection is ~log2(suspects) + 2 test runs. */
 const MAX_TESTS = 2;
 
-const [resultsPath, flagsDir, outDir] = process.argv.slice(2);
+/** A carried-over test older than this is dropped: YouTube's code and experiments have moved on. */
+const PENDING_DAYS = 7;
+
+const [resultsPath, flagsDir, outDir, pendingPath] = process.argv.slice(2);
 mkdirSync(outDir, { recursive: true });
 
 const results = summarizePlaywrightReport(resultsPath);
@@ -62,6 +70,24 @@ for (const test of [
   );
   targets.push({ project, file, line, title, status: test.kind, suspects });
 }
+
+/** Tests skipped over the limit in earlier runs, not superseded by this run's data and not too old. */
+const sameTest = (a, b) =>
+  a.project === b.project && repoPath(a.file) === repoPath(b.file) && a.line === b.line;
+const pending =
+  pendingPath && existsSync(pendingPath) ? JSON.parse(readFileSync(pendingPath, 'utf8')) : [];
+const carried = pending.filter(
+  (p) =>
+    Date.now() - Date.parse(p.carriedFrom?.date ?? 0) < PENDING_DAYS * 86_400_000 &&
+    !targets.some((t) => sameTest(t, p))
+);
+// Failed first, then the carried ones (older, so they are not pushed back forever), then this run's flaky ones
+const ordered = [
+  ...targets.filter((t) => t.status === 'failed'),
+  ...carried,
+  ...targets.filter((t) => t.status !== 'failed'),
+];
+const thisRun = { run: process.env.GITHUB_RUN_ID ?? null, date: new Date().toISOString() };
 
 let runCounter = 0;
 /** Run the one test with all `suspects` forced on except `off` (forced off); true when it passes. */
@@ -106,6 +132,7 @@ function check(target) {
     line: target.line,
     status: target.status,
     suspects: target.suspects.length,
+    ...(target.carriedFrom ? { carriedFrom: target.carriedFrom } : {}),
   };
   const done = (fields) => ({ ...entry, ...fields, runs: runCounter - startRuns });
   if (!target.suspects.length) return done({ result: 'no_suspects' });
@@ -123,8 +150,10 @@ function check(target) {
 }
 
 const summary = [];
-for (const [index, target] of targets.entries()) {
+const later = [];
+for (const [index, target] of ordered.entries()) {
   if (index >= MAX_TESTS) {
+    const carriedFrom = target.carriedFrom ?? thisRun;
     summary.push({
       project: target.project,
       title: target.title,
@@ -134,14 +163,17 @@ for (const [index, target] of targets.entries()) {
       suspects: target.suspects.length,
       result: 'skipped_limit',
       runs: 0,
+      carriedFrom,
     });
+    later.push({ ...target, file: repoPath(target.file), carriedFrom });
     continue;
   }
   console.log(
-    `culprit: ${target.status} [${target.project}] ${target.title} (${target.suspects.length} suspect flags)`
+    `culprit: ${target.status}${target.carriedFrom ? ` (carried from run ${target.carriedFrom.run})` : ''} [${target.project}] ${target.title} (${target.suspects.length} suspect flags)`
   );
   summary.push(check(target));
 }
+if (pendingPath) writeFileSync(pendingPath, JSON.stringify(later, null, 2));
 writeFileSync(join(outDir, 'summary.json'), JSON.stringify(summary, null, 2));
 console.log(
   `culprits: ${summary.map((s) => `${s.project} ${s.result}${s.culprit ? ` ${s.culprit}` : ''}`).join('; ') || 'nothing to check'}`
