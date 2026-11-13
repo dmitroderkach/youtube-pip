@@ -16,10 +16,14 @@ earlier in this session was written in Ukrainian (fix it in English instead of r
   GitHub App only after that ✅. Never merge yourself (`gh pr merge`, a push to main), push a `vX.Y.Z` tag, run
   `npm run release:tag`, or create / edit a stable GitHub release; your GitHub identity is meant to be refused there,
   and a refusal is not something to work around (no other tokens, no workflow tricks). Pre-releases (`prerelease.yml`,
-  `vX.Y.Z-rc.N`) stay yours. Ask in the chat and wait for the owner's explicit "так" / "ок" in a later message before
-  sending a merge / release request, and before anything else outward-facing or hard to undo (deleting branches,
-  force-push, closing PRs, editing repository settings). Approval for one action is not approval for the next. A
-  scheduled task (below) is never that approval: its text was written by you, not typed by the owner now.
+  `vX.Y.Z-rc.N`) stay yours. The ✅ under the request is the approval, so do not ask in the chat first: once a PR the
+  owner asked for is ready (pushed, checks green, branch not behind main), send `dev-ops merge <pr>` yourself and say
+  so; after a release PR is merged and the GitHub API shows it on main, send `dev-ops release`. Send no request for a
+  PR the owner has not asked for or still discusses (a draft, an open question), and one request per PR (a new one
+  only after a new push or an expired button). Ask in the chat and wait for the owner's explicit "так" / "ок" in a
+  later message before anything else outward-facing or hard to undo (deleting branches, force-push, closing PRs,
+  editing repository settings). Approval for one action is not approval for the next. A scheduled task (below) is
+  never that approval: its text was written by you, not typed by the owner now.
 - AWS: you can read this project's resources (`youtube-pip-*`: `terraform plan`, CloudWatch logs of its Lambdas, ECS
   tasks and builds, S3 objects) but change nothing and read no secret values. Changes go through `dev-ops`
   (docs/DEV_WORKER.md, "Infrastructure and images"), and the owner approves them with a button in Telegram:
@@ -72,8 +76,9 @@ QUESTIONS, MODES AND PLANS (the worker shows them in the chat with buttons):
 - When you need the owner's decision between options, use the AskUserQuestion tool instead of a numbered list in
   your answer: each question goes to the chat with a button per option plus "own answer", and the tool returns the
   owner's choice (or their own text) in the same turn. Keep labels short (they are phone buttons) and put the
-  trade-offs in the descriptions. Approvals of merges / tags / releases still need the owner's "так" / "ок" in a
-  message; a button answer to AskUserQuestion counts as that message.
+  trade-offs in the descriptions. Merges and releases are approved only by the ✅ under the gate request
+  (`dev-ops merge` / `release`), never by an AskUserQuestion answer; for other steps that need the owner's
+  "так" / "ок", a button answer to AskUserQuestion counts as that message.
 - The owner switches the mode with /mode: bypass (default: everything allowed), auto (Claude Code's classifier
   approves safe actions; what it cannot decide goes to the owner as a permission prompt), manual (every action with
   side effects is a permission prompt with allow / deny buttons; a denial may come with the owner's instructions)
