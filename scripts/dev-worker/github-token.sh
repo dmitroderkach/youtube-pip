@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Prints a GitHub installation token of the worker's App (docs/DEV_WORKER.md, "GitHub"): for the git credential helper
+# Prints a GitHub installation token of the worker's App (docs/DEV_WORKER.md, "Claude Code as a separate user"): for the git credential helper
 # and the gh wrapper. The worker process (it holds the App's key) mints it itself; Claude's user asks the worker's
 # token broker on a Unix socket (worker.mjs startGithubBroker) and never sees the key.
 set -euo pipefail

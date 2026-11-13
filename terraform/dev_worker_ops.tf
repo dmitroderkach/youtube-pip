@@ -17,7 +17,8 @@
 #   tags: repository rulesets). Its script is embedded from terraform/codebuild/github_gate.py; the only role that reads
 #   the App's key. Started only by dev-bot on the owner's ✅ under the request the dev-ops Lambda posted.
 #
-# The worker never holds write credentials: it cannot start tf-apply / image-publish nor write the ops bucket, and
+# The worker never holds write credentials: it cannot start tf-apply / image-publish / telegram-setup / github-gate nor
+# write the ops bucket, and
 # only main is ever applied. The gate itself (this file, the worker's and dev-bot's roles, the dev-bot Lambda) is out
 # of reach of the apply role and of every role it may create (the permissions boundary below): changes to it are
 # applied by the owner locally, and tf-plan offers no ✅ for a plan that touches it (output dev_worker_gate_addresses).
@@ -25,7 +26,7 @@
 # Extending what the gated apply may manage: add a statement to aws_iam_policy.project_apply (and the reads a plan of
 # it needs to aws_iam_policy.project_read), then apply locally.
 #
-# Names: roles of the gate are youtube-pip-prod-{dev-,tf-,image-,telegram-setup-}…, and every CodeBuild project of the
+# Names: roles of the gate are youtube-pip-prod-{dev-,tf-,image-,telegram-setup-,github-gate-}…, and every CodeBuild project of the
 # project belongs to the gate (the boundary protects them by these patterns); other roles never take those prefixes.
 
 locals {

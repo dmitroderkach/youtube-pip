@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Prints an installation token of the dev worker's own GitHub App (docs/DEV_WORKER.md, "GitHub"), for git (credential
+ * Prints an installation token of the dev worker's own GitHub App (docs/DEV_WORKER.md, "Claude Code as a separate user"), for git (credential
  * helper) and gh (the /usr/local/bin/gh wrapper). The App is not a bypass actor of the repository rulesets: it can push
  * branches, open PRs and run workflows, but not update main, create version tags or touch settings (merges and
  * releases go through the gate: dev-ops merge / release).
