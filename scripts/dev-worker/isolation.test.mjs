@@ -24,7 +24,11 @@ test("Claude's environment: the worker's secrets and anything credential-like ar
     GITHUB_BROKER_SOCKET: '/srv/dev-worker/github.sock',
   };
   const forClaude = claudeEnv(base, { claude: true });
-  assert.deepEqual(Object.keys(forClaude).sort(), [
+  // HOME / USER / LOGNAME are set too where CLAUDE_USER is (the image): not part of the filter
+  const names = Object.keys(forClaude).filter(
+    (name) => !['HOME', 'USER', 'LOGNAME'].includes(name)
+  );
+  assert.deepEqual(names.sort(), [
     'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI',
     'AWS_REGION',
     'CLAUDE_CODE_OAUTH_TOKEN',

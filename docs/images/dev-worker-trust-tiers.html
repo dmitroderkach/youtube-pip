@@ -229,7 +229,7 @@
         <div class="lvl c6">6 · Worker<small>least trusted</small></div>
         <div class="row">
           <div class="box b6">
-            <h3>💻 worker.mjs · ECS</h3>
+            <h3>💻 worker.mjs · ECS (user devworker)</h3>
             <p>Chat, voice, files, session saves.</p>
             <p>
               <span class="k">bot token</span><span class="k">worker App key</span
@@ -243,9 +243,10 @@
               pages and logs → the fewest rights.
             </p>
             <p>
-              Today it can read the worker's keys → planned: a separate user, GitHub tokens from the
-              worker.
+              Runs as its own user (worker): none of the worker's keys; short-lived GitHub tokens
+              from the worker's broker.
             </p>
+            <p><span class="k">Claude token</span><span class="k">GitHub token via broker</span></p>
           </div>
         </div>
       </div>

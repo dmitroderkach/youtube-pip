@@ -12,8 +12,8 @@
  * (the dev-bot Lambda warns in the chat when a run stays up long after the last answer, docs/DEV_WORKER.md), and on SIGTERM (`/down`, ECS StopTask); every stop it initiates is reported in
  * the chat and ends with exit code 0 or REPORTED_EXIT_CODE, which the dev-bot Lambda does not report again.
  *
- * Env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, QUEUE_URL, STATE_BUCKET, CLAUDE_CODE_OAUTH_TOKEN, GH_TOKEN (the task's
- *      GITHUB_TOKEN, renamed by entrypoint.sh), GITHUB_REPO, UP_AT (unix seconds of /up), IDLE_TIMEOUT_SECONDS,
+ * Env: TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, QUEUE_URL, STATE_BUCKET, CLAUDE_CODE_OAUTH_TOKEN, GITHUB_APP_ID /
+ *      GITHUB_APP_INSTALLATION_ID / GITHUB_APP_PRIVATE_KEY (the worker's GitHub App), GITHUB_REPO, UP_AT (unix seconds of /up), IDLE_TIMEOUT_SECONDS,
  *      CLAUDE_MODEL, TRANSCRIBE_LANGUAGE, GOOGLE_TTS_API_KEY, TTS_VOICE.
  */
 import { getSubagentMessages, query } from '@anthropic-ai/claude-agent-sdk';
@@ -767,7 +767,8 @@ async function transcribeAws(path, mimeType) {
   const format = TRANSCRIBE_FORMATS[mimeType] ?? 'ogg';
   const key = `${INBOX_PREFIX}${path.slice(path.lastIndexOf('/') + 1)}`;
   const job = `dev-worker-${Date.now()}`;
-  await aws('s3', 'cp', path, `s3://${BUCKET}/${key}`, '--quiet');
+  // Uploaded by Claude's user: the file is in Claude's inbox (never read with the worker's rights)
+  await awsClaude('s3', 'cp', path, `s3://${BUCKET}/${key}`, '--quiet');
   try {
     await aws(
       'transcribe',

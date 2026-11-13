@@ -1,6 +1,6 @@
 /**
  * Claude Code as a separate Linux user (docs/DEV_WORKER.md, "Claude Code as a separate user"): the worker process
- * (user `worker`) holds the secrets (bot token, GitHub App key, Google key) in its environment; Claude Code and every
+ * (user `devworker`) holds the secrets (bot token, GitHub App key, Google key) in its environment; Claude Code and every
  * command it runs work as CLAUDE_USER with an environment that has none of them, and cannot read the worker's
  * /proc/<pid>/environ (another uid). The worker never runs code from Claude's home: git, npm, tar and the S3 syncs of
  * Claude's directories run as CLAUDE_USER too, and files the worker reads there are refused when they are not plain

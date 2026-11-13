@@ -93,6 +93,8 @@ RUN chmod +x /entrypoint.sh /usr/local/bin/dev-ops /usr/local/bin/schedule /usr/
 
 # Claude Code's user and home (isolation.mjs); the broker's socket
 ENV CLAUDE_USER=worker CLAUDE_HOME=/home/worker GITHUB_BROKER_SOCKET=/srv/dev-worker/github.sock
+# The App token cache in devworker's private home, not in the shared /tmp
+ENV GITHUB_APP_TOKEN_CACHE=/var/lib/dev-worker/github-app-token.json
 
 USER devworker
 WORKDIR /var/lib/dev-worker
