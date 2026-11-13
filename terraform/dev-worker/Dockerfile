@@ -13,7 +13,7 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 ENV DISABLE_AUTOUPDATER=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl git gnupg jq less procps tar unzip \
+      ca-certificates curl git gnupg jq less procps sudo tar unzip \
     && mkdir -p /etc/apt/keyrings \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli.gpg \
     && echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" \
@@ -48,27 +48,51 @@ RUN ldconfig \
     && ln -s python3.12 /usr/local/bin/python3 && ln -s python3.12 /usr/local/bin/python \
     && python3 -m pip install --no-cache-dir --root-user-action=ignore boto3
 
-# Claude Code refuses --dangerously-skip-permissions as root: run as a regular user
+# Two users (docs/DEV_WORKER.md, "Claude Code as a separate user"):
+# - devworker runs worker.mjs and holds the secrets (the task's environment); home /var/lib/dev-worker, private;
+# - worker runs Claude Code and everything it starts, with none of them; home /home/worker (the working copy, Claude
+#   Code's state, plans, inbox / outbox: the paths Claude has always had).
+# devworker may run commands as worker (sudo, one rule) and is in worker's group for the shared files; worker has no
+# sudo at all and cannot read devworker's process (another uid: /proc/<pid>/environ is refused).
 RUN useradd -m -d /home/worker -s /bin/bash worker \
-    && mkdir -p /home/worker/.terraform.d/plugin-cache && chown -R worker:worker /home/worker/.terraform.d
+    && useradd -m -d /var/lib/dev-worker -s /bin/bash devworker \
+    && usermod -aG worker devworker \
+    && chmod 2770 /home/worker && chmod 700 /var/lib/dev-worker \
+    && mkdir -p /home/worker/.terraform.d/plugin-cache && chown -R worker:worker /home/worker/.terraform.d \
+    && mkdir -p /srv/dev-worker && chown devworker:worker /srv/dev-worker && chmod 2750 /srv/dev-worker \
+    && printf '%s\n' 'Defaults:devworker !requiretty, umask=0002, umask_override' \
+      'devworker ALL=(worker) NOPASSWD: ALL' > /etc/sudoers.d/dev-worker \
+    && chmod 0440 /etc/sudoers.d/dev-worker && visudo -cf /etc/sudoers.d/dev-worker
 # Providers are downloaded once per run into the cache (outside the workspace that is saved to S3)
 ENV TF_PLUGIN_CACHE_DIR=/home/worker/.terraform.d/plugin-cache
 # Agent SDK (bundles the Claude Code executable for linux-x64), installed from the lockfile
 COPY scripts/dev-worker/package.json scripts/dev-worker/package-lock.json /opt/dev-worker/
 RUN cd /opt/dev-worker && npm ci --omit=dev --no-audit --no-fund && rm -rf /root/.npm
-COPY --chown=worker:worker scripts/dev-worker/worker.mjs scripts/dev-worker/telegram-format.mjs scripts/dev-worker/session-state.mjs \
-     scripts/dev-worker/system-prompt.md scripts/dev-worker/english-only-hook.mjs /opt/dev-worker/
+COPY scripts/dev-worker/worker.mjs scripts/dev-worker/telegram-format.mjs scripts/dev-worker/session-state.mjs \
+     scripts/dev-worker/isolation.mjs scripts/dev-worker/system-prompt.md scripts/dev-worker/english-only-hook.mjs \
+     /opt/dev-worker/
 # User settings: the PreToolUse hook that keeps text sent to GitHub / git history in English
 COPY --chown=worker:worker scripts/dev-worker/claude-settings.json /home/worker/.claude/settings.json
 COPY terraform/dev-worker/entrypoint.sh /entrypoint.sh
 # Terraform plans of main and Docker images through CodeBuild (docs/DEV_WORKER.md, "Infrastructure and images")
 COPY scripts/dev-worker/dev-ops.sh /usr/local/bin/dev-ops
 COPY scripts/dev-worker/schedule.sh /usr/local/bin/schedule
-# GitHub as the worker's own App: tokens for git (credential helper) and gh (a wrapper ahead of /usr/bin/gh)
+# GitHub as the worker's own App: tokens for git (credential helper) and gh (a wrapper ahead of /usr/bin/gh); Claude's
+# user gets them from devworker's token broker (github-token, a Unix socket in /srv/dev-worker)
 COPY scripts/dev-worker/github-app-token.mjs /usr/local/bin/github-app-token
+COPY scripts/dev-worker/github-token.sh /usr/local/bin/github-token
 COPY scripts/dev-worker/gh-wrapper.sh /usr/local/bin/gh
-RUN chmod +x /entrypoint.sh /usr/local/bin/dev-ops /usr/local/bin/schedule /usr/local/bin/github-app-token /usr/local/bin/gh
+RUN chmod +x /entrypoint.sh /usr/local/bin/dev-ops /usr/local/bin/schedule /usr/local/bin/github-app-token \
+      /usr/local/bin/github-token /usr/local/bin/gh \
+    && chmod 755 /opt/dev-worker && chmod 644 /opt/dev-worker/*.mjs /opt/dev-worker/*.md \
+    && printf '%s\n' '[credential "https://github.com"]' \
+      '\thelper = "!f() { [ \"$1\" = get ] || exit 0; echo username=x-access-token; echo \"password=$(github-token)\"; }; f"' \
+      '[init]' '\tdefaultBranch = main' '[pull]' '\trebase = false' > /home/worker/.gitconfig \
+    && chown worker:worker /home/worker/.gitconfig
 
-USER worker
-WORKDIR /home/worker
+# Claude Code's user and home (isolation.mjs); the broker's socket
+ENV CLAUDE_USER=worker CLAUDE_HOME=/home/worker GITHUB_BROKER_SOCKET=/srv/dev-worker/github.sock
+
+USER devworker
+WORKDIR /var/lib/dev-worker
 ENTRYPOINT ["/entrypoint.sh"]

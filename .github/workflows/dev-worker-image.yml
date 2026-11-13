@@ -1,0 +1,37 @@
+name: Dev worker image
+
+# Builds the dev worker image on a PR that changes it and runs the isolation check inside it
+# (scripts/dev-worker/isolation-check.mjs; docs/DEV_WORKER.md, "Claude Code as a separate user"): Claude Code's user
+# must not see or reach the worker's secrets. Fake secrets only; nothing is pushed.
+on:
+  pull_request:
+    paths:
+      - 'terraform/dev-worker/**'
+      - 'scripts/dev-worker/**'
+      - '.github/workflows/dev-worker-image.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  isolation:
+    # GitHub-hosted: no secrets, no AWS; the image is built and thrown away
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build the image
+        run: docker build -f terraform/dev-worker/Dockerfile -t dev-worker:check .
+
+      - name: Isolation check (fake secrets)
+        run: |
+          docker run --rm \
+            -e TELEGRAM_BOT_TOKEN=fake-bot-token \
+            -e GITHUB_APP_PRIVATE_KEY=fake-app-key \
+            -e GOOGLE_TTS_API_KEY=fake-google-key \
+            -e GITHUB_APP_ID=1 -e GITHUB_APP_INSTALLATION_ID=1 \
+            -v "$PWD/scripts/dev-worker:/check:ro" \
+            --entrypoint node dev-worker:check /check/isolation-check.mjs
