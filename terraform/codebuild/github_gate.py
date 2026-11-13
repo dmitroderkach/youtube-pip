@@ -203,6 +203,33 @@ def published_release(token, version):
     sys.exit(f"🔴 Реліз v{version}: release.yml не опублікував реліз за {RELEASE_WAIT_SECONDS // 60} хв")
 
 
+def verify_attestation(token, script, version):
+    """The file must carry a build attestation (Sigstore) signed by release.yml running on the tag vX.Y.Z on a
+    GitHub-hosted runner: any workflow of the repository uploads as github-actions[bot], but only release.yml on a
+    version tag (which only the gate creates) can sign as that workflow and ref."""
+    with tempfile.NamedTemporaryFile(suffix=".user.js", delete=False) as file:
+        file.write(script)
+    try:
+        result = subprocess.run(
+            [
+                "gh", "attestation", "verify", file.name,
+                "--repo", REPO,
+                "--signer-workflow", f"{REPO}/.github/workflows/release.yml",
+                "--source-ref", f"refs/tags/v{version}",
+                "--deny-self-hosted-runners",
+            ],
+            env={**os.environ, "GH_TOKEN": token},
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    finally:
+        os.unlink(file.name)
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip().splitlines()[-1:] or ["?"]
+        sys.exit(f"🔴 Реліз v{version}: {SCRIPT} без атестації release.yml з тегу ({detail[0][:200]}), не публікую")
+
+
 def publish_to_release_branch(token, version, sha):
     asset = published_release(token, version)
     # Public repository: the asset's download URL needs no token (and redirects to storage that refuses one)
@@ -211,6 +238,7 @@ def publish_to_release_branch(token, version, sha):
         script = response.read()
     if not re.search(rb"^// @version\s+" + re.escape(version.encode()) + rb"\s*$", script, re.M):
         sys.exit(f"🔴 Реліз v{version}: у {SCRIPT} з релізу інша @version")
+    verify_attestation(token, script, version)
     status, _ = call("GET", f"/repos/{REPO}/git/ref/heads/{RELEASE_BRANCH}", token)
     if status == 404:
         status, body = call("POST", f"/repos/{REPO}/git/refs", token, {"ref": f"refs/heads/{RELEASE_BRANCH}", "sha": sha})
