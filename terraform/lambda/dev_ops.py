@@ -41,11 +41,10 @@ OPS_BUCKET = os.environ["OPS_BUCKET"]
 ONCALL_SECRET_ARN = os.environ["ONCALL_SECRET_ARN"]
 GITHUB_REPO = os.environ["GITHUB_REPO"]
 CANDIDATES_REPO_URL = os.environ["CANDIDATES_REPO_URL"]
-# A fine-grained token of the owner with "Public repositories (read-only)" access and no permissions, for the API's
-# rate limit only (anonymous calls share 60 an hour with every Lambda on the same public IP). It can read nothing that
-# is not public and write nothing; the gate App's key stays github-gate's alone. Filled by hand (plain string); while
-# the secret does not exist, the calls stay anonymous.
-GITHUB_TOKEN_SECRET = os.environ.get("GITHUB_TOKEN_SECRET", "")
+# GitHub API reads: `github_read_token` of the on-call secret, a fine-grained token of the owner with "Public
+# repositories (read-only)" access and no permissions, for the API's rate limit only (anonymous calls share 60 an hour
+# with every Lambda on the same public IP). It can read nothing that is not public and write nothing; the gate App's
+# key stays github-gate's alone. Without the key the calls stay anonymous.
 
 IMAGES = {
     "runner": "Ранер виконує весь CI: нові джоби підуть уже на ньому.",
@@ -82,13 +81,9 @@ _token = {"value": None, "read_at": 0}
 
 def github_token():
     """The read-only token (re-read every 10 minutes, so a rotation applies without a deploy), or None."""
-    if not GITHUB_TOKEN_SECRET:
-        return None
     if time.time() - _token["read_at"] > 600:
-        try:
-            _token["value"] = secrets.get_secret_value(SecretId=GITHUB_TOKEN_SECRET)["SecretString"].strip() or None
-        except secrets.exceptions.ResourceNotFoundException:
-            _token["value"] = None
+        oncall = json.loads(secrets.get_secret_value(SecretId=ONCALL_SECRET_ARN)["SecretString"])
+        _token["value"] = (oncall.get("github_read_token") or "").strip() or None
         _token["read_at"] = time.time()
     return _token["value"]
 
