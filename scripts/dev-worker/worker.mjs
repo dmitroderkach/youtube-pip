@@ -16,7 +16,7 @@
  *      GITHUB_APP_INSTALLATION_ID / GITHUB_APP_PRIVATE_KEY (the worker's GitHub App), GITHUB_REPO, UP_AT (unix seconds of /up), IDLE_TIMEOUT_SECONDS,
  *      CLAUDE_MODEL, TRANSCRIBE_LANGUAGE, GOOGLE_TTS_API_KEY, TTS_VOICE.
  */
-import { getSubagentMessages, query } from '@anthropic-ai/claude-agent-sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
 import {
   apiErrorKind,
   budgetLevel,
@@ -94,8 +94,7 @@ const CLAUDE_PROJECTS_DIR = join(CLAUDE_HOME, '.claude', 'projects');
 // The worker's own scratch files (meta, usage, records): private, so Claude cannot plant a symlink in their place
 const WORKER_TMP = CLAUDE_USER ? mkdtempSync('/tmp/dev-worker-') : '/tmp';
 if (CLAUDE_USER) process.umask(0o002);
-// The SDK's session readers (getSubagentMessages for /agents) look in Claude's config dir, not devworker's home; a
-// transcript read this way only ever reaches the owner's chat
+// Claude's config dir for the SDK (its session readers run as Claude's user: subagent-history.mjs)
 if (CLAUDE_USER) process.env.CLAUDE_CONFIG_DIR ??= join(CLAUDE_HOME, '.claude');
 // Claude's scratch directory (the workspace archive): in its home, outside the working copy
 const CLAUDE_TMP = join(CLAUDE_HOME, '.cache', 'dev-worker');
@@ -2913,6 +2912,31 @@ function onSubagentMessage(message) {
     .catch((error) => log('agent view failed', error));
 }
 
+/**
+ * A subagent's messages so far ([{ type, content }]), read with Claude's rights (subagent-history.mjs): Claude Code
+ * writes its transcript with mode 0600, out of the worker's reach when Claude runs as its own user.
+ */
+async function subagentHistory(taskId) {
+  try {
+    const out = await claudeSh(
+      'node',
+      [
+        new URL('./subagent-history.mjs', import.meta.url).pathname,
+        meta?.sessionId ?? '',
+        taskId,
+        REPO_DIR,
+      ],
+      { cwd: CLAUDE_HOME }
+    );
+    const history = JSON.parse(out || '[]');
+    log(`agent history ${taskId}: ${history.length} message(s)`);
+    return history;
+  } catch (error) {
+    log('agent history failed', error);
+    return [];
+  }
+}
+
 /** Show a subagent (taskId) or the main agent (null) in the chat. */
 async function switchView(taskId) {
   if (!taskId) {
@@ -2937,14 +2961,9 @@ async function switchView(taskId) {
   );
   // Everything from the start, every time: the brief Claude gave it, then its texts and steps in order; the rest
   // streams in
-  const history = await getSubagentMessages(meta?.sessionId ?? '', taskId, { dir: REPO_DIR }).catch(
-    (error) => {
-      log('getSubagentMessages failed', error);
-      return [];
-    }
-  );
+  const history = await subagentHistory(taskId);
   const briefMessage = history.find((m) => m.type === 'user');
-  const brief = briefOf(briefMessage?.message?.content);
+  const brief = briefOf(briefMessage?.content);
   view.sending = view.sending.then(async () => {
     if (brief && viewing === view) {
       for (let start = 0; start < brief.length; start += AGENT_TEXT_MAX) {
@@ -2955,7 +2974,7 @@ async function switchView(taskId) {
     }
     for (const message of history) {
       if (message.type !== 'assistant' || viewing !== view) continue;
-      await showAgentParts(view, contentParts(message.message?.content));
+      await showAgentParts(view, contentParts(message.content));
     }
   });
   await view.sending;
