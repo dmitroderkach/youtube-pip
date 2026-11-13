@@ -140,9 +140,61 @@ def release(token):
     status, body = call("POST", f"/repos/{REPO}/git/refs", token, {"ref": f"refs/tags/v{version}", "sha": sha})
     if status != 201:
         sys.exit(f"🔴 Реліз: тег v{version} не створено ({status}: {body.get('message')})")
+    print(f"Тег v{version} створено на main@{sha[:7]}, чекаю на release.yml", flush=True)
+    publish_to_release_branch(token, version, sha)
+
+
+# What installed scripts (@updateURL / @downloadURL) and Greasy Fork read: a file on the protected branch `release`,
+# which only the gate App (and the owner) may update. GitHub releases are only the download page and changelog.
+RELEASE_BRANCH = "release"
+SCRIPT = "youtube-pip.user.js"
+ACTIONS_BOT = "github-actions[bot]"
+RELEASE_WAIT_SECONDS = 20 * 60
+
+
+def published_release(token, version):
+    """The release of the tag once release.yml has published it, made by GitHub Actions itself (not by anyone else)."""
+    deadline = time.time() + RELEASE_WAIT_SECONDS
+    while time.time() < deadline:
+        status, rel = call("GET", f"/repos/{REPO}/releases/tags/v{version}", token)
+        if status == 200 and not rel.get("draft"):
+            if (rel.get("author") or {}).get("login") != ACTIONS_BOT:
+                sys.exit(f"🔴 Реліз v{version}: його створив не release.yml ({(rel.get('author') or {}).get('login')})")
+            asset = next((a for a in rel.get("assets", []) if a.get("name") == SCRIPT), None)
+            if not asset or (asset.get("uploader") or {}).get("login") != ACTIONS_BOT or asset.get("state") != "uploaded":
+                sys.exit(f"🔴 Реліз v{version}: нема {SCRIPT} від release.yml")
+            return asset
+        time.sleep(20)
+    sys.exit(f"🔴 Реліз v{version}: release.yml не опублікував реліз за {RELEASE_WAIT_SECONDS // 60} хв")
+
+
+def publish_to_release_branch(token, version, sha):
+    asset = published_release(token, version)
+    # Public repository: the asset's download URL needs no token (and redirects to storage that refuses one)
+    request = urllib.request.Request(asset["browser_download_url"], headers={"User-Agent": "youtube-pip-github-gate"})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        script = response.read()
+    if not re.search(rb"^// @version\s+" + re.escape(version.encode()) + rb"\s*$", script, re.M):
+        sys.exit(f"🔴 Реліз v{version}: у {SCRIPT} з релізу інша @version")
+    status, _ = call("GET", f"/repos/{REPO}/git/ref/heads/{RELEASE_BRANCH}", token)
+    if status == 404:
+        status, body = call("POST", f"/repos/{REPO}/git/refs", token, {"ref": f"refs/heads/{RELEASE_BRANCH}", "sha": sha})
+        if status != 201:
+            sys.exit(f"🔴 Гілку {RELEASE_BRANCH} не створено ({status}: {body.get('message')})")
+    status, current = call("GET", f"/repos/{REPO}/contents/{SCRIPT}?ref={RELEASE_BRANCH}", token)
+    body = {
+        "message": f"Release v{version}: {SCRIPT}",
+        "content": base64.b64encode(script).decode(),
+        "branch": RELEASE_BRANCH,
+        **({"sha": current["sha"]} if status == 200 else {}),
+    }
+    status, result = call("PUT", f"/repos/{REPO}/contents/{SCRIPT}", token, body)
+    if status not in (200, 201):
+        sys.exit(f"🔴 {SCRIPT} v{version} не записано в гілку {RELEASE_BRANCH} ({status}: {result.get('message')})")
     print(
-        f"✅ Тег v{version} створено на main@{sha[:7]}: release.yml збирає і публікує реліз "
-        f"(https://github.com/{REPO}/actions/workflows/release.yml)"
+        f"✅ Реліз v{version} опубліковано: тег на main@{sha[:7]}, release.yml зібрав реліз, {SCRIPT} у гілці "
+        f"{RELEASE_BRANCH} (https://raw.githubusercontent.com/{REPO}/{RELEASE_BRANCH}/{SCRIPT}); "
+        "встановлені скрипти і Greasy Fork оновляться звідти"
     )
 
 

@@ -15,8 +15,7 @@ A pre-release is a test build of a release branch published on GitHub, so the ow
 
 ## Why it does not reach users
 
-- A pre-release is never the **latest** release. Greasy Fork syncs from `releases/latest/download/youtube-pip.user.js` and the `@updateURL` / `@downloadURL` of installed scripts point there too, so both keep getting the last stable release.
-- Publishing a pre-release still sends the `release` webhook to Greasy Fork ([GREASY_FORK.md](GREASY_FORK.md)); Greasy Fork fetches the latest release, finds the same version and changes nothing.
+- Greasy Fork and the `@updateURL` / `@downloadURL` of installed scripts read the branch `release`, which only the gate App updates on the owner's ✅ ([GREASY_FORK.md](GREASY_FORK.md)); a pre-release never reaches it. (Scripts installed before the switch read `releases/latest/download/youtube-pip.user.js`; a pre-release is never the latest release.)
 - `release.yml` ignores tags with a hyphen (`!v*-*`), so a pre-release tag never starts a release. Tags created by the workflow token do not trigger workflows anyway.
 
 ## Versions in Tampermonkey

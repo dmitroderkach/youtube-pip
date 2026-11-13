@@ -1223,7 +1223,7 @@ resource "aws_codebuild_project" "github_gate" {
   name                   = local.github_gate_project
   description            = "Dev worker: merge a PR / tag a release with the gate GitHub App after the owner's ✅ (started by dev-bot only, dev_worker_ops.tf)."
   service_role           = aws_iam_role.github_gate.arn
-  build_timeout          = 10
+  build_timeout          = 30
   concurrent_build_limit = 1
 
   artifacts {
