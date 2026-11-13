@@ -27,6 +27,7 @@ import {
   isTimeZone,
   restoreNote,
   timeZoneChoices,
+  withoutRepeated,
 } from './session-state.mjs';
 import {
   backgroundRestoreHtml,
@@ -1246,7 +1247,17 @@ async function finishTurn(result) {
     voiceReplyPending = false;
     return;
   }
-  const { text, spoken } = splitVoiceBlock(answer);
+  const voiced = splitVoiceBlock(answer);
+  // The owner has just watched a subagent finish in its view: its final message is already in the chat
+  const { text, spoken } = { ...voiced, text: notAgainAfterView(voiced.text) };
+  if (!text && voiced.text && !failed) {
+    lastAnswerAt = new Date().toISOString();
+    publishActivity(false);
+    voiceReplyPending = false;
+    await flushOutbox();
+    await save().catch((error) => log('save failed', error));
+    return;
+  }
   if (viewing && text && !failed) {
     // A subagent is shown: the main agent's answer waits for the switch back (like Claude Code's agent view)
     heldAnswers.push(text);
@@ -2879,9 +2890,11 @@ async function showAgentParts(view, { texts, steps }) {
     if (viewing !== view) return;
     view.stepsMessage = null;
     view.steps = [];
-    await say(
-      `🤖 ${name}:\n${text.slice(0, AGENT_TEXT_MAX)}${text.length > AGENT_TEXT_MAX ? '…' : ''}`
-    );
+    view.texts.push(text);
+    // Whole, in parts: the owner wants to read everything it wrote
+    for (let start = 0; start < text.length; start += AGENT_TEXT_MAX) {
+      await say(`${start ? '' : `🤖 ${name}:\n`}${text.slice(start, start + AGENT_TEXT_MAX)}`);
+    }
   }
   if (!steps.length || viewing !== view) return;
   view.steps.push(...steps);
@@ -2904,7 +2917,10 @@ function onSubagentMessage(message) {
 async function switchView(taskId) {
   if (!taskId) {
     viewing = null;
-    const held = heldAnswers.splice(0);
+    const held = heldAnswers
+      .splice(0)
+      .map((answer) => notAgainAfterView(answer))
+      .filter(Boolean);
     await say(
       held.length
         ? `🧠 Основний агент. Відповіді, поки ти дивився субагента: ${held.length}`
@@ -2914,25 +2930,54 @@ async function switchView(taskId) {
     return;
   }
   const agent = agents.get(taskId);
-  const view = { taskId, steps: [], stepsMessage: null, sending: Promise.resolve() };
+  const view = { taskId, steps: [], stepsMessage: null, texts: [], sending: Promise.resolve() };
   viewing = view;
   await say(
     `👁 Тепер у чаті 🤖 ${agent?.description ?? taskId} (${agent?.type ?? 'agent'}). Твої повідомлення передаю йому. /agents — перемкнути`
   );
-  // Start at its last two texts, like opening the agent's view; the rest streams in
+  // Everything from the start, every time: the brief Claude gave it, then its texts and steps in order; the rest
+  // streams in
   const history = await getSubagentMessages(meta?.sessionId ?? '', taskId, { dir: REPO_DIR }).catch(
     (error) => {
       log('getSubagentMessages failed', error);
       return [];
     }
   );
-  const texts = history
-    .filter((m) => m.type === 'assistant')
-    .flatMap((m) => contentParts(m.message?.content).texts);
-  view.sending = view.sending.then(() =>
-    showAgentParts(view, { texts: texts.slice(-2), steps: [] })
-  );
+  const briefMessage = history.find((m) => m.type === 'user');
+  const brief = briefOf(briefMessage?.message?.content);
+  view.sending = view.sending.then(async () => {
+    if (brief && viewing === view) {
+      for (let start = 0; start < brief.length; start += AGENT_TEXT_MAX) {
+        await say(
+          `${start ? '' : '📝 Бриф від основного агента:\n'}${brief.slice(start, start + AGENT_TEXT_MAX)}`
+        );
+      }
+    }
+    for (const message of history) {
+      if (message.type !== 'assistant' || viewing !== view) continue;
+      await showAgentParts(view, contentParts(message.message?.content));
+    }
+  });
   await view.sending;
+}
+
+/** The text of a user message (the subagent's brief): a string, or its text blocks. */
+function briefOf(content) {
+  if (typeof content === 'string') return content.trim();
+  return (Array.isArray(content) ? content : [])
+    .filter((item) => item.type === 'text' && item.text?.trim())
+    .map((item) => item.text.trim())
+    .join('\n\n');
+}
+
+/** What the owner saw of a subagent that finished while it was in the chat: { texts, at } (for 15 minutes). */
+let finishedInView = null;
+const FINISHED_IN_VIEW_MS = 15 * 60 * 1000;
+
+/** An answer of the main agent without what repeats the subagent's messages the owner has just seen. */
+function notAgainAfterView(text) {
+  if (!text || !finishedInView || Date.now() - finishedInView.at > FINISHED_IN_VIEW_MS) return text;
+  return withoutRepeated(text, finishedInView.texts.join('\n\n'));
 }
 
 async function endView(status, taskId = viewing?.taskId) {
@@ -2946,7 +2991,9 @@ async function endView(status, taskId = viewing?.taskId) {
     agent.since ? `за ${elapsedText(agent.since, agent.endedAt)}` : '',
     agent.toolUses != null ? `кроків ${agent.toolUses}` : '',
   ].filter(Boolean);
-  const summary = agent.summary ? `\n${agent.summary.slice(0, 1500)}` : '';
+  // Its messages are already in the chat: the main agent's next answer does not repeat them (notAgainAfterView)
+  finishedInView = { texts: [...view.texts], at: Date.now() };
+  const summary = '';
   await say(
     `${icon} 🤖 ${agent.description ?? 'субагент'} ${verb}${details.length ? ` · ${details.join(', ')}` : ''}${summary}`
   );

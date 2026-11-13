@@ -218,3 +218,34 @@ export function budgetLevel(state, now = Date.now()) {
   if (state.usd >= state.budget) return 'exhausted';
   return state.usd >= state.budget * 0.8 ? 'warn' : 'ok';
 }
+
+/** Text for comparing: lowercase, no Markdown punctuation, single spaces. */
+const comparable = (text) =>
+  String(text ?? '')
+    .toLowerCase()
+    .replace(/[*_`#>|~[\]()-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+/**
+ * The main agent's answer without the paragraphs that repeat a subagent's final message the owner has just seen in
+ * its view (/agents): a paragraph goes when the subagent's text contains it, or when nearly all its words (85%) are
+ * the subagent's. What is left (Claude's own conclusions, next steps) stays; '' when nothing is.
+ */
+export function withoutRepeated(answer, seen) {
+  const source = comparable(seen);
+  if (!source) return String(answer ?? '').trim();
+  const sourceWords = new Set(source.split(' '));
+  return String(answer ?? '')
+    .split(/\n\s*\n/)
+    .filter((paragraph) => {
+      const text = comparable(paragraph);
+      if (!text) return false;
+      if (text.length >= 20 && source.includes(text)) return false;
+      const words = text.split(' ');
+      const repeated = words.filter((word) => sourceWords.has(word)).length;
+      return !(words.length >= 6 && repeated / words.length >= 0.85);
+    })
+    .join('\n\n')
+    .trim();
+}

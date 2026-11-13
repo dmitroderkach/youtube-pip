@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  withoutRepeated,
   budgetLevel,
   budgetStates,
   latestBudgetState,
@@ -204,4 +205,27 @@ test('Gemini speech budget: Google budget notifications only', () => {
   assert.equal(budgetLevel({ ...latest, usd: 10 }, now), 'exhausted');
   // A figure of the previous month says nothing about this one
   assert.equal(budgetLevel({ ...latest, usd: 10 }, Date.parse('2026-12-02T00:00:00Z')), 'none');
+});
+
+test("after a subagent finished in the owner's view, its message is not repeated", () => {
+  const seen =
+    'Read 5 files in scripts/claude-update. aws-invoke.mjs invokes a Lambda. report.mjs sends the report to Telegram.';
+  // The pasted message goes, Claude's own words stay
+  assert.equal(
+    withoutRepeated(
+      'The subagent finished.\n\nRead 5 files in scripts/claude-update. aws-invoke.mjs invokes a Lambda. report.mjs sends the report to Telegram.\n\nNext: a PR.',
+      seen
+    ),
+    'The subagent finished.\n\nNext: a PR.'
+  );
+  // A list made of its sentences goes too; nothing left → ''
+  assert.equal(
+    withoutRepeated(
+      '- aws-invoke.mjs invokes a Lambda\n\n- report.mjs sends the report to Telegram',
+      seen
+    ),
+    ''
+  );
+  // Nothing seen: the answer as is
+  assert.equal(withoutRepeated('All good', ''), 'All good');
 });
