@@ -116,9 +116,44 @@ def merge(token):
         token,
         {"merge_method": "squash", "sha": sha, "commit_title": f"{pr['title']} (#{number})"},
     )
-    if status != 200 or not body.get("merged"):
-        sys.exit(f"🔴 PR #{number}: GitHub не змерджив ({status}: {body.get('message')})")
-    print(f"✅ PR #{number} змерджено в main (squash {body['sha'][:7]}): «{pr['title'][:120]}»")
+    if status == 200 and body.get("merged"):
+        print(f"✅ PR #{number} змерджено в main (squash {body['sha'][:7]}): «{pr['title'][:120]}»")
+        return
+    if status >= 500:
+        # GitHub may have merged anyway (2026-11-13: a 502 with the squash commit on main and the PR left open)
+        merged = merged_anyway(token, number, sha)
+        if merged:
+            print(
+                f"✅ PR #{number} змерджено в main ({merged[:7]}): GitHub відповів {status}, але на main саме "
+                f"схвалений вміст «{pr['title'][:100]}»"
+                + ("" if merged_pr(token, number) else "; PR лишився відкритим: закрий його вручну")
+            )
+            return
+    sys.exit(f"🔴 PR #{number}: GitHub не змерджив ({status}: {body.get('message')})")
+
+
+def merged_pr(token, number):
+    status, pr = call("GET", f"/repos/{REPO}/pulls/{number}", token)
+    return status == 200 and pr.get("merged")
+
+
+def merged_anyway(token, number, sha):
+    """After a 5xx: the merge commit, when the PR is merged or main's head has exactly the approved head's files."""
+    for _ in range(6):
+        time.sleep(10)
+        status, pr = call("GET", f"/repos/{REPO}/pulls/{number}", token)
+        if status == 200 and pr.get("merged"):
+            return pr.get("merge_commit_sha") or "merged"
+        status, approved = call("GET", f"/repos/{REPO}/git/commits/{sha}", token)
+        status_main, main = call("GET", f"/repos/{REPO}/commits/main", token)
+        if (
+            status == 200
+            and status_main == 200
+            and main["commit"]["tree"]["sha"] == approved["tree"]["sha"]
+            and main["sha"] != sha
+        ):
+            return main["sha"]
+    return None
 
 
 def release(token):
