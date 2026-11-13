@@ -725,17 +725,24 @@ function contextLines(message) {
   return lines.join('\n');
 }
 
+/**
+ * The kept transcripts ({ id: text }). Only a missing object means "none yet": any other failure (network,
+ * throttling) throws, so a failed read is never saved over the kept transcripts as an empty store.
+ */
 async function voiceTranscripts() {
   try {
     await aws(
-      's3',
-      'cp',
-      `s3://${BUCKET}/${VOICE_TRANSCRIPTS_KEY}`,
-      '/tmp/voice-transcripts.json',
-      '--quiet'
+      's3api',
+      'get-object',
+      '--bucket',
+      BUCKET,
+      '--key',
+      VOICE_TRANSCRIPTS_KEY,
+      '/tmp/voice-transcripts-read.json'
     );
-    return JSON.parse(readFileSync('/tmp/voice-transcripts.json', 'utf8'));
-  } catch {
+    return JSON.parse(readFileSync('/tmp/voice-transcripts-read.json', 'utf8'));
+  } catch (error) {
+    if (!/NoSuchKey/.test(`${error?.stderr ?? ''} ${error?.message ?? ''}`)) throw error;
     return {};
   }
 }
@@ -743,7 +750,14 @@ async function voiceTranscripts() {
 /** Keep a voice message's transcript under its message id (a failure only loses the shortcut). */
 async function keepVoiceTranscript(messageId, text) {
   if (!messageId || !text) return;
-  const all = { ...(await voiceTranscripts()), [messageId]: text };
+  let stored;
+  try {
+    stored = await voiceTranscripts();
+  } catch (error) {
+    log('keep voice transcript: read failed, not kept', error);
+    return;
+  }
+  const all = { ...stored, [messageId]: text };
   const kept = Object.fromEntries(
     Object.entries(all)
       .sort(([a], [b]) => Number(b) - Number(a))
@@ -783,12 +797,16 @@ async function buildPrompt(message, setStatus) {
     if (attachment.kind === 'voice' || attachment.kind === 'audio') {
       // Not transcribed again (it costs a request): the transcript kept when it arrived, if any
       const kept = message.reply_to.message_id
-        ? (await voiceTranscripts())[message.reply_to.message_id]
+        ? ((await voiceTranscripts().catch((error) =>
+            log('read voice transcripts failed', error)
+          )) ?? {})[message.reply_to.message_id]
         : null;
       replyFiles.push(
         kept
           ? `a ${attachment.kind} message; its transcript: «${kept}»`
-          : `a ${attachment.kind} message whose transcript was not kept (it was shown in the chat as "🎙 Розпізнав: …" right after it)`
+          : message.reply_to.from_bot
+            ? `your own voice reply (it spoke a summary of your answer sent just before it)`
+            : `a ${attachment.kind} message whose transcript was not kept (it was shown in the chat as "🎙 Розпізнав: …" right after it)`
       );
       continue;
     }
