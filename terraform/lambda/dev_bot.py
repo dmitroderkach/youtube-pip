@@ -190,19 +190,20 @@ def request_start_after_stop(up_at):
     except Exception:
         pass
     s3.put_object(Bucket=STATE_BUCKET, Key=PENDING_START_KEY, Body=json.dumps({"up_at": up_at}).encode())
-    # It may have stopped between the check and the write: then its event saw no request, so start now
+    # It may have stopped between the check and the write: then its event saw no request, so start now (its STOPPED
+    # event may still come after this start: task_stopped then names it the previous worker)
     if not worker_stopping() and not worker_tasks():
-        start_pending()
+        start_pending("⏳ Попередній воркер уже зупинився: піднімаю новий…")
 
 
-def start_pending():
+def start_pending(announcement="⏳ Піднімаю новий воркер…"):
     """Start the worker for a pending request, if there is one (exactly once: the request is deleted first)."""
     try:
         pending = json.loads(s3.get_object(Bucket=STATE_BUCKET, Key=PENDING_START_KEY)["Body"].read())
     except Exception:
         return False
     s3.delete_object(Bucket=STATE_BUCKET, Key=PENDING_START_KEY)
-    say("⏳ Піднімаю новий воркер…")
+    say(announcement)
     return start_worker(int(pending.get("up_at", time.time())))
 
 
@@ -513,8 +514,9 @@ def task_stopped(event):
     if exit_code not in REPORTED_EXIT_CODES:
         report_unexpected_stop(detail, containers, exit_code)
     else:
-        # The worker said why it stops and that the context is saved; only now is the task really stopped
-        say("⚪ Воркер зупинено")
+        # The worker said why it stops and that the context is saved; only now is the task really stopped. A new worker
+        # may already be starting (a message while this one was stopping): then this is the previous one
+        say("⚪ Попередній воркер зупинено" if worker_tasks() else "⚪ Воркер зупинено")
     # A start requested while this task was saving its session
     if not worker_tasks():
         start_pending()
