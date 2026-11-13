@@ -67,6 +67,7 @@ import {
 } from './isolation.mjs';
 import { createSign } from 'node:crypto';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -471,7 +472,11 @@ function startGithubBroker() {
       res.writeHead(200, { 'Content-Type': 'text/plain' }).end(stdout.trim());
     });
   });
-  server.listen(GITHUB_BROKER_SOCKET, () => log(`github token broker on ${GITHUB_BROKER_SOCKET}`));
+  server.listen(GITHUB_BROKER_SOCKET, () => {
+    // Connecting needs write on the socket: Claude's group may, nobody else (the directory is the group's only)
+    chmodSync(GITHUB_BROKER_SOCKET, 0o660);
+    log(`github token broker on ${GITHUB_BROKER_SOCKET}`);
+  });
   server.unref();
 }
 

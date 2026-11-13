@@ -8,7 +8,7 @@
  */
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { rmSync } from 'node:fs';
+import { chmodSync, rmSync } from 'node:fs';
 import {
   asClaude,
   CLAUDE_HOME,
@@ -121,6 +121,7 @@ const socket = process.env.GITHUB_BROKER_SOCKET;
 rmSync(socket, { force: true });
 const server = createServer((req, res) => res.end(req.url === '/token' ? 'broker-token' : 'no'));
 await new Promise((resolve) => server.listen(socket, resolve));
+chmodSync(socket, 0o660);
 const token = asClaudeRun('github-token', []);
 check(
   'github-token as Claude gets the broker token',
