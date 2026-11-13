@@ -99,8 +99,9 @@ jobs:
 
             ### Full Changelog
             See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for all changes.
-          # Created as a draft with the assets, published in the next step: Greasy Fork syncs on the release webhook
-          # from releases/latest/download/youtube-pip.user.js, which must already be there when the release is published
+          # Created as a draft with the assets, published in the next step (immutable once published). github-gate then
+          # copies youtube-pip.user.js to the branch `release`, which Greasy Fork and installed scripts read
+          # (docs/GREASY_FORK.md); scripts installed before that switch still read releases/latest/download/…
           draft: true
           prerelease: false
         env:

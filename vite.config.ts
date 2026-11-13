@@ -13,8 +13,8 @@ const userscriptHeader = `// ==UserScript==
 // @grant        none
 // @homepageURL  https://github.com/dmitroderkach/youtube-pip
 // @supportURL   https://github.com/dmitroderkach/youtube-pip/issues
-// @updateURL    https://github.com/dmitroderkach/youtube-pip/releases/latest/download/youtube-pip.user.js
-// @downloadURL  https://github.com/dmitroderkach/youtube-pip/releases/latest/download/youtube-pip.user.js
+// @updateURL    https://raw.githubusercontent.com/dmitroderkach/youtube-pip/release/youtube-pip.user.js
+// @downloadURL  https://raw.githubusercontent.com/dmitroderkach/youtube-pip/release/youtube-pip.user.js
 // @license      MIT
 // ==/UserScript==
 
