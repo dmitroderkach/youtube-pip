@@ -417,7 +417,9 @@ def gate(query, request_id, decision):
         "tf": "Застосовую план",
         "image": f"Збираю і публікую {record.get('image')}:latest",
         "telegram": "Налаштовую бота",
-    }[record["kind"]]
+        "merge": f"Мерджу PR #{record.get('pr')}",
+        "release": f"Створюю тег v{record.get('version')} і публікую реліз",
+    }.get(record["kind"], "Запускаю")
     reply(f"▶️ {what}… Результат прийде сюди (CodeBuild {build_id.split(':')[-1][:8]})")
     return {"statusCode": 200, "body": "started"}
 
