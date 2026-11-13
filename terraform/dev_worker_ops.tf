@@ -46,6 +46,9 @@ locals {
   github_gate_project    = "${local.name_prefix}-github-gate"
   # Secret of the gate GitHub App (filled by hand): app_id, installation_id, private_key
   gate_github_app_secret_name = "youtube-pip-gate-github-app"
+  # The dev-ops Lambda's GitHub token (filled by hand, plain string): fine-grained, "Public repositories (read-only)",
+  # no permissions; only for the API's rate limit
+  dev_ops_github_token_secret = "youtube-pip-dev-ops-github-token"
   boundary_policy_arn         = "arn:aws:iam::${local.account_id}:policy/${local.name_prefix}-permissions-boundary"
 
   # Roles of the gate: nothing but the owner changes them, and nothing the apply role creates may be given them
@@ -677,7 +680,13 @@ resource "aws_iam_role_policy" "dev_ops_lambda" {
       {
         Effect   = "Allow"
         Action   = "secretsmanager:GetSecretValue"
-        Resource = [data.aws_secretsmanager_secret.oncall.arn, data.aws_secretsmanager_secret.gate_github_app.arn]
+        Resource = data.aws_secretsmanager_secret.oncall.arn
+      },
+      {
+        # The read-only GitHub token (filled by hand; by name: the Lambda works without it)
+        Effect   = "Allow"
+        Action   = "secretsmanager:GetSecretValue"
+        Resource = "arn:aws:secretsmanager:${var.aws_region}:${local.account_id}:secret:${local.dev_ops_github_token_secret}-*"
       }
     ]
   })
@@ -698,9 +707,7 @@ resource "aws_lambda_function" "dev_ops" {
   handler          = "dev_ops.handler"
   filename         = data.archive_file.dev_ops.output_path
   source_code_hash = data.archive_file.dev_ops.output_base64sha256
-  # PyJWT + cryptography (the gate App's read-only tokens)
-  layers  = [aws_lambda_layer_version.lambda_deps.arn]
-  timeout = 30
+  timeout          = 30
 
   environment {
     variables = {
@@ -710,8 +717,8 @@ resource "aws_lambda_function" "dev_ops" {
       ONCALL_SECRET_ARN   = data.aws_secretsmanager_secret.oncall.arn
       GITHUB_REPO         = "${var.github_owner}/${var.github_repo}"
       CANDIDATES_REPO_URL = aws_ecr_repository.image_candidates.repository_url
-      # Read-only tokens of the gate App for the GitHub API (anonymous calls hit the per-IP rate limit)
-      GATE_APP_SECRET_ARN = data.aws_secretsmanager_secret.gate_github_app.arn
+      # Read-only GitHub token (anonymous calls hit the per-IP rate limit); never the gate App's key
+      GITHUB_TOKEN_SECRET = local.dev_ops_github_token_secret
     }
   }
 }
