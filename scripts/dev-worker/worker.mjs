@@ -138,6 +138,12 @@ const ANSWER_TIMEOUT_MS = 60 * 60 * 1000;
 const INBOX_PREFIX = 'inbox/';
 /** Photos and files from the chat, for Claude's Read tool (outside the repository). */
 const INBOX_DIR = join(homedir(), 'inbox');
+/**
+ * Transcripts of the owner's voice / audio messages by Telegram message id ({ id: text }, the newest
+ * VOICE_TRANSCRIPTS_KEPT): a reply to a voice message gets its text without transcribing it again.
+ */
+const VOICE_TRANSCRIPTS_KEY = 'state/voice-transcripts.json';
+const VOICE_TRANSCRIPTS_KEPT = 500;
 /** Files Claude puts here are sent to the chat after its answer, then moved to OUTBOX_SENT_DIR. */
 const OUTBOX_DIR = join(homedir(), 'outbox');
 const OUTBOX_SENT_DIR = join(OUTBOX_DIR, 'sent');
@@ -719,6 +725,40 @@ function contextLines(message) {
   return lines.join('\n');
 }
 
+async function voiceTranscripts() {
+  try {
+    await aws(
+      's3',
+      'cp',
+      `s3://${BUCKET}/${VOICE_TRANSCRIPTS_KEY}`,
+      '/tmp/voice-transcripts.json',
+      '--quiet'
+    );
+    return JSON.parse(readFileSync('/tmp/voice-transcripts.json', 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+/** Keep a voice message's transcript under its message id (a failure only loses the shortcut). */
+async function keepVoiceTranscript(messageId, text) {
+  if (!messageId || !text) return;
+  const all = { ...(await voiceTranscripts()), [messageId]: text };
+  const kept = Object.fromEntries(
+    Object.entries(all)
+      .sort(([a], [b]) => Number(b) - Number(a))
+      .slice(0, VOICE_TRANSCRIPTS_KEPT)
+  );
+  writeFileSync('/tmp/voice-transcripts.json', JSON.stringify(kept));
+  await aws(
+    's3',
+    'cp',
+    '/tmp/voice-transcripts.json',
+    `s3://${BUCKET}/${VOICE_TRANSCRIPTS_KEY}`,
+    '--quiet'
+  ).catch((error) => log('keep voice transcript failed', error));
+}
+
 async function buildPrompt(message, setStatus) {
   const parts = [];
   const files = [];
@@ -729,6 +769,7 @@ async function buildPrompt(message, setStatus) {
       const text = await transcribe(path, attachment.mime_type);
       await say(text ? `🎙 Розпізнав: «${text}»` : '🎙 У аудіо не знайшов мови');
       if (text) parts.push(text);
+      await keepVoiceTranscript(message.message_id, text);
     } else {
       files.push(
         `${attachment.kind === 'photo' ? 'an image' : `a file (${attachment.mime_type ?? 'unknown type'})`}: ${path}`
@@ -739,6 +780,18 @@ async function buildPrompt(message, setStatus) {
   // look at them even after a restart (~/inbox does not survive one)
   const replyFiles = [];
   for (const attachment of message.reply_to?.files ?? []) {
+    if (attachment.kind === 'voice' || attachment.kind === 'audio') {
+      // Not transcribed again (it costs a request): the transcript kept when it arrived, if any
+      const kept = message.reply_to.message_id
+        ? (await voiceTranscripts())[message.reply_to.message_id]
+        : null;
+      replyFiles.push(
+        kept
+          ? `a ${attachment.kind} message; its transcript: «${kept}»`
+          : `a ${attachment.kind} message whose transcript was not kept (it was shown in the chat as "🎙 Розпізнав: …" right after it)`
+      );
+      continue;
+    }
     try {
       const path = await downloadTelegramFile(attachment.file_id, attachment.file_name);
       replyFiles.push(
@@ -758,7 +811,7 @@ async function buildPrompt(message, setStatus) {
   }
   if (replyFiles.length) {
     parts.push(
-      `[The replied-to message had ${replyFiles.join('; ')}. Open it with the Read tool when it matters.]`
+      `[The replied-to message had ${replyFiles.join('; ')}. Open a file with the Read tool when it matters.]`
     );
   }
   return parts.join('\n\n');
@@ -2450,6 +2503,7 @@ async function answerPending(message) {
     const path = await downloadTelegramFile(attachment.file_id, attachment.file_name);
     const spoken = await transcribe(path, attachment.mime_type);
     await say(spoken ? `🎙 Розпізнав: «${spoken}»` : '🎙 У аудіо не знайшов мови');
+    await keepVoiceTranscript(message.message_id, spoken);
     text = [text, spoken].filter(Boolean).join('\n');
   }
   if (!text) return;
