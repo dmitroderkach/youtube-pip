@@ -143,6 +143,7 @@ const INBOX_DIR = join(homedir(), 'inbox');
  * VOICE_TRANSCRIPTS_KEPT): a reply to a voice message gets its text without transcribing it again.
  */
 const VOICE_TRANSCRIPTS_KEY = 'state/voice-transcripts.json';
+// The worker's own voice replies are kept there too, with the text they spoke
 const VOICE_TRANSCRIPTS_KEPT = 500;
 /** Files Claude puts here are sent to the chat after its answer, then moved to OUTBOX_SENT_DIR. */
 const OUTBOX_DIR = join(homedir(), 'outbox');
@@ -803,7 +804,9 @@ async function buildPrompt(message, setStatus) {
         : null;
       replyFiles.push(
         kept
-          ? `a ${attachment.kind} message; its transcript: «${kept}»`
+          ? message.reply_to.from_bot
+            ? `your own voice reply; it said: «${kept}»`
+            : `a ${attachment.kind} message; its transcript: «${kept}»`
           : message.reply_to.from_bot
             ? `your own voice reply (it spoke a summary of your answer sent just before it)`
             : `a ${attachment.kind} message whose transcript was not kept (it was shown in the chat as "🎙 Розпізнав: …" right after it)`
@@ -1618,6 +1621,7 @@ async function sendVoice(audio, caption) {
     return form;
   });
   if (!json.ok) throw new Error(`sendVoice: ${json.description ?? 'Telegram error'}`);
+  return json.result?.message_id ?? null;
 }
 
 /** Text to speak when Claude gave no <voice> block: the answer without links, code and markup, cut short. */
@@ -1677,7 +1681,9 @@ async function replyByVoice(text, spoken) {
   const speech = (spoken ?? speakable(text)).slice(0, TTS_MAX_CHARS * 2);
   if (!speech) return;
   try {
-    await sendVoice(await synthesizeWithFallback(speech));
+    const messageId = await sendVoice(await synthesizeWithFallback(speech));
+    // What it said, for a later reply to it (kept like the owner's voice transcripts)
+    await keepVoiceTranscript(messageId, speech);
   } catch (error) {
     log('voice reply failed', error);
     await say(
