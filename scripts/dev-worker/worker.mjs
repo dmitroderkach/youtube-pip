@@ -568,9 +568,25 @@ async function saveMeta() {
 async function downloadTelegramFile(fileId, name) {
   const file = await telegram('getFile', { file_id: fileId });
   if (!file?.file_path) throw new Error('Telegram не віддав файл (більше 20 МБ?)');
-  const res = await fetch(
-    `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`
-  );
+  // Retried like the Bot API calls: a dropped connection to Telegram (seen live: ETIMEDOUT) must not lose the message
+  let res = null;
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3 && !res?.ok; attempt++) {
+    if (attempt > 1) await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
+    res = await fetch(
+      `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`,
+      {
+        signal: AbortSignal.timeout(60_000),
+      }
+    ).catch((error) => {
+      lastError = error;
+      return null;
+    });
+  }
+  if (!res)
+    throw new Error(
+      `завантаження файлу: ${lastError?.cause?.code ?? lastError?.message ?? 'збій мережі'}`
+    );
   if (!res.ok) throw new Error(`завантаження файлу: HTTP ${res.status}`);
   mkdirSync(INBOX_DIR, { recursive: true });
   const ext = file.file_path.includes('.')
@@ -778,7 +794,20 @@ async function buildPrompt(message, setStatus) {
   const parts = [];
   const files = [];
   for (const attachment of message.attachments ?? []) {
-    const path = await downloadTelegramFile(attachment.file_id, attachment.file_name);
+    let path;
+    try {
+      path = await downloadTelegramFile(attachment.file_id, attachment.file_name);
+    } catch (error) {
+      // The text still goes to Claude; the owner is told the file did not come through
+      log('attachment download failed', error);
+      await say(
+        `⚠️ Не вдалося завантажити ${attachment.kind === 'photo' ? 'фото' : 'файл'} з Telegram (${error.message}): надішли його ще раз`
+      );
+      files.push(
+        `a ${attachment.kind} that could not be downloaded (${error.message}); the owner was asked to send it again`
+      );
+      continue;
+    }
     if (attachment.kind === 'voice' || attachment.kind === 'audio') {
       await setStatus('🎙 Розпізнаю аудіо…');
       const text = await transcribe(path, attachment.mime_type);
