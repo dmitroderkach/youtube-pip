@@ -123,8 +123,16 @@ jobs:
             ${{ steps.changelog.outputs.content }}
           prerelease: true
           make_latest: false
+          # A draft first: releases are immutable once published (no asset uploads after), so the assets go to the
+          # draft and the next step publishes it, as release.yml does
+          draft: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ steps.version.outputs.tag }}" --repo "${{ github.repository }}" --draft=false --prerelease --latest=false
 
       - name: Summary
         run: |
