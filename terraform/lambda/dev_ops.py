@@ -30,7 +30,6 @@ import urllib.request
 import uuid
 
 import boto3
-import jwt
 
 codebuild = boto3.client("codebuild")
 s3 = boto3.client("s3")
@@ -42,9 +41,10 @@ OPS_BUCKET = os.environ["OPS_BUCKET"]
 ONCALL_SECRET_ARN = os.environ["ONCALL_SECRET_ARN"]
 GITHUB_REPO = os.environ["GITHUB_REPO"]
 CANDIDATES_REPO_URL = os.environ["CANDIDATES_REPO_URL"]
-# Gate GitHub App (app_id, installation_id, private_key): only read-only tokens are minted here, for the API's rate limit
-# (anonymous calls share 60 an hour with every Lambda on the same public IP); the merges and tags are github-gate's
-GATE_APP_SECRET_ARN = os.environ.get("GATE_APP_SECRET_ARN", "")
+# GitHub API reads: `github_read_token` of the on-call secret, a fine-grained token of the owner with "Public
+# repositories (read-only)" access and no permissions, for the API's rate limit only (anonymous calls share 60 an hour
+# with every Lambda on the same public IP). It can read nothing that is not public and write nothing; the gate App's
+# key stays github-gate's alone. Without the key the calls stay anonymous.
 
 IMAGES = {
     "runner": "Ранер виконує весь CI: нові джоби підуть уже на ньому.",
@@ -76,46 +76,20 @@ def main_commit():
     return commit["sha"], commit["commit"]["message"].splitlines()[0]
 
 
-_token = {"value": None, "expires": 0}
+_token = {"value": None, "read_at": 0}
 
 
 def github_token():
-    """A read-only installation token of the gate App for this repository (cached), or None without the secret."""
-    if not GATE_APP_SECRET_ARN:
-        return None
-    if _token["value"] and _token["expires"] - time.time() > 300:
-        return _token["value"]
-    app = json.loads(secrets.get_secret_value(SecretId=GATE_APP_SECRET_ARN)["SecretString"])
-    now = int(time.time())
-    assertion = jwt.encode(
-        {"iat": now - 60, "exp": now + 540, "iss": str(app["app_id"])},
-        app["private_key"].replace("\\n", "\n"),
-        algorithm="RS256",
-    )
-    request = urllib.request.Request(
-        f"https://api.github.com/app/installations/{app['installation_id']}/access_tokens",
-        method="POST",
-        data=json.dumps(
-            {
-                "repositories": [GITHUB_REPO.split("/")[1]],
-                "permissions": {"contents": "read", "pull_requests": "read", "metadata": "read"},
-            }
-        ).encode(),
-        headers={
-            "Accept": "application/vnd.github+json",
-            "Authorization": f"Bearer {assertion}",
-            "User-Agent": "youtube-pip-dev-ops",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        body = json.loads(response.read())
-    _token.update(value=body["token"], expires=time.time() + 3000)
-    return body["token"]
+    """The read-only token (re-read every 10 minutes, so a rotation applies without a deploy), or None."""
+    if time.time() - _token["read_at"] > 600:
+        oncall = json.loads(secrets.get_secret_value(SecretId=ONCALL_SECRET_ARN)["SecretString"])
+        _token["value"] = (oncall.get("github_read_token") or "").strip() or None
+        _token["read_at"] = time.time()
+    return _token["value"]
 
 
 def github(path):
-    """GitHub REST API of the repository with the gate App's read-only token, JSON."""
+    """GitHub REST API of the repository with the read-only token (anonymous without it), JSON."""
     headers = {"Accept": "application/vnd.github+json", "User-Agent": "youtube-pip-dev-ops"}
     token = github_token()
     if token:

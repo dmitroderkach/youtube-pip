@@ -675,9 +675,10 @@ resource "aws_iam_role_policy" "dev_ops_lambda" {
         Resource = "${aws_s3_bucket.dev_ops.arn}/gate/*"
       },
       {
+        # Bot token and chat for the requests; github_read_token for the GitHub API (dev_ops.py)
         Effect   = "Allow"
         Action   = "secretsmanager:GetSecretValue"
-        Resource = [data.aws_secretsmanager_secret.oncall.arn, data.aws_secretsmanager_secret.gate_github_app.arn]
+        Resource = data.aws_secretsmanager_secret.oncall.arn
       }
     ]
   })
@@ -698,9 +699,7 @@ resource "aws_lambda_function" "dev_ops" {
   handler          = "dev_ops.handler"
   filename         = data.archive_file.dev_ops.output_path
   source_code_hash = data.archive_file.dev_ops.output_base64sha256
-  # PyJWT + cryptography (the gate App's read-only tokens)
-  layers  = [aws_lambda_layer_version.lambda_deps.arn]
-  timeout = 30
+  timeout          = 30
 
   environment {
     variables = {
@@ -710,8 +709,6 @@ resource "aws_lambda_function" "dev_ops" {
       ONCALL_SECRET_ARN   = data.aws_secretsmanager_secret.oncall.arn
       GITHUB_REPO         = "${var.github_owner}/${var.github_repo}"
       CANDIDATES_REPO_URL = aws_ecr_repository.image_candidates.repository_url
-      # Read-only tokens of the gate App for the GitHub API (anonymous calls hit the per-IP rate limit)
-      GATE_APP_SECRET_ARN = data.aws_secretsmanager_secret.gate_github_app.arn
     }
   }
 }
