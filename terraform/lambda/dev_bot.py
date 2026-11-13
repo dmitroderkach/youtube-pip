@@ -260,7 +260,11 @@ def context_of(message):
             "text": (reply.get("text") or reply.get("caption") or "")[:REPLY_MAX_CHARS],
             "from_bot": bool((reply.get("from") or {}).get("is_bot")),
             "date": reply.get("date", 0),
+            "message_id": reply.get("message_id"),
             "attachments": [a["kind"] for a in attachments_of(reply)],
+            # The attachments themselves (file ids stay valid): the worker downloads photos and files again for Claude;
+            # a voice message is not transcribed again: the worker keeps transcripts by message id
+            "files": attachments_of(reply),
         }
         quote = (message.get("quote") or {}).get("text")
         if quote:
@@ -298,7 +302,13 @@ def forward(message, text, attachments):
     sqs.send_message(
         QueueUrl=QUEUE_URL,
         MessageBody=json.dumps(
-            {"text": text, "attachments": attachments, "date": message.get("date", 0), **context_of(message)}
+            {
+                "text": text,
+                "attachments": attachments,
+                "date": message.get("date", 0),
+                "message_id": message.get("message_id"),
+                **context_of(message),
+            }
         ),
         MessageGroupId=str(message["chat"]["id"]),
         MessageDeduplicationId=str(message["message_id"]),
