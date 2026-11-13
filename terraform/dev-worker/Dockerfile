@@ -64,7 +64,10 @@ COPY terraform/dev-worker/entrypoint.sh /entrypoint.sh
 # Terraform plans of main and Docker images through CodeBuild (docs/DEV_WORKER.md, "Infrastructure and images")
 COPY scripts/dev-worker/dev-ops.sh /usr/local/bin/dev-ops
 COPY scripts/dev-worker/schedule.sh /usr/local/bin/schedule
-RUN chmod +x /entrypoint.sh /usr/local/bin/dev-ops /usr/local/bin/schedule
+# GitHub as the worker's own App: tokens for git (credential helper) and gh (a wrapper ahead of /usr/bin/gh)
+COPY scripts/dev-worker/github-app-token.mjs /usr/local/bin/github-app-token
+COPY scripts/dev-worker/gh-wrapper.sh /usr/local/bin/gh
+RUN chmod +x /entrypoint.sh /usr/local/bin/dev-ops /usr/local/bin/schedule /usr/local/bin/github-app-token /usr/local/bin/gh
 
 USER worker
 WORKDIR /home/worker
