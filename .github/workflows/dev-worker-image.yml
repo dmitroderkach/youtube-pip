@@ -1,10 +1,18 @@
 name: Dev worker image
 
-# Builds the dev worker image on a PR that changes it and runs the isolation check inside it
+# Builds the dev worker image on a PR that changes it (and on main, for the layer cache) and runs the isolation check inside it
 # (scripts/dev-worker/isolation-check.mjs; docs/DEV_WORKER.md, "Claude Code as a separate user"): Claude Code's user
 # must not see or reach the worker's secrets. Fake secrets only; nothing is pushed.
 on:
   pull_request:
+    paths:
+      - 'terraform/dev-worker/**'
+      - 'scripts/dev-worker/**'
+      - '.github/workflows/dev-worker-image.yml'
+  # Also on main: the Actions cache is scoped to the branch, and a PR can read its own cache and main's, never another
+  # PR's. Builds on main keep the layer cache where every new PR finds it.
+  push:
+    branches: [main]
     paths:
       - 'terraform/dev-worker/**'
       - 'scripts/dev-worker/**'
