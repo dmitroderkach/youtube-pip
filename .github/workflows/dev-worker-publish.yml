@@ -28,10 +28,13 @@ jobs:
 
       - name: Wait until the GitHub API shows this commit as main
         # dev-ops reads main through the public API, which serves the previous commit for about a minute after a merge
+        env:
+          # Authenticated: anonymous API calls share a small per-IP rate limit
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           # main is this commit or a later one (another merge may have landed meanwhile)
           for _ in $(seq 1 20); do
-            status=$(curl -fsS "https://api.github.com/repos/${GITHUB_REPOSITORY}/compare/${GITHUB_SHA}...main" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).status))')
+            status=$(curl -fsS -H "Authorization: Bearer ${GITHUB_TOKEN}" "https://api.github.com/repos/${GITHUB_REPOSITORY}/compare/${GITHUB_SHA}...main" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).status))')
             case "$status" in identical|ahead) exit 0 ;; esac
             sleep 15
           done

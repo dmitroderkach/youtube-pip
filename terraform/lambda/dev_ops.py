@@ -20,6 +20,7 @@ Nothing started here changes the infrastructure or a published image: what chang
 and the message with the button is sent from here or from tf-plan, never by the worker.
 """
 
+import base64
 import json
 import os
 import re
@@ -29,6 +30,7 @@ import urllib.request
 import uuid
 
 import boto3
+import jwt
 
 codebuild = boto3.client("codebuild")
 s3 = boto3.client("s3")
@@ -40,6 +42,9 @@ OPS_BUCKET = os.environ["OPS_BUCKET"]
 ONCALL_SECRET_ARN = os.environ["ONCALL_SECRET_ARN"]
 GITHUB_REPO = os.environ["GITHUB_REPO"]
 CANDIDATES_REPO_URL = os.environ["CANDIDATES_REPO_URL"]
+# Gate GitHub App (app_id, installation_id, private_key): only read-only tokens are minted here, for the API's rate limit
+# (anonymous calls share 60 an hour with every Lambda on the same public IP); the merges and tags are github-gate's
+GATE_APP_SECRET_ARN = os.environ.get("GATE_APP_SECRET_ARN", "")
 
 IMAGES = {
     "runner": "Ранер виконує весь CI: нові джоби підуть уже на ньому.",
@@ -66,32 +71,64 @@ def telegram(method, payload):
 
 
 def main_commit():
-    """(sha, subject) of the head of main (public repository: no token)."""
-    request = urllib.request.Request(
-        f"https://api.github.com/repos/{GITHUB_REPO}/commits/main",
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "youtube-pip-dev-ops"},
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        commit = json.loads(response.read())
+    """(sha, subject) of the head of main."""
+    commit = github("/commits/main")
     return commit["sha"], commit["commit"]["message"].splitlines()[0]
 
 
-def github(path):
-    """GitHub REST API of the repository (public: no token), JSON."""
-    request = urllib.request.Request(
-        f"https://api.github.com/repos/{GITHUB_REPO}{path}",
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "youtube-pip-dev-ops"},
+_token = {"value": None, "expires": 0}
+
+
+def github_token():
+    """A read-only installation token of the gate App for this repository (cached), or None without the secret."""
+    if not GATE_APP_SECRET_ARN:
+        return None
+    if _token["value"] and _token["expires"] - time.time() > 300:
+        return _token["value"]
+    app = json.loads(secrets.get_secret_value(SecretId=GATE_APP_SECRET_ARN)["SecretString"])
+    now = int(time.time())
+    assertion = jwt.encode(
+        {"iat": now - 60, "exp": now + 540, "iss": str(app["app_id"])},
+        app["private_key"].replace("\\n", "\n"),
+        algorithm="RS256",
     )
+    request = urllib.request.Request(
+        f"https://api.github.com/app/installations/{app['installation_id']}/access_tokens",
+        method="POST",
+        data=json.dumps(
+            {
+                "repositories": [GITHUB_REPO.split("/")[1]],
+                "permissions": {"contents": "read", "pull_requests": "read", "metadata": "read"},
+            }
+        ).encode(),
+        headers={
+            "Accept": "application/vnd.github+json",
+            "Authorization": f"Bearer {assertion}",
+            "User-Agent": "youtube-pip-dev-ops",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        body = json.loads(response.read())
+    _token.update(value=body["token"], expires=time.time() + 3000)
+    return body["token"]
+
+
+def github(path):
+    """GitHub REST API of the repository with the gate App's read-only token, JSON."""
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "youtube-pip-dev-ops"}
+    token = github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(f"https://api.github.com/repos/{GITHUB_REPO}{path}", headers=headers)
     with urllib.request.urlopen(request, timeout=10) as response:
         return json.loads(response.read())
 
 
 def raw_file(sha, path):
-    request = urllib.request.Request(
-        f"https://raw.githubusercontent.com/{GITHUB_REPO}/{sha}/{path}", headers={"User-Agent": "youtube-pip-dev-ops"}
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        return response.read().decode()
+    """A file at a commit (contents API: authenticated, unlike raw.githubusercontent.com)."""
+    content = github(f"/contents/{path}?ref={sha}")
+    return base64.b64decode(content["content"]).decode()
 
 
 # Changes there decide what runs with which rights or what reaches users: marked ⚠️ in a merge request
@@ -243,12 +280,7 @@ def ask_owner(kind, sha, text, button, extra):
 
 def menu_commands(sha):
     """The command menu setup-telegram.mjs sets at that commit: ["/up — …", …]."""
-    request = urllib.request.Request(
-        f"https://raw.githubusercontent.com/{GITHUB_REPO}/{sha}/scripts/dev-worker/setup-telegram.mjs",
-        headers={"User-Agent": "youtube-pip-dev-ops"},
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        source = response.read().decode()
+    source = raw_file(sha, "scripts/dev-worker/setup-telegram.mjs")
     found = re.findall(r"\{\s*command:\s*'([^']+)',\s*description:\s*'([^']*)'\s*\}", source)
     return [f"/{name} — {description}" for name, description in found]
 
