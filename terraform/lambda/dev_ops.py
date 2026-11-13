@@ -20,6 +20,7 @@ Nothing started here changes the infrastructure or a published image: what chang
 and the message with the button is sent from here or from tf-plan, never by the worker.
 """
 
+import base64
 import json
 import os
 import re
@@ -40,6 +41,10 @@ OPS_BUCKET = os.environ["OPS_BUCKET"]
 ONCALL_SECRET_ARN = os.environ["ONCALL_SECRET_ARN"]
 GITHUB_REPO = os.environ["GITHUB_REPO"]
 CANDIDATES_REPO_URL = os.environ["CANDIDATES_REPO_URL"]
+# GitHub API reads: `github_read_token` of the on-call secret, a fine-grained token of the owner with "Public
+# repositories (read-only)" access and no permissions, for the API's rate limit only (anonymous calls share 60 an hour
+# with every Lambda on the same public IP). It can read nothing that is not public and write nothing; the gate App's
+# key stays github-gate's alone. Without the key the calls stay anonymous.
 
 IMAGES = {
     "runner": "Ранер виконує весь CI: нові джоби підуть уже на ньому.",
@@ -66,32 +71,38 @@ def telegram(method, payload):
 
 
 def main_commit():
-    """(sha, subject) of the head of main (public repository: no token)."""
-    request = urllib.request.Request(
-        f"https://api.github.com/repos/{GITHUB_REPO}/commits/main",
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "youtube-pip-dev-ops"},
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        commit = json.loads(response.read())
+    """(sha, subject) of the head of main."""
+    commit = github("/commits/main")
     return commit["sha"], commit["commit"]["message"].splitlines()[0]
 
 
+_token = {"value": None, "read_at": 0}
+
+
+def github_token():
+    """The read-only token (re-read every 10 minutes, so a rotation applies without a deploy), or None."""
+    if time.time() - _token["read_at"] > 600:
+        oncall = json.loads(secrets.get_secret_value(SecretId=ONCALL_SECRET_ARN)["SecretString"])
+        _token["value"] = (oncall.get("github_read_token") or "").strip() or None
+        _token["read_at"] = time.time()
+    return _token["value"]
+
+
 def github(path):
-    """GitHub REST API of the repository (public: no token), JSON."""
-    request = urllib.request.Request(
-        f"https://api.github.com/repos/{GITHUB_REPO}{path}",
-        headers={"Accept": "application/vnd.github+json", "User-Agent": "youtube-pip-dev-ops"},
-    )
+    """GitHub REST API of the repository with the read-only token (anonymous without it), JSON."""
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": "youtube-pip-dev-ops"}
+    token = github_token()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(f"https://api.github.com/repos/{GITHUB_REPO}{path}", headers=headers)
     with urllib.request.urlopen(request, timeout=10) as response:
         return json.loads(response.read())
 
 
 def raw_file(sha, path):
-    request = urllib.request.Request(
-        f"https://raw.githubusercontent.com/{GITHUB_REPO}/{sha}/{path}", headers={"User-Agent": "youtube-pip-dev-ops"}
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        return response.read().decode()
+    """A file at a commit (contents API: authenticated, unlike raw.githubusercontent.com)."""
+    content = github(f"/contents/{path}?ref={sha}")
+    return base64.b64decode(content["content"]).decode()
 
 
 # Changes there decide what runs with which rights or what reaches users: marked ⚠️ in a merge request
@@ -243,12 +254,7 @@ def ask_owner(kind, sha, text, button, extra):
 
 def menu_commands(sha):
     """The command menu setup-telegram.mjs sets at that commit: ["/up — …", …]."""
-    request = urllib.request.Request(
-        f"https://raw.githubusercontent.com/{GITHUB_REPO}/{sha}/scripts/dev-worker/setup-telegram.mjs",
-        headers={"User-Agent": "youtube-pip-dev-ops"},
-    )
-    with urllib.request.urlopen(request, timeout=10) as response:
-        source = response.read().decode()
+    source = raw_file(sha, "scripts/dev-worker/setup-telegram.mjs")
     found = re.findall(r"\{\s*command:\s*'([^']+)',\s*description:\s*'([^']*)'\s*\}", source)
     return [f"/{name} — {description}" for name, description in found]
 

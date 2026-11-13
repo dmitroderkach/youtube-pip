@@ -675,6 +675,7 @@ resource "aws_iam_role_policy" "dev_ops_lambda" {
         Resource = "${aws_s3_bucket.dev_ops.arn}/gate/*"
       },
       {
+        # Bot token and chat for the requests; github_read_token for the GitHub API (dev_ops.py)
         Effect   = "Allow"
         Action   = "secretsmanager:GetSecretValue"
         Resource = data.aws_secretsmanager_secret.oncall.arn
