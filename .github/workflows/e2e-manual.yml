@@ -106,6 +106,14 @@ jobs:
           key: oncall-seen-flags-${{ github.run_id }}
           restore-keys: oncall-seen-flags-
 
+      - name: Restore flag culprit checks carried over
+        # Tests skipped over the culprit limit in earlier runs (scripts/oncall/confirm-flag-culprit.mjs)
+        uses: actions/cache/restore@v5
+        with:
+          path: oncall/pending-culprits.json
+          key: oncall-pending-culprits-${{ github.run_id }}
+          restore-keys: oncall-pending-culprits-
+
       - name: Scan experiment flags (code + served)
         run: node scripts/oncall/scan-flags.mjs oncall/flags oncall/seen-flags.json
 
@@ -133,12 +141,13 @@ jobs:
         id: failures
         run: |
           node --input-type=module -e '
-            import { existsSync, readdirSync, appendFileSync } from "node:fs";
+            import { existsSync, readdirSync, readFileSync, appendFileSync } from "node:fs";
             import { summarizePlaywrightReport } from "./scripts/oncall/lib/playwright-results.mjs";
             const r = summarizePlaywrightReport("oncall/e2e/results.json");
             const records = existsSync("oncall/e2e/page-flags") ? readdirSync("oncall/e2e/page-flags").length : 0;
-            const n = records ? r.failed.length + r.flaky.length : 0;
-            console.log(`${r.failed.length} failed, ${r.flaky.length} flaky, ${records} page flag records`);
+            const pending = existsSync("oncall/pending-culprits.json") ? JSON.parse(readFileSync("oncall/pending-culprits.json", "utf8")).length : 0;
+            const n = (records ? r.failed.length + r.flaky.length : 0) + pending;
+            console.log(`${r.failed.length} failed, ${r.flaky.length} flaky, ${records} page flag records, ${pending} carried over`);
             appendFileSync(process.env.GITHUB_OUTPUT, `count=${n}\n`);
           '
 
@@ -174,7 +183,7 @@ jobs:
         continue-on-error: true
         env:
           SKIP_AUTH_E2E_ON_CI: 'false'
-        run: node scripts/oncall/confirm-flag-culprit.mjs oncall/e2e/results.json oncall/e2e/page-flags oncall/culprits
+        run: node scripts/oncall/confirm-flag-culprit.mjs oncall/e2e/results.json oncall/e2e/page-flags oncall/culprits oncall/pending-culprits.json
 
       - name: Upload flags
         if: always()
@@ -186,6 +195,7 @@ jobs:
             oncall/seen-flags.json
             oncall/probe/summary.json
             oncall/culprits/summary.json
+            oncall/pending-culprits.json
           if-no-files-found: ignore
           retention-days: 7
 
@@ -248,6 +258,9 @@ jobs:
             if (process.env.FLAGS_OUTCOME !== "success") reasons.push("читання прапорців зламалось");
             if (f && f.newCodeFlags.length) reasons.push(`${f.newCodeFlags.length} нових прапорців у коді`);
             if (f && f.newFlags.length) reasons.push(`${f.newFlags.length} нових розкочених прапорців`);
+            const culprits = fs.existsSync("oncall/culprits/summary.json") ? JSON.parse(fs.readFileSync("oncall/culprits/summary.json", "utf8")) : [];
+            const carriedChecked = culprits.filter((c) => c.carriedFrom && c.result !== "skipped_limit").length;
+            if (carriedChecked) reasons.push(`${carriedChecked} перевірок прапорців з попередніх прогонів`);
             if (process.env.FORCE_REPORT === "true") reasons.push("запуск вручну з force_report");
             console.log(reasons.length ? `report: ${reasons.join(", ")}` : "all good, no report");
             fs.appendFileSync(process.env.GITHUB_OUTPUT, `report=${reasons.length ? "true" : "false"}\n`);
@@ -300,7 +313,9 @@ jobs:
               (nonBoolean.length ? `\n\nℹ️ Не прогнано (не булеві значення): ${nonBoolean.join(", ")}` : "");
             // Flag culprits (scripts/oncall/confirm-flag-culprit.mjs): deterministic, independent of the investigation
             const culprits = fs.existsSync("oncall/culprits/summary.json") ? JSON.parse(fs.readFileSync("oncall/culprits/summary.json", "utf8")) : [];
-            const testName = (c) => `[${c.project}] ${c.title}${c.status === "flaky" ? " (флейк)" : ""}`;
+            const day = (iso) => new Date(iso).toLocaleDateString("uk-UA", { day: "2-digit", month: "2-digit", timeZone: "Europe/Warsaw" });
+            const carried = (c) => c.carriedFrom && c.result !== "skipped_limit" ? `, з прогону ${day(c.carriedFrom.date)}` : "";
+            const testName = (c) => `[${c.project}] ${c.title}${c.status === "flaky" ? " (флейк" + carried(c) + ")" : carried(c) ? ` (${carried(c).slice(2)})` : ""}`;
             const culpritLines = culprits.filter((c) => c.result !== "skipped_limit").map((c) => ({
               culprit: `🎯 Прапорець-винуватець: ${c.culprit} — ${testName(c)}: з ним падає, без нього проходить (${c.runs} перезапусків)`,
               interaction: `🎯 Падає лише з комбінацією прапорців ${(c.set || []).join(", ")} — ${testName(c)}`,
@@ -310,7 +325,7 @@ jobs:
             })[c.result] || `🔎 ${testName(c)}: ${c.result}`);
             const culpritsSkipped = culprits.filter((c) => c.result === "skipped_limit").map(testName);
             const culpritNote = culpritLines.length || culpritsSkipped.length
-              ? culpritLines.join("\n") + (culpritsSkipped.length ? `${culpritLines.length ? "\n" : ""}⏳ Не перевірено на прапорці (ліміт за прогін): ${culpritsSkipped.join("; ")}` : "") + "\n\n"
+              ? culpritLines.join("\n") + (culpritsSkipped.length ? `${culpritLines.length ? "\n" : ""}⏳ Не перевірено на прапорці (ліміт за прогін, перевіримо в наступних): ${culpritsSkipped.join("; ")}` : "") + "\n\n"
               : "";
             const followUp = `\n\nПродовжити в Claude Code (у репо youtube-pip): Розбери онкол-прогін ${process.env.RUN_URL}`;
             fs.writeFileSync("oncall/message.txt", header + culpritNote + (report || fallback) + probeNote + followUp);
@@ -342,6 +357,16 @@ jobs:
         with:
           path: oncall/seen-flags.json
           key: oncall-seen-flags-${{ github.run_id }}
+
+      - name: Save flag culprit checks carried over
+        # Like the flags already reported: only after the report went out, so a carried check is never lost
+        if: >-
+          needs.flags.result == 'success' && hashFiles('oncall/pending-culprits.json') != '' &&
+          (steps.decide.outputs.report != 'true' || steps.send.outcome == 'success')
+        uses: actions/cache/save@v5
+        with:
+          path: oncall/pending-culprits.json
+          key: oncall-pending-culprits-${{ github.run_id }}
 
       - name: Report on-call failure
         # The on-call itself broke before a message went out (checkout, scripts, Claude, Telegram call): still tell
