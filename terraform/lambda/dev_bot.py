@@ -261,6 +261,8 @@ def context_of(message):
             "from_bot": bool((reply.get("from") or {}).get("is_bot")),
             "date": reply.get("date", 0),
             "attachments": [a["kind"] for a in attachments_of(reply)],
+            # The photos and files themselves (file ids stay valid): the worker downloads them again for Claude
+            "files": [a for a in attachments_of(reply) if a["kind"] in ("photo", "document")],
         }
         quote = (message.get("quote") or {}).get("text")
         if quote:

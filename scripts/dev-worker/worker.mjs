@@ -735,11 +735,31 @@ async function buildPrompt(message, setStatus) {
       );
     }
   }
+  // Photos and files of the replied-to message (dev-bot passes their file ids): downloaded again, so Claude can
+  // look at them even after a restart (~/inbox does not survive one)
+  const replyFiles = [];
+  for (const attachment of message.reply_to?.files ?? []) {
+    try {
+      const path = await downloadTelegramFile(attachment.file_id, attachment.file_name);
+      replyFiles.push(
+        `${attachment.kind === 'photo' ? 'an image' : `a file (${attachment.mime_type ?? 'unknown type'})`}: ${path}`
+      );
+    } catch (error) {
+      replyFiles.push(
+        `a ${attachment.kind} that could not be downloaded (${error.message ?? error})`
+      );
+    }
+  }
   if (message.text) parts.push(message.text);
   const context = contextLines(message);
   if (context) parts.unshift(context);
   if (files.length) {
     parts.push(`[The owner attached ${files.join('; ')}. Open it with the Read tool.]`);
+  }
+  if (replyFiles.length) {
+    parts.push(
+      `[The replied-to message had ${replyFiles.join('; ')}. Open it with the Read tool when it matters.]`
+    );
   }
   return parts.join('\n\n');
 }
