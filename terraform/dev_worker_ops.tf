@@ -44,6 +44,9 @@ locals {
   image_publish_project  = "${local.name_prefix}-image-publish"
   telegram_setup_project = "${local.name_prefix}-telegram-setup"
   github_gate_project    = "${local.name_prefix}-github-gate"
+  # gh CLI of github-gate (attestation check of a release): version and the sha256 of its linux_amd64 tarball
+  github_gate_gh_version = "2.104.0"
+  github_gate_gh_sha256  = "98cb101ad87dbbd3f6b2f2bfcbd43197ccd07643140121d8a9cfaa91eadbc24e"
   # Secret of the gate GitHub App (filled by hand): app_id, installation_id, private_key
   gate_github_app_secret_name = "youtube-pip-gate-github-app"
   boundary_policy_arn         = "arn:aws:iam::${local.account_id}:policy/${local.name_prefix}-permissions-boundary"
@@ -1269,6 +1272,14 @@ resource "aws_codebuild_project" "github_gate" {
         })
       }
       phases = {
+        install = {
+          commands = [
+            # gh for the build attestation check of a release (pinned, checksum verified)
+            "curl -fsSLo /tmp/gh.tar.gz https://github.com/cli/cli/releases/download/v${local.github_gate_gh_version}/gh_${local.github_gate_gh_version}_linux_amd64.tar.gz",
+            "echo '${local.github_gate_gh_sha256}  /tmp/gh.tar.gz' | sha256sum -c -",
+            "tar -xzf /tmp/gh.tar.gz -C /tmp && install /tmp/gh_${local.github_gate_gh_version}_linux_amd64/bin/gh /usr/local/bin/gh",
+          ]
+        }
         build = {
           commands = [
             # The script is part of this file's apply (the owner's), never fetched from the repository
