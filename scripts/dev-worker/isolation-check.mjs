@@ -6,7 +6,7 @@
  * broker, the umask for shared files and the Claude Code executable must work. Prints one line per check, exit 1 on
  * a failure.
  */
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { chmodSync, rmSync } from 'node:fs';
 import {
@@ -122,13 +122,21 @@ rmSync(socket, { force: true });
 const server = createServer((req, res) => res.end(req.url === '/token' ? 'broker-token' : 'no'));
 await new Promise((resolve) => server.listen(socket, resolve));
 chmodSync(socket, 0o660);
-const token = asClaudeRun('github-token', []);
+// Asynchronous: the stand-in broker answers from this process's event loop
+const asClaudeRunAsync = (cmd, args) =>
+  new Promise((resolve) => {
+    const [command, commandArgs] = asClaude(cmd, args, claudeEnv(process.env));
+    execFile(command, commandArgs, { encoding: 'utf8' }, (error, stdout, stderr) =>
+      resolve({ status: error ? (error.code ?? 1) : 0, out: `${stdout}${stderr}` })
+    );
+  });
+const token = await asClaudeRunAsync('github-token', []);
 check(
   'github-token as Claude gets the broker token',
   token.status === 0 && token.out.trim() === 'broker-token',
   token.out.trim()
 );
-const credential = asClaudeRun('sh', [
+const credential = await asClaudeRunAsync('sh', [
   '-c',
   'printf "protocol=https\\nhost=github.com\\n\\n" | git credential fill',
 ]);
