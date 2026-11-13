@@ -162,6 +162,10 @@ The worker keeps one Claude Code session open for the whole run (Claude Agent SD
 
 ## Infrastructure and images
 
+![Dev worker trust tiers: who holds which credential and who may change what](images/dev-worker-trust-tiers.png)
+
+Trust tiers, top (most critical) to bottom (fewest rights): the owner; dev-bot, which decides that a ✅ is real; the executors that act only after it (github-gate, tf-apply, image-publish, telegram-setup); dev-ops, which only sends requests; CI; the worker and Claude Code, which read untrusted data. Source: [images/dev-worker-trust-tiers.html](images/dev-worker-trust-tiers.html) (rendered with Playwright, 2× scale).
+
 `terraform/dev_worker_ops.tf`, `terraform/gate/`, `terraform/lambda/dev_ops.py`, `scripts/dev-worker/dev-ops.sh`. The worker never holds write credentials; changes run in CodeBuild and wait for the owner's button.
 
 | `dev-ops …` (worker)               | What runs                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |

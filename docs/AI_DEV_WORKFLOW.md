@@ -7,6 +7,10 @@ This repository is developed, tested, released and operated by one person from a
 - **[Self-hosted runners](SELF_HOSTED_RUNNERS.md)**: CI on Fargate behind a fixed IP (Google bans GitHub-hosted runner IPs for the e2e test account).
 - **[Infrastructure and images](DEV_WORKER.md#infrastructure-and-images)**: Terraform plans and image builds in CodeBuild, applied only after the owner's button.
 
+![Dev worker trust tiers](images/dev-worker-trust-tiers.png)
+
+Who holds which credential and who may change what: [DEV_WORKER.md, "Infrastructure and images"](DEV_WORKER.md#infrastructure-and-images).
+
 ## The idea
 
 Most "Claude Code from your phone" setups bridge to a session on a laptop that has to stay on. Here everything runs in the owner's AWS account and nothing runs while nobody works:

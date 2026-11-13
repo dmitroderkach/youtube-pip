@@ -1,0 +1,259 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        margin: 0;
+        background: #0f1419;
+        font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+        color: #e6e6e6;
+      }
+      .wrap {
+        width: 1240px;
+        padding: 28px 32px;
+      }
+      h1 {
+        font-size: 30px;
+        margin: 0 0 4px;
+      }
+      .sub {
+        color: #9aa4ad;
+        font-size: 17px;
+        margin-bottom: 22px;
+      }
+      .tier {
+        display: flex;
+        align-items: stretch;
+        gap: 14px;
+        margin-bottom: 12px;
+      }
+      .lvl {
+        width: 150px;
+        flex: none;
+        border-radius: 12px;
+        padding: 12px;
+        font-weight: 700;
+        font-size: 17px;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+      }
+      .lvl small {
+        font-weight: 400;
+        font-size: 13px;
+        opacity: 0.85;
+        margin-top: 4px;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        flex: 1;
+      }
+      .box {
+        flex: 1;
+        border-radius: 12px;
+        padding: 12px 14px;
+        background: #1a222b;
+        border: 2px solid #2c3742;
+      }
+      .box h3 {
+        margin: 0 0 6px;
+        font-size: 18px;
+      }
+      .box p {
+        margin: 3px 0;
+        font-size: 14.5px;
+        line-height: 1.35;
+        color: #c9d1d9;
+      }
+      .k {
+        display: inline-block;
+        background: #2a3540;
+        border-radius: 6px;
+        padding: 1px 7px;
+        margin: 2px 3px 2px 0;
+        font-size: 13px;
+        color: #ffd38a;
+      }
+      .c1 {
+        background: #7a1f1f;
+      }
+      .c2 {
+        background: #8a3b12;
+      }
+      .c3 {
+        background: #7a5a10;
+      }
+      .c4 {
+        background: #2f5a1f;
+      }
+      .c5 {
+        background: #1f4a6a;
+      }
+      .c6 {
+        background: #3a3f4a;
+      }
+      .b1 {
+        border-color: #c94444;
+      }
+      .b2 {
+        border-color: #d9772e;
+      }
+      .b3 {
+        border-color: #d4a72c;
+      }
+      .b4 {
+        border-color: #5a9a3a;
+      }
+      .b5 {
+        border-color: #3a8ac4;
+      }
+      .b6 {
+        border-color: #6b7480;
+      }
+      .arrow {
+        color: #9aa4ad;
+        font-size: 15px;
+        margin: 2px 0 10px 165px;
+      }
+      .legend {
+        margin-top: 16px;
+        color: #9aa4ad;
+        font-size: 15px;
+        line-height: 1.5;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Dev worker: who is responsible for what</h1>
+      <div class="sub">
+        Top: the most trust and the most critical; bottom: the fewest rights. Everything that
+        changes production goes through the owner's ✅.
+      </div>
+
+      <div class="tier">
+        <div class="lvl c1">1 · Root of trust<small>most critical</small></div>
+        <div class="row">
+          <div class="box b1">
+            <h3>👤 Owner</h3>
+            <p>Admin of AWS and GitHub, local apply of gate changes, the ✅ buttons in Telegram.</p>
+            <p>
+              <span class="k">AWS / GitHub / Telegram accounts</span><span class="k">phone</span>
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="arrow">↓ a ✅ pressed in Telegram</div>
+
+      <div class="tier">
+        <div class="lvl c2">2 · ✅ check<small>forging it = bypassing everything</small></div>
+        <div class="row">
+          <div class="box b2">
+            <h3>🤖 dev-bot · Lambda</h3>
+            <p>
+              Telegram webhook, /up and /down of the worker (ECS). Checks that a ✅ is real: the
+              recorded gate request, unedited, within an hour, once. Then starts what was approved.
+            </p>
+            <p>
+              <span class="k">bot token</span><span class="k">webhook secret</span
+              ><span class="k">start CodeBuild</span>
+            </p>
+            <p>Changed only by the owner's local apply.</p>
+          </div>
+        </div>
+      </div>
+      <div class="arrow">↓ starts only what was approved</div>
+
+      <div class="tier">
+        <div class="lvl c3">3 · Executors<small>real rights, one action each</small></div>
+        <div class="row">
+          <div class="box b3">
+            <h3>🔑 github-gate</h3>
+            <p>
+              Merge into main, version tag, the file on the branch <b>release</b> (what users get).
+              Checks the commit and the build attestation.
+            </p>
+            <p><span class="k">gate App key</span></p>
+          </div>
+          <div class="box b3">
+            <h3>🏗 tf-apply</h3>
+            <p>
+              Applies the saved plan. A role with a permissions boundary: youtube-pip resources,
+              never the gate.
+            </p>
+            <p><span class="k">apply role</span></p>
+          </div>
+          <div class="box b3">
+            <h3>🐳 image-publish · telegram-setup</h3>
+            <p>Images :latest; the bot's webhook and menu.</p>
+            <p><span class="k">ECR push</span><span class="k">bot token</span></p>
+          </div>
+        </div>
+      </div>
+      <div class="arrow">↑ requests with buttons come from</div>
+
+      <div class="tier">
+        <div class="lvl c4">4 · Requests<small>asks, never executes</small></div>
+        <div class="row">
+          <div class="box b4">
+            <h3>📋 dev-ops · Lambda</h3>
+            <p>
+              Sends the ✅ requests (plan, publish, merge, release) and records them in the gate
+              bucket. Runs plans and candidate image builds.
+            </p>
+            <p><span class="k">GitHub read-only</span><span class="k">gate bucket (write)</span></p>
+          </div>
+          <div class="box b4">
+            <h3>🛡 GitHub rulesets</h3>
+            <p>main, version tags and the branch release: only the owner and the gate App.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="tier">
+        <div class="lvl c5">5 · CI<small>tests and on-call</small></div>
+        <div class="row">
+          <div class="box b5">
+            <h3>⚙️ Runner App + Fargate runners</h3>
+            <p>Registers runners, dispatches workflows; the on-call runner serves main only.</p>
+            <p>
+              <span class="k">runner App key</span><span class="k">Claude token (on-call)</span>
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="tier">
+        <div class="lvl c6">6 · Worker<small>least trusted</small></div>
+        <div class="row">
+          <div class="box b6">
+            <h3>💻 worker.mjs · ECS</h3>
+            <p>Chat, voice, files, session saves.</p>
+            <p>
+              <span class="k">bot token</span><span class="k">worker App key</span
+              ><span class="k">Google key</span><span class="k">Claude token</span>
+            </p>
+          </div>
+          <div class="box b6">
+            <h3>🧠 Claude Code</h3>
+            <p>
+              Code, branches, PRs, CI, pre-releases, AWS read-only, ✅ requests. Reads untrusted
+              pages and logs → the fewest rights.
+            </p>
+            <p>
+              Today it can read the worker's keys → planned: a separate user, GitHub tokens from the
+              worker.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="legend">
+        Principle: less trust, fewer rights; every production change = a dev-ops request → the
+        owner's ✅ → dev-bot checks it → one executor does one action.
+      </div>
+    </div>
+  </body>
+</html>
