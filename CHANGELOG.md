@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.7.1] - 2026-11-13
+
+### Changed
+
+- **Updates come from the protected branch `release`**: `@updateURL` / `@downloadURL` point to `https://raw.githubusercontent.com/dmitroderkach/youtube-pip/release/youtube-pip.user.js` instead of the latest GitHub release. Only the release gate (after the owner's approval) and the owner can update that branch, so a release made by anyone else, e.g. on a pre-release tag marked latest, reaches no installed script and not Greasy Fork, which syncs from the same file (docs/GREASY_FORK.md). Installed scripts move to the new URL with this update.
+- **Releases and merges into `main` go through the dev-ops gate** (docs/DEV_WORKER.md): the dev worker asks with `dev-ops merge` / `dev-ops release`, the owner approves in Telegram, and a separate GitHub App merges the approved commit or creates the tag; after the release it copies the built userscript to the branch `release`. The dev worker uses its own GitHub App, which the repository rulesets keep out of `main`, version tags and `release`. `release.yml` runs only on a version tag (no manual runs).
+- **On-call**: flag culprit checks over the per-run limit are carried over to the next runs (docs/ONCALL.md).
+
 ## [2.7.0] - 2026-11-08
 
 ### Added
@@ -1252,6 +1260,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.7.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.7.0...refs/tags/v2.7.1
 [2.7.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.4...refs/tags/v2.7.0
 [2.6.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.3...refs/tags/v2.6.4
 [2.6.3]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.2...refs/tags/v2.6.3
