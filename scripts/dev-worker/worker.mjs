@@ -1321,6 +1321,8 @@ const GEMINI_SPEECH_OFF = Number.parseFloat(env.TTS_MONTHLY_BUDGET_USD ?? '') ==
 const BUDGET_SUBSCRIPTION_ID = 'tts-budget-worker';
 /** Pull Google's budget figure this often while running (and before a Gemini reply when the last pull is older). */
 const BUDGET_PULL_MS = 15 * 60 * 1000;
+/** At most this many pulls in a row to empty the subscription's backlog (100 messages each). */
+const BUDGET_PULL_ROUNDS = 10;
 /** No figure from Google for this long while Gemini speech is in use: say so (the topic or the role may be missing). */
 const BUDGET_STALE_MS = 48 * 60 * 60 * 1000;
 
@@ -1386,21 +1388,26 @@ async function pullSpeechBudget() {
       'x-goog-user-project': project,
       'Content-Type': 'application/json',
     };
-    const res = await fetch(`https://pubsub.googleapis.com/v1/${subscription}:pull`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ maxMessages: 100 }),
-      // A pull with nothing queued may wait: an empty answer is fine
-      signal: AbortSignal.timeout(20_000),
-    }).catch((error) => {
-      if (error?.name === 'TimeoutError') return null;
-      throw error;
-    });
-    if (res) {
+    // One pull returns only part of the backlog (Google publishes every ~20 min, the worker may have slept for
+    // days): pull until the subscription is empty, then keep the newest figure
+    for (let round = 0; round < BUDGET_PULL_ROUNDS; round++) {
+      const res = await fetch(`https://pubsub.googleapis.com/v1/${subscription}:pull`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ maxMessages: 100 }),
+        // A pull with nothing queued may wait: an empty answer is fine
+        signal: AbortSignal.timeout(10_000),
+      }).catch((error) => {
+        if (error?.name === 'TimeoutError') return null;
+        throw error;
+      });
+      if (!res) break;
       const json = await res.json().catch(() => ({}));
       if (!res.ok)
         throw new Error(`Pub/Sub ${res.status}: ${json.error?.message ?? 'pull failed'}`);
-      received = json.receivedMessages ?? [];
+      const batch = json.receivedMessages ?? [];
+      if (!batch.length) break;
+      received.push(...batch);
     }
     lastBudgetError = '';
     const states = budgetStates(received);
