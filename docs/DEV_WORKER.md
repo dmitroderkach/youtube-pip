@@ -160,6 +160,17 @@ The worker keeps one Claude Code session open for the whole run (Claude Agent SD
 - `main` stays protected (squash merge, required green `build`), so nothing lands without CI.
 - The worker reads data from the web (YouTube pages, CI logs): untrusted. The blast radius is bounded by the repository-scoped token and read-only AWS rights (changes wait for the owner's ✅, below); the GitHub token is rotated on expiry (the worker says so in the chat when GitHub rejects it).
 
+## Claude Code as a separate user
+
+The worker process and Claude Code run as different Linux users in the same container (`terraform/dev-worker/Dockerfile`, `scripts/dev-worker/isolation.mjs`):
+
+- **devworker** runs `worker.mjs` and holds the secrets the task gets (bot token, the worker App's key, the Google key); home `/var/lib/dev-worker`, private.
+- **worker** runs Claude Code and everything it starts (Bash, git, npm, terraform); home `/home/worker` with the working copy, Claude Code's state, plans, inbox / outbox (the same paths as before, so sessions and memory carry over). Its environment has none of the secrets (`claudeEnv`: the names above and anything credential-like are dropped; only Claude's own OAuth token and the ECS credentials endpoint of the task role pass). It cannot read devworker's `/proc/<pid>/environ` (another uid), its home or `/opt/dev-worker`, and has no sudo.
+- devworker starts Claude Code through the SDK's `spawnClaudeCodeProcess` with one sudo rule (`devworker ALL=(worker) NOPASSWD: ALL`, umask 002).
+- **GitHub** for Claude: `github-token` asks devworker's token broker (a Unix socket in `/srv/dev-worker`, open to the `worker` group only) for an installation token of the worker App; the git credential helper and the `gh` wrapper use it. The App's key stays with devworker.
+- **Claude's files are data for the worker, never code**: git, npm, tar of the working copy and the S3 syncs of Claude's directories run as `worker` (`claudeSh`, `awsClaude`; uploads with `--no-follow-symlinks`). Files the worker reads there are read as `worker` (`claudeRead`, the outbox) or only as plain files, never through a symlink (`readPlainFile`; plans, the plan of plan mode). Files it writes there are new files or renamed into place. Its own scratch files are in a private `mkdtemp` directory.
+- Checked on every PR that changes the image: `.github/workflows/dev-worker-image.yml` builds it and runs `scripts/dev-worker/isolation-check.mjs` inside, with fake secrets.
+
 ## Infrastructure and images
 
 ![Dev worker trust tiers: who holds which credential and who may change what](images/dev-worker-trust-tiers.png)

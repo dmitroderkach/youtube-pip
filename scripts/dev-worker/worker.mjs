@@ -56,10 +56,21 @@ import {
   voiceText,
 } from './telegram-format.mjs';
 import { execFile } from 'node:child_process';
+import {
+  asClaude,
+  CLAUDE_HOME,
+  CLAUDE_USER,
+  claudeEnv,
+  isPlainFile,
+  readPlainFile,
+  spawnClaudeCode,
+} from './isolation.mjs';
 import { createSign } from 'node:crypto';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   renameSync,
@@ -67,7 +78,7 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { homedir } from 'node:os';
+import { createServer } from 'node:http';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -75,8 +86,19 @@ const execFileAsync = promisify(execFile);
 
 const env = process.env;
 const REPO = env.GITHUB_REPO ?? 'dmitroderkach/youtube-pip';
-const REPO_DIR = join(homedir(), 'youtube-pip');
-const CLAUDE_PROJECTS_DIR = join(homedir(), '.claude', 'projects');
+// Claude's home (isolation.mjs): the working copy, Claude Code's state, plans, inbox / outbox. With CLAUDE_USER it
+// belongs to that user and is data for the worker, never code: git, npm, tar and its S3 syncs run as CLAUDE_USER.
+const REPO_DIR = join(CLAUDE_HOME, 'youtube-pip');
+const CLAUDE_PROJECTS_DIR = join(CLAUDE_HOME, '.claude', 'projects');
+// The worker's own scratch files (meta, usage, records): private, so Claude cannot plant a symlink in their place
+const WORKER_TMP = CLAUDE_USER ? mkdtempSync('/tmp/dev-worker-') : '/tmp';
+if (CLAUDE_USER) process.umask(0o002);
+// The SDK's session readers (getSubagentMessages for /agents) look in Claude's config dir, not devworker's home; a
+// transcript read this way only ever reaches the owner's chat
+if (CLAUDE_USER) process.env.CLAUDE_CONFIG_DIR ??= join(CLAUDE_HOME, '.claude');
+// Claude's scratch directory (the workspace archive): in its home, outside the working copy
+const CLAUDE_TMP = join(CLAUDE_HOME, '.cache', 'dev-worker');
+const WORKSPACE_ARCHIVE = join(CLAUDE_TMP, 'workspace.tar.gz');
 const BUCKET = env.STATE_BUCKET;
 const QUEUE_URL = env.QUEUE_URL;
 const MODEL = env.CLAUDE_MODEL ?? 'opus';
@@ -127,9 +149,9 @@ let memoryRestored = false;
 /** Plans were restored from S3 this run: only then may a save delete plans that are gone locally. */
 let plansRestored = false;
 /** Claude Code writes the plan of plan mode here (when ExitPlanMode's input has no `plan`). */
-const CLAUDE_PLANS_DIR = join(homedir(), '.claude', 'plans');
+const CLAUDE_PLANS_DIR = join(CLAUDE_HOME, '.claude', 'plans');
 /** Local copy of the saved plans (synced from S3 on start, listed in the system prompt of every session). */
-const PLANS_DIR = join(homedir(), 'plans');
+const PLANS_DIR = join(CLAUDE_HOME, 'plans');
 /** `/plans` lists this many of the newest plans. */
 const PLANS_LIST_MAX = 10;
 /** A question / plan / permission prompt nobody answers is given up after this long (the turn ends, idle follows). */
@@ -137,7 +159,7 @@ const ANSWER_TIMEOUT_MS = 60 * 60 * 1000;
 /** Voice / audio uploaded for AWS Transcribe (deleted after; the bucket lifecycle covers leftovers). */
 const INBOX_PREFIX = 'inbox/';
 /** Photos and files from the chat, for Claude's Read tool (outside the repository). */
-const INBOX_DIR = join(homedir(), 'inbox');
+const INBOX_DIR = join(CLAUDE_HOME, 'inbox');
 /**
  * Transcripts of the owner's voice / audio messages by Telegram message id ({ id: text }, the newest
  * VOICE_TRANSCRIPTS_KEPT): a reply to a voice message gets its text without transcribing it again.
@@ -146,7 +168,7 @@ const VOICE_TRANSCRIPTS_KEY = 'state/voice-transcripts.json';
 // The worker's own voice replies are kept there too, with the text they spoke
 const VOICE_TRANSCRIPTS_KEPT = 500;
 /** Files Claude puts here are sent to the chat after its answer, then moved to OUTBOX_SENT_DIR. */
-const OUTBOX_DIR = join(homedir(), 'outbox');
+const OUTBOX_DIR = join(CLAUDE_HOME, 'outbox');
 const OUTBOX_SENT_DIR = join(OUTBOX_DIR, 'sent');
 const PHOTO_EXTENSIONS = /\.(png|jpe?g|webp|gif)$/i;
 /** Bot API upload limits: photos up to 10 MB, other files up to 50 MB. */
@@ -162,7 +184,7 @@ const ONCALL_HANDLED_MAX = 50;
 const ONCALL_MESSAGE_MAX_CHARS = 6000;
 /** At most this many (the newest) unseen reports go into one note; older ones stay in their run artifacts. */
 const ONCALL_REPORTS_MAX = 3;
-const ONCALL_DIR = join(homedir(), 'oncall');
+const ONCALL_DIR = join(CLAUDE_HOME, 'oncall');
 /** Voice replies (Google Cloud Text-to-Speech, Chirp 3 HD voices): OGG/Opus, sent as Telegram voice messages. */
 const TTS_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
 const TTS_LANGUAGE = 'uk-UA';
@@ -289,13 +311,17 @@ async function say(text, { silent = false } = {}) {
 /** Upload a local file to the chat: images as photos (viewable inline), the rest and big images as documents. */
 async function sendFile(path) {
   const name = path.slice(path.lastIndexOf('/') + 1);
+  if (!isPlainFile(path)) {
+    await say(`⚠️ ${name}: не звичайний файл (посилання чи пристрій), не надсилаю`);
+    return;
+  }
   const size = statSync(path).size;
   if (size > TELEGRAM_FILE_MAX_BYTES) {
     await say(`⚠️ ${name}: ${Math.round(size / 1048576)} МБ, більше ліміту Telegram (50 МБ)`);
     return;
   }
   const asPhoto = PHOTO_EXTENSIONS.test(name) && size <= TELEGRAM_PHOTO_MAX_BYTES;
-  const content = readFileSync(path);
+  const content = await claudeRead(path);
   const method = asPhoto ? 'sendPhoto' : 'sendDocument';
   const json = await telegramRequest(method, () => {
     const form = new FormData();
@@ -315,7 +341,8 @@ async function flushOutbox() {
   if (!existsSync(OUTBOX_DIR)) return;
   const files = readdirSync(OUTBOX_DIR)
     .map((name) => join(OUTBOX_DIR, name))
-    .filter((path) => statSync(path).isFile())
+    // Plain files only: a symlink there would be read with the worker's rights
+    .filter((path) => isPlainFile(path))
     .sort((a, b) => statSync(a).mtimeMs - statSync(b).mtimeMs);
   for (const path of files) {
     try {
@@ -377,6 +404,39 @@ async function sh(cmd, args, options = {}) {
 
 const aws = (...args) => sh('aws', [...args, '--region', env.AWS_REGION ?? 'eu-central-1']);
 
+/** A command as CLAUDE_USER (isolation.mjs) with Claude's environment: for everything in Claude's home. */
+function claudeSh(cmd, args, options = {}) {
+  const [command, commandArgs] = asClaude(cmd, args, claudeEnv(env));
+  return sh(command, commandArgs, options);
+}
+
+/** aws as CLAUDE_USER (the task role comes from the ECS credentials endpoint to every user): S3 ↔ Claude's home. */
+const awsClaude = (...args) =>
+  claudeSh('aws', [...args, '--region', env.AWS_REGION ?? 'eu-central-1']);
+
+/**
+ * Read a file of Claude's home with Claude's rights (`cat` as CLAUDE_USER): whatever it points to, the worker's
+ * secrets are out of its reach. A Buffer.
+ */
+async function claudeRead(path) {
+  const [command, commandArgs] = asClaude('cat', ['--', path], claudeEnv(env));
+  const { stdout } = await execFileAsync(command, commandArgs, {
+    encoding: 'buffer',
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  return stdout;
+}
+
+/** Uploads of Claude's files never follow a symlink (one to /proc/1/environ must not reach the bucket). */
+const NO_FOLLOW = ['--no-follow-symlinks'];
+
+/** Write a file into Claude's home without following a symlink planted at its name: a new file, then a rename. */
+function writeIntoClaudeHome(path, data) {
+  const temporary = `${path}.${process.pid}.${Date.now()}.tmp`;
+  writeFileSync(temporary, data, { flag: 'wx' });
+  renameSync(temporary, path);
+}
+
 async function s3Exists(key) {
   try {
     await aws('s3api', 'head-object', '--bucket', BUCKET, '--key', key);
@@ -386,6 +446,40 @@ async function s3Exists(key) {
   }
 }
 
+// ---------------------------------------------------------------------------------------------- GitHub tokens
+
+/**
+ * Token broker for Claude's user (isolation.mjs): a Unix socket that answers GET /token with a fresh installation
+ * token of the worker's GitHub App (github-app-token, cached for its hour). Claude's git credential helper and the gh
+ * wrapper ask it (scripts/dev-worker/github-token.sh); the App's key never leaves the worker. The socket's directory
+ * is open to Claude's group only (Dockerfile).
+ */
+const GITHUB_BROKER_SOCKET = env.GITHUB_BROKER_SOCKET ?? '/srv/dev-worker/github.sock';
+
+function startGithubBroker() {
+  rmSync(GITHUB_BROKER_SOCKET, { force: true });
+  const server = createServer((req, res) => {
+    if (req.method !== 'GET' || req.url !== '/token') {
+      res.writeHead(404).end();
+      return;
+    }
+    execFile('github-app-token', [], { timeout: 30_000 }, (error, stdout) => {
+      if (error) {
+        log('github token failed', error);
+        res.writeHead(502).end();
+        return;
+      }
+      res.writeHead(200, { 'Content-Type': 'text/plain' }).end(stdout.trim());
+    });
+  });
+  server.listen(GITHUB_BROKER_SOCKET, () => {
+    // Connecting needs write on the socket: Claude's group may, nobody else (the directory is the group's only)
+    chmodSync(GITHUB_BROKER_SOCKET, 0o660);
+    log(`github token broker on ${GITHUB_BROKER_SOCKET}`);
+  });
+  server.unref();
+}
+
 // ---------------------------------------------------------------------------------------------- state
 
 /** { sessionId, savedAt, oncallHandled } of the last save, or null. */
@@ -393,21 +487,23 @@ let meta = null;
 
 async function restore() {
   if (await s3Exists(META_KEY)) {
-    await aws('s3', 'cp', `s3://${BUCKET}/${META_KEY}`, '/tmp/meta.json', '--quiet');
-    meta = JSON.parse(readFileSync('/tmp/meta.json', 'utf8'));
+    await aws('s3', 'cp', `s3://${BUCKET}/${META_KEY}`, join(WORKER_TMP, 'meta.json'), '--quiet');
+    meta = JSON.parse(readFileSync(join(WORKER_TMP, 'meta.json'), 'utf8'));
   }
   let workspace = false;
   if (await s3Exists(WORKSPACE_KEY)) {
-    await aws('s3', 'cp', `s3://${BUCKET}/${WORKSPACE_KEY}`, '/tmp/workspace.tar.gz', '--quiet');
-    mkdirSync(REPO_DIR, { recursive: true });
-    await sh('tar', ['xzf', '/tmp/workspace.tar.gz', '-C', REPO_DIR]);
+    // Downloaded and unpacked by Claude's user into its own home
+    await claudeSh('mkdir', ['-p', REPO_DIR, CLAUDE_TMP]);
+    await awsClaude('s3', 'cp', `s3://${BUCKET}/${WORKSPACE_KEY}`, WORKSPACE_ARCHIVE, '--quiet');
+    await claudeSh('tar', ['xzf', WORKSPACE_ARCHIVE, '-C', REPO_DIR]);
     workspace = true;
   }
   if (!existsSync(join(REPO_DIR, '.git'))) {
-    await sh('git', ['clone', `https://github.com/${REPO}.git`, REPO_DIR]);
+    await claudeSh('git', ['clone', `https://github.com/${REPO}.git`, REPO_DIR]);
   }
-  await sh('git', ['-C', REPO_DIR, 'fetch', '--prune', 'origin']);
-  mkdirSync(CLAUDE_PROJECTS_DIR, { recursive: true });
+  // As Claude's user: the working copy's .git/config and hooks are Claude's, never run with the worker's rights
+  await claudeSh('git', ['-C', REPO_DIR, 'fetch', '--prune', 'origin']);
+  await claudeSh('mkdir', ['-p', CLAUDE_PROJECTS_DIR]);
   const sessionId = meta?.sessionId ?? null;
   const transcriptKey = sessionId
     ? ((await s3Keys(TRANSCRIPTS_PREFIX)).find((key) => key.endsWith(`/${sessionId}.jsonl`)) ??
@@ -423,7 +519,7 @@ async function restore() {
   );
   // `--exclude=…`: project names start with "-", which the CLI would read as an option
   const oldMemory = [...memoryProjects].map((project) => `--exclude=${project}/memory/*`);
-  await aws(
+  await awsClaude(
     's3',
     'sync',
     `s3://${BUCKET}/${PROJECTS_PREFIX}`,
@@ -434,8 +530,8 @@ async function restore() {
   );
   if (transcriptKey) {
     const dir = join(CLAUDE_PROJECTS_DIR, transcriptKey.split('/')[1]);
-    mkdirSync(dir, { recursive: true });
-    await aws(
+    await claudeSh('mkdir', ['-p', dir]);
+    await awsClaude(
       's3',
       'cp',
       `s3://${BUCKET}/${transcriptKey}`,
@@ -444,7 +540,7 @@ async function restore() {
     );
   }
   for (const project of memoryProjects) {
-    await aws(
+    await awsClaude(
       's3',
       'sync',
       `s3://${BUCKET}/${MEMORY_PREFIX}${project}/`,
@@ -453,8 +549,8 @@ async function restore() {
     );
   }
   memoryRestored = true;
-  mkdirSync(PLANS_DIR, { recursive: true });
-  await aws('s3', 'sync', `s3://${BUCKET}/${PLANS_PREFIX}`, PLANS_DIR, '--quiet');
+  await claudeSh('mkdir', ['-p', PLANS_DIR]);
+  await awsClaude('s3', 'sync', `s3://${BUCKET}/${PLANS_PREFIX}`, PLANS_DIR, '--quiet');
   plansRestored = true;
   log(`restored: session=${meta?.sessionId ?? 'none'} workspace=${workspace}`);
   return { workspace };
@@ -483,11 +579,12 @@ async function saveMemory() {
   for (const project of readdirSync(CLAUDE_PROJECTS_DIR)) {
     const dir = join(CLAUDE_PROJECTS_DIR, project, 'memory');
     if (!existsSync(dir)) continue;
-    await aws(
+    await awsClaude(
       's3',
       'sync',
       dir,
       `s3://${BUCKET}/${MEMORY_PREFIX}${project}/`,
+      ...NO_FOLLOW,
       ...(memoryRestored ? ['--delete'] : []),
       '--quiet'
     );
@@ -505,15 +602,18 @@ function save() {
 
 async function saveNow() {
   const excludes = WORKSPACE_EXCLUDES.flatMap((dir) => ['--exclude', `./${dir}`]);
-  await sh('tar', ['czf', '/tmp/workspace.tar.gz', ...excludes, '-C', REPO_DIR, '.']);
-  await aws('s3', 'cp', '/tmp/workspace.tar.gz', `s3://${BUCKET}/${WORKSPACE_KEY}`, '--quiet');
+  // Packed and uploaded by Claude's user: the worker never reads Claude's files for it
+  await claudeSh('mkdir', ['-p', CLAUDE_TMP]);
+  await claudeSh('tar', ['czf', WORKSPACE_ARCHIVE, ...excludes, '-C', REPO_DIR, '.']);
+  await awsClaude('s3', 'cp', WORKSPACE_ARCHIVE, `s3://${BUCKET}/${WORKSPACE_KEY}`, '--quiet');
   // Transcripts (trimmed by Claude Code itself, CLAUDE_CODE_TRANSCRIPT_LOCAL_GC), subagents and tool results of all
   // projects; memory below
-  await aws(
+  await awsClaude(
     's3',
     'sync',
     CLAUDE_PROJECTS_DIR,
     `s3://${BUCKET}/${PROJECTS_PREFIX}`,
+    ...NO_FOLLOW,
     // Session transcripts (`<project>/<id>.jsonl`, the only files one level down) go to TRANSCRIPTS_PREFIX below
     '--exclude',
     '*.jsonl',
@@ -523,11 +623,12 @@ async function saveNow() {
     '*/memory/*',
     '--quiet'
   );
-  await aws(
+  await awsClaude(
     's3',
     'sync',
     CLAUDE_PROJECTS_DIR,
     `s3://${BUCKET}/${TRANSCRIPTS_PREFIX}`,
+    ...NO_FOLLOW,
     '--exclude',
     '*',
     '--include',
@@ -539,25 +640,26 @@ async function saveNow() {
   await saveMemory();
   // Plans edited, renamed or deleted by hand (the owner's request) go up like memory
   if (existsSync(PLANS_DIR))
-    await aws(
+    await awsClaude(
       's3',
       'sync',
       PLANS_DIR,
       `s3://${BUCKET}/${PLANS_PREFIX}`,
+      ...NO_FOLLOW,
       ...(plansRestored ? ['--delete'] : []),
       '--quiet'
     );
   meta = { ...(meta ?? {}), sessionId: meta?.sessionId ?? null, savedAt: new Date().toISOString() };
-  writeFileSync('/tmp/meta.json', JSON.stringify(meta));
-  await aws('s3', 'cp', '/tmp/meta.json', `s3://${BUCKET}/${META_KEY}`, '--quiet');
+  writeFileSync(join(WORKER_TMP, 'meta.json'), JSON.stringify(meta));
+  await aws('s3', 'cp', join(WORKER_TMP, 'meta.json'), `s3://${BUCKET}/${META_KEY}`, '--quiet');
   log(`saved: session=${meta.sessionId}`);
   scheduleStatusUpdate();
 }
 
 /** Upload meta.json only (settings such as the mode change between full saves). */
 async function saveMeta() {
-  writeFileSync('/tmp/meta.json', JSON.stringify(meta ?? {}));
-  await aws('s3', 'cp', '/tmp/meta.json', `s3://${BUCKET}/${META_KEY}`, '--quiet');
+  writeFileSync(join(WORKER_TMP, 'meta.json'), JSON.stringify(meta ?? {}));
+  await aws('s3', 'cp', join(WORKER_TMP, 'meta.json'), `s3://${BUCKET}/${META_KEY}`, '--quiet');
   // Settings (mode, model, effort, voice, time zone) live in meta: the pinned status follows them
   scheduleStatusUpdate();
 }
@@ -594,7 +696,8 @@ async function downloadTelegramFile(fileId, name) {
     : '';
   const safeName = (name || `${Date.now()}${ext}`).replace(/[^\w.-]+/g, '_');
   const path = join(INBOX_DIR, `${Date.now()}-${safeName}`);
-  writeFileSync(path, Buffer.from(await res.arrayBuffer()));
+  // A new file only (wx): never written through a symlink planted at the name
+  writeFileSync(path, Buffer.from(await res.arrayBuffer()), { flag: 'wx' });
   return path;
 }
 
@@ -630,7 +733,7 @@ async function transcribeGemini(path, mimeType) {
             {
               inlineData: {
                 mimeType: mimeType || 'audio/ogg',
-                data: readFileSync(path).toString('base64'),
+                data: readPlainFile(path).toString('base64'),
               },
             },
             { text: TRANSCRIBE_PROMPT },
@@ -755,9 +858,9 @@ async function voiceTranscripts() {
       BUCKET,
       '--key',
       VOICE_TRANSCRIPTS_KEY,
-      '/tmp/voice-transcripts-read.json'
+      join(WORKER_TMP, 'voice-transcripts-read.json')
     );
-    return JSON.parse(readFileSync('/tmp/voice-transcripts-read.json', 'utf8'));
+    return JSON.parse(readFileSync(join(WORKER_TMP, 'voice-transcripts-read.json'), 'utf8'));
   } catch (error) {
     if (!/NoSuchKey/.test(`${error?.stderr ?? ''} ${error?.message ?? ''}`)) throw error;
     return {};
@@ -780,11 +883,11 @@ async function keepVoiceTranscript(messageId, text) {
       .sort(([a], [b]) => Number(b) - Number(a))
       .slice(0, VOICE_TRANSCRIPTS_KEPT)
   );
-  writeFileSync('/tmp/voice-transcripts.json', JSON.stringify(kept));
+  writeFileSync(join(WORKER_TMP, 'voice-transcripts.json'), JSON.stringify(kept));
   await aws(
     's3',
     'cp',
-    '/tmp/voice-transcripts.json',
+    join(WORKER_TMP, 'voice-transcripts.json'),
     `s3://${BUCKET}/${VOICE_TRANSCRIPTS_KEY}`,
     '--quiet'
   ).catch((error) => log('keep voice transcript failed', error));
@@ -953,7 +1056,7 @@ function queueRecordWrite(taskId, record) {
         await aws('s3', 'rm', `s3://${BUCKET}/${key}`, '--quiet');
         return;
       }
-      const path = `/tmp/background-${taskId}.json`;
+      const path = join(WORKER_TMP, `background-${taskId}.json`);
       writeFileSync(path, JSON.stringify(record));
       await aws('s3', 'cp', path, `s3://${BUCKET}/${key}`, '--quiet');
       rmSync(path, { force: true });
@@ -1067,7 +1170,7 @@ function publishActivity(turnActive) {
   const body = JSON.stringify({ lastAnswerAt, turnActive, stopping });
   activityUploads = activityUploads.then(async () => {
     try {
-      const path = '/tmp/activity.json';
+      const path = join(WORKER_TMP, 'activity.json');
       writeFileSync(path, body);
       await aws('s3', 'cp', path, `s3://${BUCKET}/${ACTIVITY_KEY}`, '--quiet');
     } catch (error) {
@@ -1195,10 +1298,8 @@ async function finishTurn(result) {
 /** Run the Claude session until it ends; resumes `resumeId` when given. */
 async function runSession(resumeId) {
   // Claude never needs the Telegram bot: keep it out of its environment
-  const childEnv = { ...env };
-  delete childEnv.TELEGRAM_BOT_TOKEN;
-  delete childEnv.TELEGRAM_CHAT_ID;
-  delete childEnv.GOOGLE_TTS_API_KEY;
+  // Without the worker's secrets (bot, Google, GitHub App key): isolation.mjs
+  const childEnv = claudeEnv(env, { claude: true });
   // Claude Code trims its transcript file after a compaction (once over 5 MB) instead of letting it grow for good
   childEnv.CLAUDE_CODE_TRANSCRIPT_LOCAL_GC = '1';
   session = query({
@@ -1221,6 +1322,8 @@ async function runSession(resumeId) {
       // Subagents' text comes through the stream too (agent_id = their task id): /agents shows it from there
       forwardSubagentText: true,
       env: childEnv,
+      // Claude Code as CLAUDE_USER without the worker's secrets (isolation.mjs); the SDK's own spawn otherwise
+      ...(CLAUDE_USER ? { spawnClaudeCodeProcess: spawnClaudeCode } : {}),
       stderr: (data) => log(`claude: ${String(data).trim().slice(0, 2000)}`),
     },
   });
@@ -1466,9 +1569,9 @@ async function speechUsage() {
       BUCKET,
       '--key',
       SPEECH_USAGE_KEY,
-      '/tmp/voice-usage-read.json'
+      join(WORKER_TMP, 'voice-usage-read.json')
     );
-    const usage = JSON.parse(readFileSync('/tmp/voice-usage-read.json', 'utf8'));
+    const usage = JSON.parse(readFileSync(join(WORKER_TMP, 'voice-usage-read.json'), 'utf8'));
     // The earlier estimate (`month`, `seconds`) is not Google's figure: ignored, replaced by the first pull
     return usage?.period ? usage : { waitingSince: usage?.waitingSince ?? null };
   } catch (error) {
@@ -1479,11 +1582,11 @@ async function speechUsage() {
 
 async function saveSpeechUsage(usage) {
   scheduleStatusUpdate();
-  writeFileSync('/tmp/voice-usage.json', JSON.stringify(usage));
+  writeFileSync(join(WORKER_TMP, 'voice-usage.json'), JSON.stringify(usage));
   await aws(
     's3',
     'cp',
-    '/tmp/voice-usage.json',
+    join(WORKER_TMP, 'voice-usage.json'),
     `s3://${BUCKET}/${SPEECH_USAGE_KEY}`,
     '--quiet'
   ).catch((error) => log('save speech usage failed', error));
@@ -1821,8 +1924,8 @@ function updateStatus({ sleeping = false, fresh = false } = {}) {
       await telegram('pinChatMessage', { message_id: sent.message_id, disable_notification: true });
       lastStatusBody = body;
       meta = { ...(meta ?? {}), statusMessageId: sent.message_id };
-      writeFileSync('/tmp/meta.json', JSON.stringify(meta));
-      await aws('s3', 'cp', '/tmp/meta.json', `s3://${BUCKET}/${META_KEY}`, '--quiet');
+      writeFileSync(join(WORKER_TMP, 'meta.json'), JSON.stringify(meta));
+      await aws('s3', 'cp', join(WORKER_TMP, 'meta.json'), `s3://${BUCKET}/${META_KEY}`, '--quiet');
     } catch (error) {
       log('status update failed', error);
     }
@@ -2326,7 +2429,7 @@ function planOf(input) {
     .filter((name) => name.endsWith('.md'))
     .map((name) => join(CLAUDE_PLANS_DIR, name))
     .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
-  return newest ? readFileSync(newest, 'utf8').trim() : '';
+  return newest ? readPlainFile(newest, 'utf8').trim() : '';
 }
 
 /** Versions of the plan under review (reset once a plan is approved): { slug, version }. */
@@ -2335,8 +2438,15 @@ let planDraft = null;
 /** Save a plan version to PLANS_DIR and S3 (plans/<date>-<title>[-vN].md); returns the file name. */
 async function storePlan(name, text) {
   mkdirSync(PLANS_DIR, { recursive: true });
-  writeFileSync(join(PLANS_DIR, name), `${text}\n`);
-  await aws('s3', 'cp', join(PLANS_DIR, name), `s3://${BUCKET}/${PLANS_PREFIX}${name}`, '--quiet');
+  writeIntoClaudeHome(join(PLANS_DIR, name), `${text}\n`);
+  await awsClaude(
+    's3',
+    'cp',
+    join(PLANS_DIR, name),
+    `s3://${BUCKET}/${PLANS_PREFIX}${name}`,
+    ...NO_FOLLOW,
+    '--quiet'
+  );
 }
 
 /** ExitPlanMode: the plan to the chat (formatted, saved to S3) with "run it in auto / bypass / manual" or "revise". */
@@ -2809,10 +2919,12 @@ async function switchView(taskId) {
     `👁 Тепер у чаті 🤖 ${agent?.description ?? taskId} (${agent?.type ?? 'agent'}). Твої повідомлення передаю йому. /agents — перемкнути`
   );
   // Start at its last two texts, like opening the agent's view; the rest streams in
-  const history = await getSubagentMessages(meta?.sessionId ?? '', taskId).catch((error) => {
-    log('getSubagentMessages failed', error);
-    return [];
-  });
+  const history = await getSubagentMessages(meta?.sessionId ?? '', taskId, { dir: REPO_DIR }).catch(
+    (error) => {
+      log('getSubagentMessages failed', error);
+      return [];
+    }
+  );
   const texts = history
     .filter((m) => m.type === 'assistant')
     .flatMap((m) => contentParts(m.message?.content).texts);
@@ -2875,7 +2987,12 @@ function savedPlans() {
       // "<date>-<title>.md" before "<date>-<title>-v2.md": compared without the extension
       .sort((a, b) => (a.slice(0, -3) < b.slice(0, -3) ? 1 : -1))
       .map((name) => {
-        const text = readFileSync(join(PLANS_DIR, name), 'utf8');
+        let text = '';
+        try {
+          text = readPlainFile(join(PLANS_DIR, name), 'utf8');
+        } catch {
+          // Not a plain file (a symlink): not read with the worker's rights
+        }
         const decision = text.match(/_Decision \([^)]*\): (.*)_\s*$/)?.[1] ?? 'not decided';
         const version = name.match(/-v(\d+)\.md$/)?.[1];
         const [, day, hour, minute] = name.match(/^(\d{4}-\d\d-\d\d)T(\d\d)-(\d\d)/) ?? [];
@@ -3184,9 +3301,10 @@ async function oncallNote() {
     if (reports.length >= ONCALL_REPORTS_MAX || !(await oncallSent(run.id))) continue;
     const dir = join(ONCALL_DIR, String(run.id));
     // gh refuses to overwrite files left by an earlier download
-    rmSync(dir, { recursive: true, force: true });
-    mkdirSync(dir, { recursive: true });
-    await sh('gh', [
+    await claudeSh('rm', ['-rf', dir]);
+    await claudeSh('mkdir', ['-p', dir]);
+    // Claude's user downloads the artifact (CI output, untrusted) into its own home
+    await claudeSh('gh', [
       'run',
       'download',
       String(run.id),
@@ -3199,7 +3317,7 @@ async function oncallNote() {
     ]).catch((error) => log(`oncall artifact ${run.id}`, error));
     const messagePath = join(dir, 'message.txt');
     const message = existsSync(messagePath)
-      ? readFileSync(messagePath, 'utf8').trim().slice(0, ONCALL_MESSAGE_MAX_CHARS)
+      ? readPlainFile(messagePath, 'utf8').trim().slice(0, ONCALL_MESSAGE_MAX_CHARS)
       : '(no message.txt in the artifact: the on-call job broke before writing its report, "🔴 Онкол зламався")';
     reports.push({ run, dir, message });
   }
@@ -3424,8 +3542,10 @@ function checkLimits() {
 async function main() {
   let restored;
   try {
+    if (CLAUDE_USER) startGithubBroker();
     restored = await restore();
-    await sh('npm', ['ci', '--no-audit', '--no-fund'], { cwd: REPO_DIR });
+    // Package scripts run as Claude's user, never with the worker's secrets
+    await claudeSh('npm', ['ci', '--no-audit', '--no-fund'], { cwd: REPO_DIR });
   } catch (error) {
     log('startup failed', error);
     await say(
@@ -3434,7 +3554,7 @@ async function main() {
     process.exit(REPORTED_EXIT_CODE);
   }
   if (stopReason) return stop();
-  const branch = (await sh('git', ['-C', REPO_DIR, 'branch', '--show-current'])).trim();
+  const branch = (await claudeSh('git', ['-C', REPO_DIR, 'branch', '--show-current'])).trim();
   const modeNote =
     (currentMode() === DEFAULT_MODE
       ? ''
