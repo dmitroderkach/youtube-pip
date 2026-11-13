@@ -3,7 +3,8 @@
 # NAT instance exists for the e2e runs, and its lifecycle Lambda starts it whenever the runner cluster has a task.
 
 locals {
-  # JSON: github_token (fine-grained, this repository only), telegram_webhook_secret (scripts/dev-worker/setup-telegram.mjs)
+  # JSON: github_app_id, github_app_installation_id, github_app_private_key (the worker's own GitHub App, this repository
+  # only), google_tts_api_key, telegram_webhook_secret (scripts/dev-worker/setup-telegram.mjs)
   dev_worker_secret_name = "youtube-pip-dev-worker"
   dev_worker_container   = "dev-worker"
 }
@@ -266,7 +267,10 @@ resource "aws_ecs_task_definition" "dev_worker" {
         { name = "CLAUDE_CODE_OAUTH_TOKEN", valueFrom = "${data.aws_secretsmanager_secret.oncall.arn}:claude_code_oauth_token::" },
         { name = "TELEGRAM_BOT_TOKEN", valueFrom = "${data.aws_secretsmanager_secret.oncall.arn}:telegram_bot_token::" },
         { name = "TELEGRAM_CHAT_ID", valueFrom = "${data.aws_secretsmanager_secret.oncall.arn}:telegram_chat_id::" },
-        { name = "GITHUB_TOKEN", valueFrom = "${data.aws_secretsmanager_secret.dev_worker.arn}:github_token::" },
+        # The worker's own GitHub App (docs/DEV_WORKER.md, "GitHub"); the keys must exist in the secret
+        { name = "GITHUB_APP_ID", valueFrom = "${data.aws_secretsmanager_secret.dev_worker.arn}:github_app_id::" },
+        { name = "GITHUB_APP_INSTALLATION_ID", valueFrom = "${data.aws_secretsmanager_secret.dev_worker.arn}:github_app_installation_id::" },
+        { name = "GITHUB_APP_PRIVATE_KEY", valueFrom = "${data.aws_secretsmanager_secret.dev_worker.arn}:github_app_private_key::" },
         # Voice replies (Google Cloud Text-to-Speech API key, docs/DEV_WORKER.md); the key must exist in the secret
         { name = "GOOGLE_TTS_API_KEY", valueFrom = "${data.aws_secretsmanager_secret.dev_worker.arn}:google_tts_api_key::" }
       ]
