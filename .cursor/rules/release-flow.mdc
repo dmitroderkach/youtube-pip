@@ -55,6 +55,9 @@ gh pr merge <number> --squash
 
 (If checks are pending, wait or poll until green.)
 
+**Dev worker** (docs/DEV_WORKER.md, "Infrastructure and images"): never `gh pr merge`; run `dev-ops merge <number>` and
+wait for the owner's ✅ in Telegram (github-gate merges that head commit and reports to the chat).
+
 ### If checks failed
 
 1. **Do NOT merge** the PR
@@ -75,6 +78,9 @@ git pull
 ```bash
 npm run release:tag
 ```
+
+**Dev worker**: never push the tag; run `dev-ops release` once the GitHub API shows the merge on main, and wait for the
+owner's ✅ (github-gate creates `vX.Y.Z` on that main commit; release.yml publishes).
 
 ---
 

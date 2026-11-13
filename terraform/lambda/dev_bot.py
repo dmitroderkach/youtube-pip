@@ -72,6 +72,7 @@ OPS_BUCKET = os.environ.get("OPS_BUCKET", "")
 TF_APPLY_PROJECT = os.environ.get("TF_APPLY_PROJECT", "")
 IMAGE_PUBLISH_PROJECT = os.environ.get("IMAGE_PUBLISH_PROJECT", "")
 TELEGRAM_SETUP_PROJECT = os.environ.get("TELEGRAM_SETUP_PROJECT", "")
+GITHUB_GATE_PROJECT = os.environ.get("GITHUB_GATE_PROJECT", "")
 # Service messages of a private chat with the bot: never forwarded, never answered
 SERVICE_MESSAGE_KEYS = (
     "pinned_message",
@@ -341,6 +342,10 @@ def start_gated_build(record):
         project, env = IMAGE_PUBLISH_PROJECT, {"IMAGE": record["image"], "REF": record["sha"]}
     elif record["kind"] == "telegram":
         project, env = TELEGRAM_SETUP_PROJECT, {"REF": record["sha"]}
+    elif record["kind"] == "merge":
+        project, env = GITHUB_GATE_PROJECT, {"ACTION": "merge", "SHA": record["sha"], "PR": str(record["pr"])}
+    elif record["kind"] == "release":
+        project, env = GITHUB_GATE_PROJECT, {"ACTION": "release", "SHA": record["sha"], "VERSION": record["version"]}
     else:
         raise ValueError(f"unknown kind {record['kind']}")
     build = codebuild.start_build(

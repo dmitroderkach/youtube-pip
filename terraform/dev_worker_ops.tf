@@ -12,6 +12,10 @@
 # - telegram-setup (CodeBuild): runs scripts/dev-worker/setup-telegram.mjs of a main commit (the bot's webhook to dev-bot,
 #   its command menu). The only role besides dev-bot's that reads the bot token and the webhook secret. Started only by
 #   dev-bot on the owner's ✅ under the request the dev-ops Lambda posted.
+# - github-gate (CodeBuild): squash-merges a PR at the approved head commit, or tags a release on the approved main
+#   commit, with the gate GitHub App (the only identity besides the owner's that may update main and create version
+#   tags: repository rulesets). Its script is embedded from terraform/codebuild/github_gate.py; the only role that reads
+#   the App's key. Started only by dev-bot on the owner's ✅ under the request the dev-ops Lambda posted.
 #
 # The worker never holds write credentials: it cannot start tf-apply / image-publish nor write the ops bucket, and
 # only main is ever applied. The gate itself (this file, the worker's and dev-bot's roles, the dev-bot Lambda) is out
@@ -39,7 +43,10 @@ locals {
   image_build_project    = "${local.name_prefix}-image-build"
   image_publish_project  = "${local.name_prefix}-image-publish"
   telegram_setup_project = "${local.name_prefix}-telegram-setup"
-  boundary_policy_arn    = "arn:aws:iam::${local.account_id}:policy/${local.name_prefix}-permissions-boundary"
+  github_gate_project    = "${local.name_prefix}-github-gate"
+  # Secret of the gate GitHub App (filled by hand): app_id, installation_id, private_key
+  gate_github_app_secret_name = "youtube-pip-gate-github-app"
+  boundary_policy_arn         = "arn:aws:iam::${local.account_id}:policy/${local.name_prefix}-permissions-boundary"
 
   # Roles of the gate: nothing but the owner changes them, and nothing the apply role creates may be given them
   gate_role_names = [
@@ -49,12 +56,13 @@ locals {
     "${local.name_prefix}-image-build-role",
     "${local.name_prefix}-image-publish-role",
     "${local.name_prefix}-telegram-setup-role",
+    "${local.name_prefix}-github-gate-role",
     "${local.name_prefix}-dev-bot-role",
   ]
   # By name prefix (compact: the boundary has to stay under IAM's 6144 characters): every dev-* role (dev-bot, dev-ops,
   # the worker's task and execution roles), the CodeBuild roles; a new gate role takes one of these prefixes
   gate_role_arns = [
-    for prefix in ["dev-", "tf-", "image-", "telegram-setup-"] : "arn:aws:iam::*:role/${local.name_prefix}-${prefix}*"
+    for prefix in ["dev-", "tf-", "image-", "telegram-setup-", "github-gate-"] : "arn:aws:iam::*:role/${local.name_prefix}-${prefix}*"
   ]
   gate_policy_arns = [
     for name in ["permissions-boundary", "project-read", "project-apply"] :
@@ -135,6 +143,12 @@ locals {
       Action   = "sqs:SendMessage"
       Resource = aws_sqs_queue.dev_worker_inbox.arn
     },
+    {
+      # The gate App may merge into main and tag releases
+      Effect    = "Deny"
+      NotAction = ["secretsmanager:DescribeSecret", "secretsmanager:ListSecretVersionIds", "secretsmanager:GetResourcePolicy"]
+      Resource  = data.aws_secretsmanager_secret.gate_github_app.arn
+    },
   ]
 
   # Resources a gated apply never touches (IAM denies it): tf-plan offers no ✅ for a plan that changes one of them
@@ -169,6 +183,9 @@ locals {
     "aws_iam_role.telegram_setup",
     "aws_iam_role_policy.telegram_setup",
     "aws_codebuild_project.telegram_setup",
+    "aws_iam_role.github_gate",
+    "aws_iam_role_policy.github_gate",
+    "aws_codebuild_project.github_gate",
     "aws_iam_role.dev_worker_task",
     "aws_iam_role_policy.dev_worker_task",
     "aws_iam_role_policy_attachment.dev_worker_task_read",
@@ -616,7 +633,7 @@ resource "aws_ecr_lifecycle_policy" "image_candidates" {
 }
 
 resource "aws_cloudwatch_log_group" "dev_ops" {
-  for_each          = toset([local.tf_plan_project, local.tf_apply_project, local.image_build_project, local.image_publish_project, local.telegram_setup_project])
+  for_each          = toset([local.tf_plan_project, local.tf_apply_project, local.image_build_project, local.image_publish_project, local.telegram_setup_project, local.github_gate_project])
   name              = "/aws/codebuild/${each.value}"
   retention_in_days = 30
 }
@@ -1163,6 +1180,104 @@ resource "aws_codebuild_project" "telegram_setup" {
         post_build = {
           commands = [
             "if [ \"$CODEBUILD_BUILD_SUCCEEDING\" = 1 ]; then TEXT=\"✅ Telegram-бота налаштовано з main@$${REF:0:7}:\"$'\\n'\"$(cat /tmp/setup.log)\"; else TEXT=\"🔴 Налаштування Telegram-бота з main@$${REF:0:7} не вдалося:\"$'\\n'\"$(tail -5 /tmp/setup.log 2>/dev/null)\"; fi; curl -fsS -o /dev/null \"https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage\" --data-urlencode \"chat_id=$TELEGRAM_CHAT_ID\" --data-urlencode \"text=$TEXT\" || true",
+          ]
+        }
+      }
+    })
+  }
+}
+
+# ------------------------------------------------------------------------------------------------ GitHub gate
+
+data "aws_secretsmanager_secret" "gate_github_app" {
+  name = local.gate_github_app_secret_name
+}
+
+resource "aws_iam_role" "github_gate" {
+  name               = "${local.name_prefix}-github-gate-role"
+  assume_role_policy = local.codebuild_trust
+}
+
+resource "aws_iam_role_policy" "github_gate" {
+  name = "${local.name_prefix}-github-gate-policy"
+  role = aws_iam_role.github_gate.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = ["logs:CreateLogStream", "logs:PutLogEvents"]
+        Resource = "${aws_cloudwatch_log_group.dev_ops[local.github_gate_project].arn}:*"
+      },
+      {
+        # The gate App's key, and the bot token for the result message
+        Effect   = "Allow"
+        Action   = "secretsmanager:GetSecretValue"
+        Resource = [data.aws_secretsmanager_secret.gate_github_app.arn, data.aws_secretsmanager_secret.oncall.arn]
+      }
+    ]
+  })
+}
+
+resource "aws_codebuild_project" "github_gate" {
+  name                   = local.github_gate_project
+  description            = "Dev worker: merge a PR / tag a release with the gate GitHub App after the owner's ✅ (started by dev-bot only, dev_worker_ops.tf)."
+  service_role           = aws_iam_role.github_gate.arn
+  build_timeout          = 10
+  concurrent_build_limit = 1
+
+  artifacts {
+    type = "NO_ARTIFACTS"
+  }
+
+  environment {
+    type         = "LINUX_CONTAINER"
+    compute_type = "BUILD_GENERAL1_SMALL"
+    image        = "aws/codebuild/amazonlinux-x86_64-standard:5.0"
+
+    environment_variable {
+      name  = "GITHUB_REPO"
+      value = "${var.github_owner}/${var.github_repo}"
+    }
+    # Set by dev-bot from the gate record the owner approved
+    dynamic "environment_variable" {
+      for_each = ["ACTION", "SHA", "PR", "VERSION"]
+      content {
+        name  = environment_variable.value
+        value = ""
+      }
+    }
+  }
+
+  logs_config {
+    cloudwatch_logs {
+      group_name = aws_cloudwatch_log_group.dev_ops[local.github_gate_project].name
+    }
+  }
+
+  source {
+    type = "NO_SOURCE"
+    buildspec = yamlencode({
+      version = "0.2"
+      env = {
+        shell = "bash"
+        "secrets-manager" = merge(local.telegram_secrets, {
+          GATE_APP_ID              = "${data.aws_secretsmanager_secret.gate_github_app.arn}:app_id"
+          GATE_APP_INSTALLATION_ID = "${data.aws_secretsmanager_secret.gate_github_app.arn}:installation_id"
+          GATE_APP_PRIVATE_KEY     = "${data.aws_secretsmanager_secret.gate_github_app.arn}:private_key"
+        })
+      }
+      phases = {
+        build = {
+          commands = [
+            # The script is part of this file's apply (the owner's), never fetched from the repository
+            "echo '${base64encode(file("${path.module}/codebuild/github_gate.py"))}' | base64 -d > /tmp/github_gate.py",
+            "python3 /tmp/github_gate.py > /tmp/gate.log 2>&1; status=$?; cat /tmp/gate.log; exit $status",
+          ]
+        }
+        post_build = {
+          commands = [
+            "TEXT=\"$(tail -5 /tmp/gate.log 2>/dev/null)\"; [ -n \"$TEXT\" ] || TEXT=\"🔴 github-gate ($ACTION) не відпрацював: див. CloudWatch ${aws_cloudwatch_log_group.dev_ops[local.github_gate_project].name}\"; curl -fsS -o /dev/null \"https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage\" --data-urlencode \"chat_id=$TELEGRAM_CHAT_ID\" --data-urlencode \"text=$TEXT\" || true",
           ]
         }
       }
