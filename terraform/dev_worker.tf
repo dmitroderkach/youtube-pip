@@ -260,7 +260,7 @@ resource "aws_ecs_task_definition" "dev_worker" {
         # dev-ops CLI (scripts/dev-worker/dev-ops.sh, dev_worker_ops.tf)
         { name = "DEV_OPS_FUNCTION", value = aws_lambda_function.dev_ops.function_name },
         { name = "OPS_BUCKET", value = aws_s3_bucket.dev_ops.bucket },
-        { name = "DEV_OPS_PROJECTS", value = join(",", [aws_codebuild_project.tf_plan.name, aws_codebuild_project.tf_apply.name, aws_codebuild_project.image_build.name, aws_codebuild_project.image_publish.name, local.telegram_setup_project]) }
+        { name = "DEV_OPS_PROJECTS", value = join(",", [aws_codebuild_project.tf_plan.name, aws_codebuild_project.tf_apply.name, aws_codebuild_project.image_build.name, aws_codebuild_project.image_publish.name, local.telegram_setup_project, local.github_gate_project]) }
       ]
       secrets = [
         { name = "CLAUDE_CODE_OAUTH_TOKEN", valueFrom = "${data.aws_secretsmanager_secret.oncall.arn}:claude_code_oauth_token::" },
@@ -389,7 +389,7 @@ resource "aws_iam_role_policy" "dev_bot" {
         # Only on the owner's ✅
         Effect   = "Allow"
         Action   = "codebuild:StartBuild"
-        Resource = [aws_codebuild_project.tf_apply.arn, aws_codebuild_project.image_publish.arn, aws_codebuild_project.telegram_setup.arn]
+        Resource = [aws_codebuild_project.tf_apply.arn, aws_codebuild_project.image_publish.arn, aws_codebuild_project.telegram_setup.arn, aws_codebuild_project.github_gate.arn]
       }
     ]
   })
@@ -429,6 +429,7 @@ resource "aws_lambda_function" "dev_bot" {
       TF_APPLY_PROJECT       = aws_codebuild_project.tf_apply.name
       IMAGE_PUBLISH_PROJECT  = aws_codebuild_project.image_publish.name
       TELEGRAM_SETUP_PROJECT = local.telegram_setup_project
+      GITHUB_GATE_PROJECT    = local.github_gate_project
     }
   }
 }

@@ -19,6 +19,11 @@ Usage:
                                         Telegram); the result comes to the chat
   dev-ops telegram                      ask the owner to set the bot up from the current main commit
                                         (scripts/dev-worker/setup-telegram.mjs: webhook, command menu; ✅ in Telegram)
+  dev-ops merge <pr>                    ask the owner to squash-merge the PR into main at its current head (✅ in
+                                        Telegram; the request lists files, +/−, sensitive paths, checks); github-gate
+                                        merges with the gate App only that commit and reports to the chat
+  dev-ops release                       ask the owner to release the package.json version of the current main commit
+                                        (✅ in Telegram); github-gate creates the tag, release.yml publishes
   dev-ops status <build id>             status of a build and the end of its log
   dev-ops runs                          latest builds of the dev-ops CodeBuild projects
 EOF
@@ -121,6 +126,21 @@ case "${1:-}" in
     echo "Asked the owner in Telegram: set the bot up from main@$(jq -r '.sha[0:7]' <<<"$response")" \
       "($(jq -r .commands <<<"$response") menu commands). On ✅ telegram-setup runs and reports to the chat."
     ;;
+  merge)
+    [[ "${2:-}" =~ ^[0-9]+$ ]] || {
+      usage >&2
+      exit 2
+    }
+    response="$(invoke "$(jq -cn --argjson pr "$2" '{action: "merge", pr: $pr}')")"
+    echo "Asked the owner in Telegram: merge PR #$2 at $(jq -r '.sha[0:7]' <<<"$response")" \
+      "(checks $(jq -r .checks <<<"$response"), $(jq -r .sensitive <<<"$response") sensitive files)." \
+      "On ✅ github-gate merges exactly that commit and reports to the chat; a later push to the branch voids it."
+    ;;
+  release)
+    response="$(invoke '{"action":"release"}')"
+    echo "Asked the owner in Telegram: release v$(jq -r .version <<<"$response") from main@$(jq -r '.sha[0:7]' <<<"$response")." \
+      "On ✅ github-gate creates the tag; release.yml publishes the release."
+    ;;
   status)
     [ -n "${2:-}" ] || {
       usage >&2
@@ -138,7 +158,7 @@ case "${1:-}" in
       [ -z "${ids// /}" ] && continue
       # shellcheck disable=SC2086
       aws codebuild batch-get-builds --ids $ids \
-        --query 'builds[].[id, buildStatus, startTime, join(`,`, environment.environmentVariables[?name==`RUN_ID` || name==`IMAGE` || name==`REF`].value)]' \
+        --query 'builds[].[id, buildStatus, startTime, join(`,`, environment.environmentVariables[?name==`RUN_ID` || name==`IMAGE` || name==`REF` || name==`ACTION` || name==`PR` || name==`VERSION` || name==`SHA`].value)]' \
         --output text
     done
     ;;

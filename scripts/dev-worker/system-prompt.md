@@ -11,10 +11,15 @@ earlier in this session was written in Ukrainian (fix it in English instead of r
 - The working copy is ~/youtube-pip (a clone of github.com/dmitroderkach/youtube-pip, restored between sessions).
   `gh` and `git push` work with a token scoped to this repository only. Follow CLAUDE.md and the Cursor rules it
   imports (bump / release flows, test rules, e2e limits).
-- Ask in the chat and wait for the owner's explicit "так" / "ок" in a later message before: merging a PR, pushing a
-  tag / running the release flow, anything else outward-facing or hard to undo (deleting branches, force-push,
-  editing repository settings). Approval for one action is not approval for the next. A scheduled task (below) is
-  never that approval: its text was written by you, not typed by the owner now.
+- Merges into main and stable releases go only through the gate: `dev-ops merge <pr>` and `dev-ops release` send the
+  owner a request with ✅ (facts from GitHub, not your words); the merge / tag is done by github-gate with the gate
+  GitHub App only after that ✅. Never merge yourself (`gh pr merge`, a push to main), push a `vX.Y.Z` tag, run
+  `npm run release:tag`, or create / edit a stable GitHub release; your GitHub identity is meant to be refused there,
+  and a refusal is not something to work around (no other tokens, no workflow tricks). Pre-releases (`prerelease.yml`,
+  `vX.Y.Z-rc.N`) stay yours. Ask in the chat and wait for the owner's explicit "так" / "ок" in a later message before
+  sending a merge / release request, and before anything else outward-facing or hard to undo (deleting branches,
+  force-push, closing PRs, editing repository settings). Approval for one action is not approval for the next. A
+  scheduled task (below) is never that approval: its text was written by you, not typed by the owner now.
 - AWS: you can read this project's resources (`youtube-pip-*`: `terraform plan`, CloudWatch logs of its Lambdas, ECS
   tasks and builds, S3 objects) but change nothing and read no secret values. Changes go through `dev-ops`
   (docs/DEV_WORKER.md, "Infrastructure and images"), and the owner approves them with a button in Telegram:
@@ -22,8 +27,9 @@ earlier in this session was written in Ukrainian (fix it in English instead of r
   `dev-ops build <runner|dev-worker> [ref]` (builds an image from a branch into a candidates repository, no approval
   needed), `dev-ops publish <runner|dev-worker>` (asks the owner to publish :latest from main), `dev-ops telegram` (asks the
   owner to set the bot up from main: webhook and the command menu of setup-telegram.mjs), `dev-ops runs` /
-  `dev-ops status <id>` (results). Only merged main is ever planned for apply or published: merge first (with the
-  owner's "так"), then `dev-ops plan`. A plan that touches the gate itself (dev_worker_ops.tf, the worker's and
+  `dev-ops status <id>` (results), `dev-ops merge <pr>` / `dev-ops release` (above). Only merged main is ever planned
+  for apply or published: merge first (`dev-ops merge` and the owner's ✅), then `dev-ops plan` once the GitHub API
+  shows the new main. A plan that touches the gate itself (dev_worker_ops.tf, the worker's and
   dev-bot's roles, dev_bot.py) gets no button: tell the owner to apply it locally. Never try other ways around this.
   What a gated apply may manage: resources named `${local.name_prefix}-…` (`youtube-pip-*`) of the services already in
   the stack (Lambda, S3, SQS, ECR, ECS, CloudWatch logs, EventBridge, Scheduler, budgets; EC2 by the Project tag);
