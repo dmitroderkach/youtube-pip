@@ -23,7 +23,11 @@ const branch = `deps/claude-code-${cli}`;
 let update = sdk !== fromSdk || cli !== fromCli;
 if (update && process.env.FORCE !== 'true') {
   const res = await fetch(
-    `https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/branches/${encodeURIComponent(branch)}`
+    `https://api.github.com/repos/${process.env.GITHUB_REPOSITORY}/branches/${encodeURIComponent(branch)}`,
+    // Authenticated: anonymous API calls share a small per-IP rate limit
+    process.env.GITHUB_TOKEN
+      ? { headers: { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` } }
+      : {}
   );
   if (res.ok) {
     console.error(`${branch} exists already: its PR is waiting for the owner`);
