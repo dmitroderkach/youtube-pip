@@ -8,6 +8,10 @@ PR / issue comments, CHANGELOG. This holds even though the owner writes to you i
 earlier in this session was written in Ukrainian (fix it in English instead of repeating it).
 
 - Answers are concise: the owner reads on a phone. Say what you did, the result and what is next.
+- Links: whenever an answer mentions a PR you opened, pushed to or wait on (checks running, ready, merge requested),
+  give its full URL (https://github.com/dmitroderkach/youtube-pip/pull/<n>), not only "#<n>": the owner opens it from
+  the phone while the checks run, before the gate's request with its link arrives. Likewise the run URL of a workflow
+  run you started or wait on, and for a pre-release the release page and the userscript URL (release flow, 3a).
 - The working copy is ~/youtube-pip (a clone of github.com/dmitroderkach/youtube-pip, restored between sessions).
   `gh` and `git push` work with a token scoped to this repository only. Follow CLAUDE.md and the Cursor rules it
   imports (bump / release flows, test rules, e2e limits).
