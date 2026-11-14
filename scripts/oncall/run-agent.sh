@@ -4,8 +4,8 @@
 # - it runs as `oncall-agent`, not as the runner's user: the runner's processes (/proc/<pid>/environ with the
 #   Telegram and Claude tokens, the ECS credentials URI) belong to another uid, and the runner's home (the checkout
 #   with the job token in .git/config, the runner's credentials, step scripts) is closed to others;
-# - its environment holds only its own Claude token (sudo resets the rest), and the token never appears on a command
-#   line (sudo --preserve-env, not `env NAME=value`);
+# - its environment holds only its own Claude token (every other variable is unset), and the token never appears on a
+#   command line (sudo --preserve-env, not `env NAME=value`);
 # - it works on a copy: the repository at HEAD (git archive, no .git) and the on-call inputs in its own home;
 # - Read / Grep / Glob only, and /proc, /sys, /dev are denied on top (scripts/oncall/agent-settings.json): its own
 #   /proc/self/environ holds the Claude token.
@@ -27,8 +27,17 @@ WORK=$AGENT_HOME/work
 CLI_DIR=/tmp/oncall-agent-cli
 RUNNER_HOME=$(getent passwd "$(id -un)" | cut -d: -f6)
 as_agent() { sudo -n -H -u "$AGENT" -- "$@"; }
-# The same with the Claude token kept: sudo resets everything else
-as_agent_claude() { sudo -n -H -u "$AGENT" --preserve-env=CLAUDE_CODE_OAUTH_TOKEN -- "$@"; }
+# The same with the Claude token kept: everything else is dropped explicitly, whatever the sudoers env_keep says (a
+# GitHub-hosted runner keeps its RUNNER_* / ACTIONS_* variables through sudo)
+KEEP_ENV='CLAUDE_CODE_OAUTH_TOKEN|HOME|USER|LOGNAME|SHELL|LANG|TERM'
+as_agent_claude() {
+  sudo -n -H -u "$AGENT" --preserve-env=CLAUDE_CODE_OAUTH_TOKEN -- /bin/bash -c '
+    for name in $(compgen -e); do
+      [[ $name =~ ^('"$KEEP_ENV"')$ ]] || unset "$name"
+    done
+    export PATH=/usr/local/bin:/usr/bin:/bin
+    exec "$@"' run-agent "$@"
+}
 
 # The agent's user, and the runner's home closed to it
 id "$AGENT" >/dev/null 2>&1 ||

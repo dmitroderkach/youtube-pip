@@ -37,6 +37,7 @@ jobs:
           CLAUDE_CODE_OAUTH_TOKEN: sk-ant-oat01-fake-token-for-the-isolation-check
           TELEGRAM_BOT_TOKEN: 123456:fake-bot-token-for-the-isolation-check
         run: |
+          set -o pipefail
           mkdir -p oncall
           echo '{}' > oncall/results-summary.json
           echo 'Reply with exactly: ok' > /tmp/prompt.md
