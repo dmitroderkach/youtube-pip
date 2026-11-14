@@ -20,6 +20,12 @@ export const TIMEOUTS = {
    * activation window that requestWindow() needs; on timeout we go ahead anyway.
    */
   YOUTUBE_LOW_PRIORITY_JOBS: 2000,
+  /**
+   * First wait for YouTube to bring the player back to the watch page after PiP closes. It usually takes a few hundred
+   * ms; a PiP closed right after it opened can find YouTube dropping the navigation (the mini player is still
+   * finishing its activation), and then the navigation is sent again rather than waiting the full ELEMENT_WAIT.
+   */
+  MAIN_PLAYER_FIRST_WAIT: 2000,
 } as const;
 
 /** Retry counts */

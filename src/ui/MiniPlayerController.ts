@@ -49,6 +49,11 @@ export class MiniPlayerController {
   /**
    * Get the miniplayer element reference. Always defined after initialize().
    */
+  /** Whether YouTube's mini player is active (ytd-app's own state, also while its element is still rendering). */
+  public isMiniPlayerActive(): boolean {
+    return Boolean(this.ytdAppProvider.getApp().miniplayerIsActive);
+  }
+
   public getMiniplayer(): MiniPlayerElement {
     return this.miniplayer!;
   }

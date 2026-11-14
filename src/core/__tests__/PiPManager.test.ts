@@ -601,6 +601,43 @@ describe('PiPManager (integration)', () => {
     vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
   });
 
+  it('close: YouTube drops the navigation back to the watch page → navigates again once', async () => {
+    mockMiniController.isVisible.mockReturnValue(false);
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    vi.spyOn(DOMUtils, 'waitForElementSelector').mockResolvedValue(containerEl as never);
+    await manager.open();
+    mockPlayerManager.waitForMainPlayer
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(document.createElement('div') as never);
+    mockMiniController.isMiniPlayerActive.mockReturnValue(true);
+
+    await awaitClose(manager);
+
+    expect(mockMiniController.toggleMiniPlayer).toHaveBeenCalledTimes(3); // open + close + retry
+    expect(mockPlayerManager.waitForMainPlayer).toHaveBeenNthCalledWith(
+      1,
+      TIMEOUTS.MAIN_PLAYER_FIRST_WAIT,
+      { final: false }
+    );
+    expect(mockPlayerManager.waitForMainPlayer).toHaveBeenNthCalledWith(2);
+    vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
+  });
+
+  it('close: player not back but the mini player is no longer active → no second navigation', async () => {
+    mockMiniController.isVisible.mockReturnValue(false);
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    vi.spyOn(DOMUtils, 'waitForElementSelector').mockResolvedValue(containerEl as never);
+    await manager.open();
+    mockPlayerManager.waitForMainPlayer.mockResolvedValueOnce(null);
+    mockMiniController.isMiniPlayerActive.mockReturnValue(false);
+
+    await awaitClose(manager);
+
+    expect(mockMiniController.toggleMiniPlayer).toHaveBeenCalledTimes(2); // open + close
+    expect(mockPlayerManager.waitForMainPlayer).toHaveBeenCalledTimes(1);
+    vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
+  });
+
   it('full flow: close when miniplayerContainer not in DOM skips remove (defensive branch)', async () => {
     await manager.open();
     expect(manager.isOpen()).toBe(true);

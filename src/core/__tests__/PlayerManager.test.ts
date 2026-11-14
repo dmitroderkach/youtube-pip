@@ -4,7 +4,8 @@ import { createTestContainer } from '../../test-utils/test-container';
 import { createMockPlayer, type MockPlayerMethods } from './__mocks__/PlayerManager.mock';
 import { PlayerManager } from '../PlayerManager';
 import { YtdShortsProvider } from '../YtdShortsProvider';
-import { PLAYER_STATES, DEFAULT_DIMENSIONS } from '../../constants';
+import { PLAYER_STATES, DEFAULT_DIMENSIONS, TIMEOUTS } from '../../constants';
+import { SELECTORS } from '../../selectors';
 
 vi.mock('../../utils/DOMUtils', () => ({
   DOMUtils: {
@@ -137,6 +138,27 @@ describe('PlayerManager', () => {
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockRejectedValueOnce(new Error('timeout'));
     const result = await manager.waitForMainPlayer();
+    expect(result).toBeNull();
+  });
+
+  it('waitForMainPlayer waits the given time (first try of the return from PiP)', async () => {
+    const el = document.createElement('div');
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    vi.mocked(DOMUtils.waitForElementSelector).mockResolvedValueOnce(el as never);
+    await manager.waitForMainPlayer(TIMEOUTS.MAIN_PLAYER_FIRST_WAIT, { final: false });
+    expect(DOMUtils.waitForElementSelector).toHaveBeenLastCalledWith(
+      SELECTORS.MOVIE_PLAYER_OUTSIDE_MINIPLAYER,
+      document,
+      TIMEOUTS.MAIN_PLAYER_FIRST_WAIT
+    );
+  });
+
+  it('waitForMainPlayer: a first try that fails returns null too', async () => {
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    vi.mocked(DOMUtils.waitForElementSelector).mockRejectedValueOnce(new Error('timeout'));
+    const result = await manager.waitForMainPlayer(TIMEOUTS.MAIN_PLAYER_FIRST_WAIT, {
+      final: false,
+    });
     expect(result).toBeNull();
   });
 
