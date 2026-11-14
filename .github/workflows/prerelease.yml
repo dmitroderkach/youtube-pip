@@ -1,7 +1,7 @@
 name: Pre-release Userscript
 
 # Manual pre-release of a release branch for local testing before the release (docs/PRERELEASE.md):
-#   gh workflow run prerelease.yml --ref release/X.Y.Z
+#   gh workflow run prerelease.yml --ref release-X.Y.Z
 # Builds the userscript as X.Y.Z-rc.N (N = next free number for this version) and publishes a GitHub pre-release
 # vX.Y.Z-rc.N with youtube-pip.user.js attached. A pre-release is never "latest", so Greasy Fork and the
 # @updateURL of installed scripts (releases/latest/download/...) keep serving the last stable release.

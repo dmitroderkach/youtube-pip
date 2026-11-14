@@ -4,8 +4,8 @@ A pre-release is a test build of a release branch published on GitHub, so the ow
 
 ## How it works
 
-1. The release branch `release/X.Y.Z` is ready (bump version flow, PR open, checks green).
-2. `gh workflow run prerelease.yml --ref release/X.Y.Z` runs `.github/workflows/prerelease.yml` (GitHub-hosted runner, build only, no e2e):
+1. The release branch `release-X.Y.Z` is ready (bump version flow, PR open, checks green).
+2. `gh workflow run prerelease.yml --ref release-X.Y.Z` runs `.github/workflows/prerelease.yml` (GitHub-hosted runner, build only, no e2e):
    - takes `X.Y.Z` from `package.json` (fails if `vX.Y.Z` is already released: bump first);
    - picks `N` = the next free number among the tags `vX.Y.Z-rc.*`;
    - builds the userscript with `@version X.Y.Z-rc.N` (the version only changes inside the job);

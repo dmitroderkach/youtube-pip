@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.html).
 
+## [2.7.2] - 2026-11-14
+
+### Fixed
+
+- **Closing PiP could leave an ad in the mini player instead of the video**: when the player had an ad loaded (and not showing), the return to the watch page navigated to the ad's video id, and YouTube's mini player, which only expands for the video it holds, loaded the ad into itself. The player stayed hidden in the mini player. The return now navigates to the video the mini player holds, followed the way the mini player follows it: the watch page PiP was opened from, a video opened in PiP (playlist, links) and autoplay of the next video. Found as the recurring e2e flake "player stays in the mini player after PiP" (the e2e timeline now records which YouTube code path changed the mini player's video).
+
 ## [2.7.1] - 2026-11-13
 
 ### Changed
@@ -1260,6 +1266,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/2.0.0.
 - **GitHub Actions** for CI/CD and automated releases
 - **Comprehensive documentation** (README, LICENSE, CHANGELOG)
 
+[2.7.2]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.7.1...refs/tags/v2.7.2
 [2.7.1]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.7.0...refs/tags/v2.7.1
 [2.7.0]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.4...refs/tags/v2.7.0
 [2.6.4]: https://github.com/dmitroderkach/youtube-pip/compare/refs/tags/v2.6.3...refs/tags/v2.6.4
