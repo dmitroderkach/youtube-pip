@@ -271,14 +271,14 @@ jobs:
         if: steps.decide.outputs.report == 'true'
         continue-on-error: true
         run: |
-          # Read-only tools, no network / shell: it reads data downloaded from YouTube. Telegram secrets removed.
-          env -u TELEGRAM_BOT_TOKEN -u TELEGRAM_CHAT_ID \
-            npx -y @anthropic-ai/claude-code@2.1.322 -p "$(cat scripts/oncall/investigate-prompt.md)" \
-              --allowedTools "Read,Grep,Glob" \
-              --disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task" \
-              --model sonnet --max-turns 40 \
-              --output-format stream-json --verbose > oncall/claude-transcript.jsonl
-          # The final message is the report; the transcript stays in the artifact for follow-up sessions
+          # It reads data downloaded from YouTube: its own Linux user with only its Claude token, a copy of the repository
+          # and inputs, read-only tools, no network / shell (scripts/oncall/run-agent.sh; docs/ONCALL.md, "Agent isolation")
+          status=0
+          bash scripts/oncall/run-agent.sh @anthropic-ai/claude-code@2.1.322 scripts/oncall/investigate-prompt.md \
+            oncall/claude-transcript.jsonl || status=$?
+          # Secret values out of its output first, whatever happened (scripts/oncall/scrub-secrets.mjs)
+          node scripts/oncall/scrub-secrets.mjs oncall/claude-transcript.jsonl
+          # The final message is the report; the transcript goes to the private state bucket (next step), not the artifact
           node -e '
             const fs = require("fs");
             const lines = fs.readFileSync("oncall/claude-transcript.jsonl", "utf8").split("\n").filter(Boolean);
@@ -286,6 +286,14 @@ jobs:
               .filter((e) => e && e.type === "result").pop();
             if (result && typeof result.result === "string") fs.writeFileSync("oncall/report.txt", result.result);
           '
+          exit "$status"
+
+      - name: Keep the transcript (private state bucket)
+        # For follow-up investigations (the dev worker; CLAUDE.md, On-call): tool results hold whole bundles and logs,
+        # and the repository is public, so it is not an artifact
+        if: steps.decide.outputs.report == 'true' && hashFiles('oncall/claude-transcript.jsonl') != ''
+        continue-on-error: true
+        run: node scripts/oncall/s3-put.mjs oncall/claude-transcript.jsonl "${{ github.run_id }}/claude-transcript.jsonl"
 
       - name: Compose message
         if: steps.decide.outputs.report == 'true'
@@ -390,6 +398,5 @@ jobs:
             oncall/culprits/summary.json
             oncall/report.txt
             oncall/message.txt
-            oncall/claude-transcript.jsonl
           if-no-files-found: ignore
           retention-days: 14

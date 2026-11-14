@@ -1,0 +1,62 @@
+name: On-call agent isolation
+
+# Runs scripts/oncall/run-agent.sh (docs/ONCALL.md, "Agent isolation") on a PR that changes it: its self-checks must
+# pass (own user, the runner's checkout and environment out of reach, only the Claude token in its environment) and a
+# secret value in the agent's output must be scrubbed. Fake secrets only: Claude Code starts and fails to log in.
+on:
+  pull_request:
+    paths:
+      - 'scripts/oncall/run-agent.sh'
+      - 'scripts/oncall/agent-settings.json'
+      - 'scripts/oncall/scrub-secrets*.mjs'
+      - '.github/workflows/oncall-agent-isolation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  isolation:
+    # GitHub-hosted (Ubuntu 24.04 like the runner image; passwordless sudo like its `runner` user): no real secrets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '24'
+
+      - name: Scrub unit tests
+        run: node --test scripts/oncall/scrub-secrets.test.mjs
+
+      - name: Run the agent with a fake token
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: sk-ant-oat01-fake-token-for-the-isolation-check
+          TELEGRAM_BOT_TOKEN: 123456:fake-bot-token-for-the-isolation-check
+        run: |
+          mkdir -p oncall
+          echo '{}' > oncall/results-summary.json
+          echo 'Reply with exactly: ok' > /tmp/prompt.md
+          # The version e2e-manual.yml runs (the weekly update bumps it there)
+          spec=$(grep -oE '@anthropic-ai/claude-code@[0-9][0-9.]*' .github/workflows/e2e-manual.yml | head -1)
+          status=0
+          bash scripts/oncall/run-agent.sh "$spec" /tmp/prompt.md oncall/claude-transcript.jsonl 2>&1 |
+            tee /tmp/run-agent.log || status=$?
+          echo "run-agent exit status: $status (Claude Code cannot log in with the fake token)"
+          grep -q 'run-agent: isolation checks passed' /tmp/run-agent.log
+          # The agent's copy: the inputs and the repository without .git
+          sudo -n test -f /home/oncall-agent/work/oncall/results-summary.json
+          sudo -n test -f /home/oncall-agent/work/scripts/oncall/agent-settings.json
+          ! sudo -n test -e /home/oncall-agent/work/.git
+
+      - name: Scrub a leaked value
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: sk-ant-oat01-fake-token-for-the-isolation-check
+        run: |
+          printf '{"text":"leak %s"}\n' "$CLAUDE_CODE_OAUTH_TOKEN" >> oncall/claude-transcript.jsonl
+          node scripts/oncall/scrub-secrets.mjs oncall/claude-transcript.jsonl
+          ! grep -q "$CLAUDE_CODE_OAUTH_TOKEN" oncall/claude-transcript.jsonl
+          grep -q '\[redacted\]' oncall/claude-transcript.jsonl

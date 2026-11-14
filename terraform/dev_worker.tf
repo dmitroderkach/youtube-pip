@@ -49,7 +49,8 @@ resource "aws_cloudwatch_log_group" "dev_worker" {
 
 # Session transcripts (transcripts/), working copy snapshot, session id and settings, background task records (state/),
 # plans of plan mode (plans/), Claude Code's memory (memory/): kept for good. Subagent transcripts and tool results
-# (claude/) and voice uploads (inbox/) are temporary and expire a week after they were written.
+# (claude/) and voice uploads (inbox/) are temporary and expire a week after they were written; so do the on-call
+# agent's transcripts (oncall/, written by the on-call runner; docs/ONCALL.md, "Agent isolation"), after two weeks.
 resource "aws_s3_bucket" "dev_worker_state" {
   bucket = "${local.name_prefix}-dev-worker-state-${data.aws_caller_identity.current.account_id}"
 }
@@ -86,7 +87,8 @@ resource "aws_s3_bucket_lifecycle_configuration" "dev_worker_state" {
   depends_on = [aws_s3_bucket_versioning.dev_worker_state]
 
   # One rule per prefix (S3 lifecycle filters cannot exclude a prefix): previous versions expire after the prefix's
-  # days; the temporary prefixes (claude/, inbox/) also expire themselves a week after they were written.
+  # days; the temporary prefixes (claude/, inbox/) also expire themselves a week after they were written, the on-call
+  # agent's transcripts (oncall/) after var.oncall_transcript_retention_days.
   dynamic "rule" {
     for_each = var.dev_worker_state_noncurrent_days
     content {
@@ -96,7 +98,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "dev_worker_state" {
         prefix = "${rule.key}/"
       }
       dynamic "expiration" {
-        for_each = contains(["claude", "inbox"], rule.key) ? [var.dev_worker_state_retention_days] : []
+        for_each = contains(["claude", "inbox"], rule.key) ? [var.dev_worker_state_retention_days] : rule.key == "oncall" ? [var.oncall_transcript_retention_days] : []
         content {
           days = expiration.value
         }

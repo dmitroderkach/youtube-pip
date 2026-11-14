@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(//proc/**)",
+      "Read(//sys/**)",
+      "Read(//dev/**)",
+      "Read(//home/runner/**)",
+      "Read(//tmp/**)",
+      "Read(~/.claude/**)",
+      "Read(~/.claude.json)"
+    ]
+  }
+}

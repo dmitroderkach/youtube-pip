@@ -34,7 +34,7 @@ The Cursor slash commands `.cursor/commands/bump-version.md` and `.cursor/comman
 
 ## On-call
 
-- "Розбери онкол-прогін <run URL>": download the run's artifacts (`gh run download <id> -n oncall`, `-n e2e-results`, `-n playwright-report-manual-e2e`), read `report.txt` and `claude-transcript.jsonl` first, then continue the investigation. How it works: `docs/ONCALL.md`.
+- "Розбери онкол-прогін <run URL>": download the run's artifacts (`gh run download <id> -n oncall`, `-n e2e-results`, `-n playwright-report-manual-e2e`) and the agent's transcript from the private state bucket (`aws s3 cp s3://<state bucket>/oncall/<id>/claude-transcript.jsonl .`; `$STATE_BUCKET` in the dev worker), read `report.txt` and `claude-transcript.jsonl` first, then continue the investigation. How it works: `docs/ONCALL.md`.
 
 ## Self-hosted runner
 
