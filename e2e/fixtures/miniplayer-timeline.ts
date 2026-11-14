@@ -15,8 +15,9 @@ declare global {
 /**
  * Init script: records a timeline of mini player / player state, printed on test failure (see
  * miniplayerTimelineOnFailure in ./index.ts). Records sampled state changes, mini player related yt-action events,
- * navigations, the watch-while IntersectionObserver callbacks and the stack of every mini player setActive() (so
- * the caller of a deactivate() is visible). Found the kevlar_watch_while_v2 stale-job deactivation
+ * navigations (requested and started), the watch-while IntersectionObserver callbacks, the stack of every mini
+ * player endpoint change (activation, a watch navigation taken over, a playlist navigation) and of every mini player
+ * setActive() (so the caller of a deactivate() is visible). Found the kevlar_watch_while_v2 stale-job deactivation
  * (docs/E2E_TESTS.md). Must be self-contained (runs in the page).
  */
 export function installMiniplayerTimeline(limits: { maxEntries: number; sampleMs: number }): void {
@@ -99,6 +100,19 @@ export function installMiniplayerTimeline(limits: { maxEntries: number; sampleMs
       // Mini player setActive(true/false) dispatches this synchronously, so its stack shows who (de)activated it.
       if (name === 'yt-close-popup-action')
         push(`yt-action ${name} (mini player setActive)\n${stackOf()}`);
+      // Also synchronous: the stack tells whether the mini player activated, took a watch navigation over (loading
+      // the video into the mini player instead of expanding it) or followed a playlist navigation
+      if (name === 'yt-miniplayer-endpoint-changed') push(`  ↳ endpoint changed by\n${stackOf()}`);
+    },
+    true
+  );
+  // Watch navigations requested on the page (ours back from PiP, YouTube's own): which video, before the router
+  window.addEventListener(
+    'yt-navigate',
+    (e) => {
+      const endpoint = (e as CustomEvent<{ endpoint?: { watchEndpoint?: { videoId?: string } } }>)
+        .detail?.endpoint;
+      push(`yt-navigate ${endpoint?.watchEndpoint?.videoId ?? '(not a watch endpoint)'}`);
     },
     true
   );

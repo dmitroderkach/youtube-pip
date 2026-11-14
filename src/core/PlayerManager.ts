@@ -234,26 +234,22 @@ export class PlayerManager {
   }
 
   /**
-   * Wait for main player to be ready. `final` = false: a first try that may be repeated (no error logged).
+   * Wait for main player to be ready
    */
-  public async waitForMainPlayer(
-    timeoutMs: number = TIMEOUTS.ELEMENT_WAIT,
-    { final = true }: { final?: boolean } = {}
-  ): Promise<Nullable<Element>> {
+  public async waitForMainPlayer(): Promise<Nullable<Element>> {
     try {
       // The player is already in the document inside the mini player container we just moved back;
       // wait until YouTube has moved it out of that container onto the watch page.
       const player = await DOMUtils.waitForElementSelector(
         SELECTORS.MOVIE_PLAYER_OUTSIDE_MINIPLAYER,
         document,
-        timeoutMs
+        TIMEOUTS.ELEMENT_WAIT
       );
       this.player = player as YouTubePlayer;
       this.logger.debug('Main player is ready');
       return player;
     } catch (e) {
-      if (final) this.logger.error('Error waiting for main player:', e);
-      else this.logger.debug(`Main player not back after ${timeoutMs}ms`);
+      this.logger.error('Error waiting for main player:', e);
       return null;
     }
   }

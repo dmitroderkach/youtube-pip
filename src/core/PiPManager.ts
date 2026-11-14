@@ -411,18 +411,7 @@ export class PiPManager {
       this.miniPlayerController.toggleMiniPlayer();
 
       // Wait for main player
-      const main = await this.playerManager.waitForMainPlayer(TIMEOUTS.MAIN_PLAYER_FIRST_WAIT, {
-        final: false,
-      });
-      // A PiP closed right after it opened: YouTube can drop the navigation back to the watch page while the mini
-      // player is still finishing its activation (it updates its endpoint as the player lands back in it), and the
-      // player stays hidden in the mini player. Navigate again once YouTube's pending jobs have run.
-      if (!main && this.miniPlayerController.isMiniPlayerActive()) {
-        this.logger.debug('YouTube did not return to the watch page; navigating again');
-        await YouTubeScheduler.waitForLowPriorityJobs();
-        this.miniPlayerController.toggleMiniPlayer();
-        await this.playerManager.waitForMainPlayer();
-      }
+      await this.playerManager.waitForMainPlayer();
     }
 
     // Restore playback state

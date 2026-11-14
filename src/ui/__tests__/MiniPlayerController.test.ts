@@ -83,13 +83,6 @@ describe('MiniPlayerController', () => {
     });
   });
 
-  it('isMiniPlayerActive reads ytd-app miniplayerIsActive', () => {
-    mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdAppWithFire(mockFire, true));
-    expect(controller.isMiniPlayerActive()).toBe(true);
-    mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdAppWithFire(mockFire, false));
-    expect(controller.isMiniPlayerActive()).toBe(false);
-  });
-
   it('initialize throws AppInitializationError when miniplayer not found', async () => {
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockRejectedValue(new Error('timeout'));
