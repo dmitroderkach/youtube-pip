@@ -11,7 +11,6 @@ export interface MockPlayerMethods {
   getDebugText: ReturnType<typeof vi.fn>;
   getDuration: ReturnType<typeof vi.fn>;
   seekTo: ReturnType<typeof vi.fn>;
-  getPlayerResponse: ReturnType<typeof vi.fn>;
 }
 
 const defaultVideoData: VideoData = { video_id: 'abc', title: 't' };
@@ -34,8 +33,5 @@ export function createMockPlayer(): MockPlayerMethods {
     getDebugText: vi.fn().mockReturnValue('debug'),
     getDuration: vi.fn().mockReturnValue(100), // arbitrary test duration
     seekTo: vi.fn(),
-    getPlayerResponse: vi
-      .fn()
-      .mockReturnValue({ videoDetails: { videoId: defaultVideoData.video_id } }),
   };
 }

@@ -15,6 +15,7 @@ import { TitleSyncHandler } from '../handlers/TitleSyncHandler';
 import { PiPWindowHandlers } from '../core/PiPWindowHandlers';
 import { PipShortsWindowHandlers } from '../core/PipShortsWindowHandlers';
 import { PiPManager } from '../core/PiPManager';
+import { PiPVideoTracker } from '../core/PiPVideoTracker';
 import { MediaSessionHandler } from '../handlers/MediaSessionHandler';
 import { PiPEventBridgeHandler } from '../handlers/PiPEventBridgeHandler';
 import { PiPLinkFocusHandler } from '../handlers/PiPLinkFocusHandler';
@@ -43,6 +44,7 @@ export function createContainer(): Container {
   container.bind(PiPEventBridgeHandler).toSelf();
   container.bind(PiPLinkFocusHandler).toSelf();
   container.bind(PipShortsWindowHandlers).toSelf();
+  container.bind(PiPVideoTracker).toSelf();
   container.bind(PiPManager).toSelf();
   container.bind(MediaSessionHandler).toSelf();
   container.bind(I18n).toSelf();

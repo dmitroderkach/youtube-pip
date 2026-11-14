@@ -74,9 +74,9 @@ describe('MiniPlayerController', () => {
     });
   });
 
-  it('toggleMiniPlayer when miniplayerIsActive navigates to the content video (getContentVideoId)', () => {
+  it('toggleMiniPlayer when miniplayerIsActive navigates to the player video (getVideoId)', () => {
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdAppWithFire(mockFire, true));
-    mockPlayerManager.getContentVideoId.mockReturnValue('vid123');
+    mockPlayerManager.getVideoId.mockReturnValue('vid123');
     controller.toggleMiniPlayer();
     expect(mockFire).toHaveBeenCalledWith(YT_EVENTS.NAVIGATE, {
       endpoint: { watchEndpoint: { videoId: 'vid123' } },
@@ -107,9 +107,19 @@ describe('MiniPlayerController', () => {
     expect(mockFire).not.toHaveBeenCalled();
   });
 
+  it('toggleMiniPlayer when miniplayerIsActive navigates to the given video (the mini player one), not the player one', () => {
+    const MINIPLAYER_VIDEO = 'mini-video';
+    mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdAppWithFire(mockFire, true));
+    mockPlayerManager.getVideoId.mockReturnValue('ad-video');
+    controller.toggleMiniPlayer(MINIPLAYER_VIDEO);
+    expect(mockFire).toHaveBeenCalledWith(YT_EVENTS.NAVIGATE, {
+      endpoint: { watchEndpoint: { videoId: MINIPLAYER_VIDEO } },
+    });
+  });
+
   it('toggleMiniPlayer when miniplayerIsActive and no videoId does not fire', () => {
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdAppWithFire(mockFire, true));
-    mockPlayerManager.getContentVideoId.mockReturnValue(null);
+    mockPlayerManager.getVideoId.mockReturnValue(null);
     controller.toggleMiniPlayer();
     expect(mockFire).not.toHaveBeenCalled();
   });

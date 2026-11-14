@@ -16,6 +16,7 @@ import { PipWindowProvider } from '../PipWindowProvider';
 import { PiPWindowHandlers } from '../PiPWindowHandlers';
 import { PipShortsWindowHandlers } from '../PipShortsWindowHandlers';
 import { TitleSyncHandler } from '../../handlers/TitleSyncHandler';
+import { PiPVideoTracker } from '../PiPVideoTracker';
 import { YtdShortsProvider } from '../YtdShortsProvider';
 import { SELECTORS } from '../../selectors';
 import { TIMEOUTS } from '../../constants';
@@ -44,6 +45,7 @@ describe('PiPManager', () => {
     c.bind(PiPWindowHandlers).toInstance(mocks.pipWindowHandlers);
     c.bind(PipShortsWindowHandlers).toInstance(mocks.pipShortsWindowHandlers);
     c.bind(TitleSyncHandler).toInstance(mocks.titleSyncHandler);
+    c.bind(PiPVideoTracker).toInstance(mocks.pipVideoTracker);
     c.bind(PiPManager).toSelf();
     manager = c.get(PiPManager);
   });
@@ -168,6 +170,7 @@ describe('PiPManager', () => {
     c.bind(PiPWindowHandlers).toInstance(mocks.pipWindowHandlers);
     c.bind(PipShortsWindowHandlers).toInstance(mocks.pipShortsWindowHandlers);
     c.bind(TitleSyncHandler).toInstance(mocks.titleSyncHandler);
+    c.bind(PiPVideoTracker).toInstance(mocks.pipVideoTracker);
     c.bind(LoggerFactory).toInstance(createLoggerFactoryWithLogger(mockLogger));
     c.bind(PiPManager).toSelf();
     const mgr = c.get<PiPManager>(PiPManager);
@@ -396,6 +399,7 @@ describe('PiPManager (integration)', () => {
   let mockPipHandlers: ReturnType<typeof createPiPManagerMocks>['pipWindowHandlers'];
   let mockPipShortsHandlers: ReturnType<typeof createPiPManagerMocks>['pipShortsWindowHandlers'];
   let mockTitleSync: ReturnType<typeof createPiPManagerMocks>['titleSyncHandler'];
+  let mockVideoTracker: ReturnType<typeof createPiPManagerMocks>['pipVideoTracker'];
   let origDpp: typeof window.documentPictureInPicture;
   let pipQuerySelectorRestore: () => void;
 
@@ -443,6 +447,7 @@ describe('PiPManager (integration)', () => {
     mockPipHandlers = mocks.pipWindowHandlers;
     mockPipShortsHandlers = mocks.pipShortsWindowHandlers;
     mockTitleSync = mocks.titleSyncHandler;
+    mockVideoTracker = mocks.pipVideoTracker;
 
     mockMiniController.getMiniplayer.mockReturnValue(miniplayerEl as never);
     mockMiniController.isVisible.mockReturnValue(true);
@@ -472,6 +477,7 @@ describe('PiPManager (integration)', () => {
     c.bind(PiPWindowHandlers).toInstance(mockPipHandlers);
     c.bind(PipShortsWindowHandlers).toInstance(mockPipShortsHandlers);
     c.bind(TitleSyncHandler).toInstance(mockTitleSync);
+    c.bind(PiPVideoTracker).toInstance(mockVideoTracker);
     c.bind(PiPManager).toSelf();
     manager = c.get(PiPManager);
   });
@@ -599,6 +605,27 @@ describe('PiPManager (integration)', () => {
     expect(mockMiniController.toggleMiniPlayer).toHaveBeenCalledTimes(2); // open + close
     expect(mockPlayerManager.waitForMainPlayer).toHaveBeenCalled();
     vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
+  });
+
+  it('full flow: follows the mini player video from open and returns to it on close', async () => {
+    const MINIPLAYER_VIDEO = 'mini-video';
+    mockMiniController.isVisible.mockReturnValue(false);
+    const { DOMUtils } = await import('../../utils/DOMUtils');
+    vi.spyOn(DOMUtils, 'waitForElementSelector').mockResolvedValue(containerEl as never);
+    await manager.open();
+    expect(mockVideoTracker.start).toHaveBeenCalledTimes(1);
+    mockVideoTracker.stop.mockReturnValue(MINIPLAYER_VIDEO);
+
+    await awaitClose(manager);
+
+    expect(mockMiniController.toggleMiniPlayer).toHaveBeenLastCalledWith(MINIPLAYER_VIDEO);
+    vi.mocked(DOMUtils.waitForElementSelector).mockRestore();
+  });
+
+  it('full flow: PiP from the mini player does not follow its video', async () => {
+    mockMiniController.isVisible.mockReturnValue(true);
+    await manager.open();
+    expect(mockVideoTracker.start).not.toHaveBeenCalled();
   });
 
   it('full flow: close when miniplayerContainer not in DOM skips remove (defensive branch)', async () => {

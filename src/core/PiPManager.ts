@@ -18,6 +18,7 @@ import { PiPCriticalError } from '../errors/PiPCriticalError';
 import { PiPWindowHandlers } from './PiPWindowHandlers';
 import { PipShortsWindowHandlers } from './PipShortsWindowHandlers';
 import { TitleSyncHandler } from '../handlers/TitleSyncHandler';
+import { PiPVideoTracker } from './PiPVideoTracker';
 import { inject, injectable } from '../di';
 
 /**
@@ -63,7 +64,8 @@ export class PiPManager {
     @inject(PiPWindowHandlers) private readonly pipWindowHandlers: PiPWindowHandlers,
     @inject(PipShortsWindowHandlers)
     private readonly pipShortsWindowHandlers: PipShortsWindowHandlers,
-    @inject(TitleSyncHandler) private readonly titleSyncHandler: TitleSyncHandler
+    @inject(TitleSyncHandler) private readonly titleSyncHandler: TitleSyncHandler,
+    @inject(PiPVideoTracker) private readonly pipVideoTracker: PiPVideoTracker
   ) {
     this.logger = loggerFactory.create('PiPManager');
   }
@@ -152,6 +154,10 @@ export class PiPManager {
       await YouTubeScheduler.waitForLowPriorityJobs();
       // YouTube sets the title "YouTube" as soon as the mini player is active; keep the video title instead
       this.titleSyncHandler.holdPageTitle();
+      // The mini player takes this watch page's video; follow it from here (the return navigates to it)
+      this.pipVideoTracker.start(
+        new URLSearchParams(window.location.search).get('v') ?? this.playerManager.getVideoId()
+      );
       this.miniPlayerController.toggleMiniPlayer();
 
       // Wait for mini player container and for YouTube to move the player into it: the container can
@@ -407,8 +413,10 @@ export class PiPManager {
     // Put the player back into its slot before YouTube (toggle to full player) looks for it there
     await this.unparkYtdPlayer(parked);
 
+    // The video the mini player holds now (null when PiP was opened from the mini player: not followed)
+    const miniplayerVideoId = this.pipVideoTracker.stop();
     if (!this.playerManager.getWasMiniPlayerActiveBeforePiP()) {
-      this.miniPlayerController.toggleMiniPlayer();
+      this.miniPlayerController.toggleMiniPlayer(miniplayerVideoId);
 
       // Wait for main player
       await this.playerManager.waitForMainPlayer();
