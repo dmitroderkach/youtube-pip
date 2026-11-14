@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  classifierDenial,
   voiceReplyWanted,
   withoutRepeated,
   budgetLevel,
@@ -244,4 +245,23 @@ test('voiceReplyWanted: the mode at sending time decides', () => {
     assert.equal(voiceReplyWanted('off', trigger), false);
     assert.equal(voiceReplyWanted('bogus', trigger), false);
   }
+});
+
+test('classifierDenial: the auto mode classifier refusal and its reason, nothing else', () => {
+  const refusal =
+    'Permission for this action was denied by the Claude Code auto mode classifier. Reason: [Unsanctioned ' +
+    'Communication]. If you have other tasks that do not depend on this action, continue working on those.';
+  assert.deepEqual(classifierDenial(refusal), { reason: 'Unsanctioned Communication' });
+  assert.deepEqual(classifierDenial([{ type: 'text', text: refusal }]), {
+    reason: 'Unsanctioned Communication',
+  });
+  assert.deepEqual(
+    classifierDenial(
+      'Permission for this action was denied by the Claude Code auto mode classifier.'
+    ),
+    { reason: null }
+  );
+  assert.equal(classifierDenial('Exit code 1\nPermission denied'), undefined);
+  assert.equal(classifierDenial('The owner declined this action.'), undefined);
+  assert.equal(classifierDenial(undefined), undefined);
 });

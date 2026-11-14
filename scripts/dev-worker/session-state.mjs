@@ -228,6 +228,20 @@ const comparable = (text) =>
     .trim();
 
 /**
+ * A tool result that is the auto mode classifier's refusal ("Permission for this action was denied by the Claude Code
+ * auto mode classifier. Reason: [Unsanctioned Communication]. …"): { reason } (null when it gives none), or undefined
+ * for any other result. content: the tool_result's content (a string or text blocks).
+ */
+export function classifierDenial(content) {
+  const text = Array.isArray(content)
+    ? content.map((block) => (block?.type === 'text' ? block.text : '')).join('\n')
+    : String(content ?? '');
+  if (!/denied by the Claude Code auto mode classifier/i.test(text)) return undefined;
+  const reason = text.match(/Reason:\s*\[?([^\]\n.]+)\]?/i)?.[1]?.trim();
+  return { reason: reason || null };
+}
+
+/**
  * Whether an answer goes out as a voice message too, decided when it is sent, with the voice mode of that moment
  * (the owner may switch it while Claude works): `on` = every answer, also to background tasks and other turns that no
  * message of the owner started; `auto` = only the answer to the owner's voice message; `off` = never.
