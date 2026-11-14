@@ -34,6 +34,9 @@ for _ in $(seq 1 180); do
 done
 grep -q 'worker-ok' "$FAKE_ROOT/telegram.log" || fail "no answer from Claude within 3 minutes"
 echo "ok   the worker answered a message through Claude"
+# Claude Code got only the proxy's placeholder (anthropic-proxy.mjs): the answer came through the proxy
+grep -q 'claude token proxy on' "$FAKE_ROOT/worker.log" || fail "the Claude token proxy did not start"
+echo "ok   Claude answered through the token proxy"
 
 kill -TERM "$WORKER"
 for _ in $(seq 1 60); do

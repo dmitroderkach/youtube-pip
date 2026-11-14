@@ -1,0 +1,246 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        margin: 0;
+        background: #0f1419;
+        font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+        color: #e6e6e6;
+      }
+      .wrap {
+        width: 1240px;
+        padding: 28px 32px;
+      }
+      h1 {
+        font-size: 30px;
+        margin: 0 0 4px;
+      }
+      .sub {
+        color: #9aa4ad;
+        font-size: 17px;
+        margin-bottom: 20px;
+      }
+      .cols {
+        display: flex;
+        gap: 16px;
+      }
+      .panel {
+        flex: 1;
+        border: 2px dashed #3a4652;
+        border-radius: 14px;
+        padding: 12px;
+      }
+      .ptitle {
+        font-weight: 700;
+        font-size: 16px;
+        color: #9aa4ad;
+        margin-bottom: 8px;
+      }
+      .box {
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: #1a222b;
+        border: 2px solid #2c3742;
+      }
+      .box h3 {
+        margin: 0 0 4px;
+        font-size: 17px;
+      }
+      .box p {
+        margin: 3px 0;
+        font-size: 14px;
+        line-height: 1.35;
+        color: #c9d1d9;
+      }
+      .arrow {
+        color: #9aa4ad;
+        font-size: 14px;
+        margin: 6px 0 6px 14px;
+      }
+      .secret {
+        border-color: #c94444;
+      }
+      .holder {
+        border-color: #d4a72c;
+      }
+      .proxy {
+        border-color: #5a9a3a;
+        background: #18261c;
+      }
+      .client {
+        border-color: #6b7480;
+      }
+      .apib {
+        border-color: #3a8ac4;
+        margin-top: 14px;
+      }
+      .rule {
+        font-size: 13.5px;
+        color: #c9d1d9;
+        margin: 3px 0;
+      }
+      .ok {
+        color: #7ad67a;
+      }
+      .no {
+        color: #ff8a8a;
+      }
+      .mid {
+        color: #ffd38a;
+      }
+      .cant {
+        font-size: 13px;
+        color: #ff9a9a;
+        margin-top: 4px;
+      }
+      .k {
+        display: inline-block;
+        background: #2a3540;
+        border-radius: 6px;
+        padding: 1px 7px;
+        font-size: 13px;
+        color: #ffd38a;
+      }
+      .gain {
+        display: flex;
+        gap: 12px;
+        margin-top: 14px;
+      }
+      .gain .box {
+        flex: 1;
+      }
+      .before {
+        border-color: #c94444;
+      }
+      .now {
+        border-color: #5a9a3a;
+      }
+      .foot {
+        margin-top: 14px;
+        color: #9aa4ad;
+        font-size: 15px;
+        line-height: 1.45;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Claude token: who holds it, who gets what</h1>
+      <div class="sub">
+        The year-long subscription token (claude setup-token) never reaches Claude Code: a small
+        proxy next to it adds the token to each API request.
+      </div>
+      <div class="cols">
+        <div class="panel">
+          <div class="ptitle">Dev worker · ECS task</div>
+          <div class="box secret">
+            <h3>🔐 Secrets Manager</h3>
+            <p><span class="k">youtube-pip-oncall: claude_code_oauth_token</span></p>
+          </div>
+          <div class="arrow">↓ real token (task start)</div>
+          <div class="box holder">
+            <h3>💻 worker.mjs · user devworker</h3>
+            <p>
+              Gets the real token from the task at start. Runs the proxy inside its own process.
+            </p>
+            <div class="box proxy" style="margin-top: 8px">
+              <h3>🔁 token proxy · 127.0.0.1:&lt;random port&gt;</h3>
+              <p>anthropic-proxy.mjs. A new random placeholder at every start.</p>
+              <p class="rule">
+                <span class="ok">✔</span> request with the placeholder → placeholder replaced by the
+                real token → api.anthropic.com
+              </p>
+              <p class="rule">
+                <span class="no">✖</span> any other token → 401, nothing forwarded (other local
+                users cannot use it)
+              </p>
+              <p class="rule">
+                <span class="mid">•</span> no token at all (connectivity check) → forwarded without
+                a token
+              </p>
+            </div>
+          </div>
+          <div class="arrow">↑ API requests with the placeholder</div>
+          <div class="box client">
+            <h3>🧠 Claude Code · user worker</h3>
+            <p>
+              Its environment: ANTHROPIC_BASE_URL = the proxy, CLAUDE_CODE_OAUTH_TOKEN = the
+              placeholder.
+            </p>
+            <p class="cant">
+              🚫 Cannot read the real token: it lives in a process of another Linux user
+              (/proc/&lt;pid&gt;/environ is closed).
+            </p>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="ptitle">On-call job · Fargate runner</div>
+          <div class="box secret">
+            <h3>🔐 Secrets Manager</h3>
+            <p><span class="k">youtube-pip-oncall: claude_code_oauth_token</span></p>
+          </div>
+          <div class="arrow">↓ real token (task start)</div>
+          <div class="box holder">
+            <h3>⚙️ job steps · user runner</h3>
+            <p>Gets the real token from the task. run-agent.sh starts the proxy as this user.</p>
+            <div class="box proxy" style="margin-top: 8px">
+              <h3>🔁 token proxy · 127.0.0.1:&lt;random port&gt;</h3>
+              <p>anthropic-proxy.mjs. A new random placeholder at every start.</p>
+              <p class="rule">
+                <span class="ok">✔</span> request with the placeholder → placeholder replaced by the
+                real token → api.anthropic.com
+              </p>
+              <p class="rule">
+                <span class="no">✖</span> any other token → 401, nothing forwarded (other local
+                users cannot use it)
+              </p>
+              <p class="rule">
+                <span class="mid">•</span> no token at all (connectivity check) → forwarded without
+                a token
+              </p>
+            </div>
+          </div>
+          <div class="arrow">↑ API requests with the placeholder</div>
+          <div class="box client">
+            <h3>🔎 on-call agent · user oncall-agent</h3>
+            <p>
+              The same two variables, nothing else. Read / Grep / Glob, no shell, no network tools.
+            </p>
+            <p class="cant">
+              🚫 Cannot read the real token: it lives in a process of another Linux user
+              (/proc/&lt;pid&gt;/environ is closed).
+            </p>
+          </div>
+        </div>
+      </div>
+      <div class="box apib">
+        <h3>
+          ☁️ api.anthropic.com
+          <span style="font-weight: 400; font-size: 14px; color: #9aa4ad"
+            >→ with the real token</span
+          >
+        </h3>
+        <p>Sees the real token, the same requests as before.</p>
+      </div>
+      <div class="gain">
+        <div class="box before">
+          <h3>What a prompt injection could take: Before</h3>
+          <p>The real token from the environment: a year of your subscription, usable anywhere.</p>
+        </div>
+        <div class="box now">
+          <h3>What a prompt injection could take: Now</h3>
+          <p>
+            Only the placeholder: worthless outside, dies with the worker run / the job. At most it
+            can spend the subscription through the proxy while that runs.
+          </p>
+        </div>
+      </div>
+      <div class="foot">
+        Same idea as the GitHub broker, but a proxy: Anthropic has no way to mint a short-lived
+        token, so the real one never leaves the proxy's process.
+      </div>
+    </div>
+  </body>
+</html>

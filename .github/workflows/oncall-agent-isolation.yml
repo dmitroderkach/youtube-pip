@@ -10,6 +10,7 @@ on:
       - 'scripts/oncall/run-agent.sh'
       - 'scripts/oncall/agent-settings.json'
       - 'scripts/oncall/scrub-secrets*.mjs'
+      - 'scripts/dev-worker/anthropic-proxy*.mjs'
       - '.github/workflows/oncall-agent-isolation.yml'
       - '.github/workflows/e2e-manual.yml'
 
@@ -31,8 +32,8 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Scrub unit tests
-        run: node --test scripts/oncall/scrub-secrets.test.mjs
+      - name: Scrub and token proxy unit tests
+        run: node --test scripts/oncall/scrub-secrets.test.mjs scripts/dev-worker/anthropic-proxy.test.mjs
 
       - name: Run the agent with a fake token
         env:

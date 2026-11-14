@@ -70,7 +70,7 @@ COPY scripts/dev-worker/package.json scripts/dev-worker/package-lock.json /opt/d
 RUN cd /opt/dev-worker && npm ci --omit=dev --no-audit --no-fund && rm -rf /root/.npm
 COPY scripts/dev-worker/worker.mjs scripts/dev-worker/telegram-format.mjs scripts/dev-worker/session-state.mjs \
      scripts/dev-worker/isolation.mjs scripts/dev-worker/subagent-history.mjs scripts/dev-worker/system-prompt.md \
-     scripts/dev-worker/english-only-hook.mjs \
+     scripts/dev-worker/english-only-hook.mjs scripts/dev-worker/anthropic-proxy.mjs \
      /opt/dev-worker/
 # User settings: the PreToolUse hook that keeps text sent to GitHub / git history in English
 COPY --chown=worker:worker scripts/dev-worker/claude-settings.json /home/worker/.claude/settings.json
