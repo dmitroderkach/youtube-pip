@@ -38,10 +38,11 @@ This updates `package.json` to the next version.
 - **Title** — First line (after `#`) is the PR title; use a short summary of the diff vs main.
 - **Body** — Full content describing the changes, derived from `git diff main` (files changed, what was added/changed/fixed). Structure with `## Summary`, then `## Added` / `## Changed` / `## Fixed` as needed.
 
-## 5. Create branch release/X.X.X
+## 5. Create branch release-X.X.X
 
-- Create a branch named `release/X.X.X` where `X.X.X` is the **current version** (from `package.json` after step 1).
-- Example: after bump to 2.0.2, run `git checkout -b release/2.0.2`.
+- Create a branch named `release-X.X.X` where `X.X.X` is the **current version** (from `package.json` after step 1).
+- Example: after bump to 2.0.2, run `git checkout -b release-2.0.2`.
+- Not `release/X.X.X`: the protected branch `release` (what installed scripts and Greasy Fork read) makes Git refuse any `release/…` branch (a ref cannot be both a branch and a directory).
 
 ## 6. Stage all files except PR_DESCRIPTION.md
 
