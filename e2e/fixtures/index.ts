@@ -96,6 +96,7 @@ export { startPageTitleRecorder, stopPageTitleRecorder } from './page-title';
 export {
   waitForShortsPlayerVisibleInMain,
   waitForShortsPlayerVisibleInPip,
+  waitForShortsTopControls,
   scrollToNextShortInPip,
 } from './pip-shorts';
 
