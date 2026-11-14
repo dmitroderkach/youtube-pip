@@ -140,7 +140,8 @@ resource "aws_scheduler_schedule" "claude_code_update" {
 
 # Role of the on-call runner tasks (runner-oncall): only scheduled / manual / push runs of main get them (dispatcher
 # check). It may get a short-lived GitHub App token for a PR (oncall-schedule Lambda, action app_token) and ask the
-# owner to publish an image (dev-ops Lambda, which sends the ✅ button).
+# owner to publish an image (dev-ops Lambda, which sends the ✅ button), and put the on-call agent's transcript into the
+# dev worker's state bucket (oncall/).
 resource "aws_iam_role" "oncall_task" {
   name                 = "${local.name_prefix}-oncall-task-role"
   permissions_boundary = aws_iam_policy.project_boundary.arn
@@ -161,10 +162,18 @@ resource "aws_iam_role_policy" "oncall_task" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Effect   = "Allow"
-      Action   = "lambda:InvokeFunction"
-      Resource = [aws_lambda_function.oncall_schedule.arn, aws_lambda_function.dev_ops.arn]
-    }]
+    Statement = [
+      {
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = [aws_lambda_function.oncall_schedule.arn, aws_lambda_function.dev_ops.arn]
+      },
+      {
+        # The on-call agent's transcript (docs/ONCALL.md, "Agent isolation"): write-only, its own prefix
+        Effect   = "Allow"
+        Action   = "s3:PutObject"
+        Resource = "${aws_s3_bucket.dev_worker_state.arn}/oncall/*"
+      }
+    ]
   })
 }

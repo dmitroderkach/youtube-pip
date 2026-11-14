@@ -196,7 +196,14 @@ variable "dev_worker_state_noncurrent_days" {
     state       = 1
     claude      = 1
     inbox       = 1
+    oncall      = 1
   }
+}
+
+variable "oncall_transcript_retention_days" {
+  description = "Transcripts of the on-call agent (dev worker state bucket, oncall/<run id>/) expire after this many days: as long as the run's `oncall` artifact."
+  type        = number
+  default     = 14
 }
 
 variable "dev_worker_git_user_name" {

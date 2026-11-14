@@ -407,7 +407,9 @@ resource "aws_ecs_task_definition" "runner_oncall" {
         { name = "RUNNER_SCOPE", value = "repo" },
         { name = "EPHEMERAL", value = "1" },
         { name = "DISABLE_AUTO_UPDATE", value = "1" },
-        { name = "RUNNER_IDLE_TIMEOUT_SECONDS", value = tostring(var.runner_idle_timeout_seconds) }
+        { name = "RUNNER_IDLE_TIMEOUT_SECONDS", value = tostring(var.runner_idle_timeout_seconds) },
+        # The on-call agent's transcript goes there (oncall/; docs/ONCALL.md, "Agent isolation")
+        { name = "STATE_BUCKET", value = aws_s3_bucket.dev_worker_state.bucket }
       ]
       secrets = [
         {
