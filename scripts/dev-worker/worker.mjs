@@ -622,29 +622,48 @@ function save() {
   return run;
 }
 
+/** Attempts at a workspace archive with no file changing while tar reads it, and the pause between them. */
+const WORKSPACE_ARCHIVE_ATTEMPTS = 2;
+const WORKSPACE_ARCHIVE_RETRY_MS = 5000;
+
+/**
+ * Pack the working copy into WORKSPACE_ARCHIVE (as Claude's user). tar is not a snapshot: a file that changes while it
+ * reads it (Claude or a test run still writing, a git command) can go in half-written, and the files are from
+ * different moments; GNU tar then exits 1. Tried again after a pause; true only for an archive nothing changed in.
+ */
+async function archiveWorkspace(excludes) {
+  for (let attempt = 1; attempt <= WORKSPACE_ARCHIVE_ATTEMPTS; attempt++) {
+    try {
+      await claudeSh('tar', ['czf', WORKSPACE_ARCHIVE, ...excludes, '-C', REPO_DIR, '.']);
+      return true;
+    } catch (error) {
+      if (error.code !== 1) throw error;
+      log(
+        `workspace changed while archived (attempt ${attempt}/${WORKSPACE_ARCHIVE_ATTEMPTS}): ${String(
+          error.stderr ?? ''
+        )
+          .trim()
+          .slice(0, 300)}`
+      );
+      if (attempt < WORKSPACE_ARCHIVE_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, WORKSPACE_ARCHIVE_RETRY_MS));
+      }
+    }
+  }
+  return false;
+}
+
 async function saveNow() {
   const excludes = WORKSPACE_EXCLUDES.flatMap((dir) => ['--exclude', `./${dir}`]);
   // Packed and uploaded by Claude's user: the worker never reads Claude's files for it
   await claudeSh('mkdir', ['-p', CLAUDE_TMP]);
-  // GNU tar exits 1 when a file changed while it read it (Claude or a test run still writing in the working copy): the
-  // archive is complete with what was there, so the save goes on instead of failing as a whole
-  await claudeSh('tar', [
-    'czf',
-    WORKSPACE_ARCHIVE,
-    '--warning=no-file-changed',
-    ...excludes,
-    '-C',
-    REPO_DIR,
-    '.',
-  ]).catch((error) => {
-    if (error.code !== 1) throw error;
-    log(
-      `workspace archived while files changed: ${String(error.stderr ?? '')
-        .trim()
-        .slice(0, 300)}`
-    );
-  });
-  await awsClaude('s3', 'cp', WORKSPACE_ARCHIVE, `s3://${BUCKET}/${WORKSPACE_KEY}`, '--quiet');
+  // Only a consistent working copy goes to S3 (archiveWorkspace); otherwise the previous one stays there and the rest
+  // of the save (transcripts, memory, plans) goes on
+  if (await archiveWorkspace(excludes)) {
+    await awsClaude('s3', 'cp', WORKSPACE_ARCHIVE, `s3://${BUCKET}/${WORKSPACE_KEY}`, '--quiet');
+  } else {
+    log('workspace kept changing while archived: not uploaded, the previous copy in S3 stays');
+  }
   // Transcripts (trimmed by Claude Code itself, CLAUDE_CODE_TRANSCRIPT_LOCAL_GC), subagents and tool results of all
   // projects; memory below
   await awsClaude(
