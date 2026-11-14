@@ -6,12 +6,12 @@
  * releases go through the gate: dev-ops merge / release).
  *
  * Env: GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID, GITHUB_APP_PRIVATE_KEY (the task's secret youtube-pip-dev-worker),
- *      GITHUB_REPO (owner/name). Tokens live an hour: cached in GITHUB_APP_TOKEN_CACHE until 10 minutes before expiry.
+ *      GITHUB_REPO (owner/name). Tokens live an hour: cached in GITHUB_APP_CACHE_FILE until 10 minutes before expiry.
  */
 import { createSign } from 'node:crypto';
 import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 
-const CACHE = process.env.GITHUB_APP_TOKEN_CACHE ?? '/tmp/github-app-token.json';
+const CACHE = process.env.GITHUB_APP_CACHE_FILE ?? '/tmp/github-app-token.json';
 const REUSE_MS = 10 * 60 * 1000;
 /** What the worker needs; the App may have no more than its own permissions anyway. */
 const PERMISSIONS = {
