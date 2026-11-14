@@ -54,6 +54,10 @@ jobs:
           sudo -n test -f /home/oncall-agent/work/oncall/results-summary.json
           sudo -n test -f /home/oncall-agent/work/scripts/oncall/agent-settings.json
           ! sudo -n test -e /home/oncall-agent/work/.git
+          # Its tool set (the init event comes before the failed login): the three read-only tools, nothing else
+          tools=$(jq -c 'select(.type == "system" and .subtype == "init") | .tools | sort' oncall/claude-transcript.jsonl)
+          echo "agent tools: $tools"
+          test "$tools" = '["Glob","Grep","Read"]'
 
       - name: Scrub a leaked value
         env:

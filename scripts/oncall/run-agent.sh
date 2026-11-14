@@ -7,8 +7,8 @@
 # - its environment holds only its own Claude token (every other variable is unset), and the token never appears on a
 #   command line (sudo --preserve-env, not `env NAME=value`);
 # - it works on a copy: the repository at HEAD (git archive, no .git) and the on-call inputs in its own home;
-# - Read / Grep / Glob only, and /proc, /sys, /dev are denied on top (scripts/oncall/agent-settings.json): its own
-#   /proc/self/environ holds the Claude token.
+# - Read / Grep / Glob are its whole tool set (--tools), confined to its copy (--restricted), and /proc, /sys, /dev
+#   are denied on top (scripts/oncall/agent-settings.json): its own /proc/self/environ holds the Claude token.
 # Self-checks fail the step before Claude starts when any of this does not hold (the message then falls back to the
 # raw results).
 #
@@ -77,6 +77,7 @@ echo "run-agent: isolation checks passed"
 
 as_agent_claude /usr/bin/env --chdir="$WORK" "$claude" \
   -p "$(cat "$prompt_file")" \
+  --tools "Read,Grep,Glob" --restricted --strict-mcp-config \
   --settings scripts/oncall/agent-settings.json \
   --allowedTools "Read,Grep,Glob" \
   --disallowedTools "Bash,Edit,Write,NotebookEdit,WebFetch,WebSearch,Task" \
