@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  voiceReplyWanted,
   withoutRepeated,
   budgetLevel,
   budgetStates,
@@ -228,4 +229,19 @@ test("after a subagent finished in the owner's view, its message is not repeated
   );
   // Nothing seen: the answer as is
   assert.equal(withoutRepeated('All good', ''), 'All good');
+});
+
+test('voiceReplyWanted: the mode at sending time decides', () => {
+  // on: every answer, also one no message of the owner started (a background task ended)
+  for (const trigger of ['voice', 'text', null])
+    assert.equal(voiceReplyWanted('on', trigger), true);
+  // auto: only the answer to the owner's voice message
+  assert.equal(voiceReplyWanted('auto', 'voice'), true);
+  assert.equal(voiceReplyWanted('auto', 'text'), false);
+  assert.equal(voiceReplyWanted('auto', null), false);
+  // off (or an unknown mode): never
+  for (const trigger of ['voice', 'text', null]) {
+    assert.equal(voiceReplyWanted('off', trigger), false);
+    assert.equal(voiceReplyWanted('bogus', trigger), false);
+  }
 });

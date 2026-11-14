@@ -28,6 +28,7 @@ import {
   restoreNote,
   timeZoneChoices,
   withoutRepeated,
+  voiceReplyWanted,
 } from './session-state.mjs';
 import {
   backgroundRestoreHtml,
@@ -1263,7 +1264,7 @@ async function finishTurn(result) {
     await say(await compactReport(result));
     lastAnswerAt = new Date().toISOString();
     publishActivity(false);
-    voiceReplyPending = false;
+    voiceTrigger = null;
     return;
   }
   const voiced = splitVoiceBlock(answer);
@@ -1272,7 +1273,7 @@ async function finishTurn(result) {
   if (!text && voiced.text && !failed) {
     lastAnswerAt = new Date().toISOString();
     publishActivity(false);
-    voiceReplyPending = false;
+    voiceTrigger = null;
     await flushOutbox();
     await save().catch((error) => log('save failed', error));
     return;
@@ -1283,7 +1284,7 @@ async function finishTurn(result) {
     await say('💬 Основний агент відповів: /agents → 🧠 Основний агент');
     lastAnswerAt = new Date().toISOString();
     publishActivity(false);
-    voiceReplyPending = false;
+    voiceTrigger = null;
     await flushOutbox();
     await save().catch((error) => log('save failed', error));
     return;
@@ -1316,7 +1317,7 @@ async function finishTurn(result) {
   lastAnswerAt = new Date().toISOString();
   publishActivity(false);
   if (text && !failed) await replyByVoice(text, spoken);
-  else voiceReplyPending = false;
+  else voiceTrigger = null;
   await flushOutbox();
   try {
     await save();
@@ -1497,8 +1498,11 @@ async function keepSession() {
 
 // ---------------------------------------------------------------------------------------------- voice replies
 
-/** The answer to the message being worked on goes out as a voice message too (set when it is delivered). */
-let voiceReplyPending = false;
+/**
+ * What the answer being worked on is for: 'voice' / 'text' = a message of the owner, null = none (a background task
+ * ended, Claude went on by itself). Whether it is spoken is decided when it is sent (voiceReplyWanted).
+ */
+let voiceTrigger = null;
 
 const voiceMode = () => (VOICE_MODES.includes(meta?.voiceMode) ? meta.voiceMode : 'auto');
 const voiceName = () => meta?.voiceName ?? TTS_DEFAULT_VOICE;
@@ -1820,7 +1824,6 @@ function splitVoiceBlock(answer) {
   return { text: answer.replace(VOICE_BLOCK_RE, '').trim(), spoken: match[1].trim() || null };
 }
 
-/** After the text answer: the voice message, when the delivered message asked for one. */
 /**
  * Audio of a voice reply: with a Gemini model chosen, a failed synthesis (quota, spend cap, a refused token, an
  * outage) falls back to Chirp 3 HD, so the reply still gets its voice; the fallback is logged and noted silently.
@@ -1843,9 +1846,12 @@ async function synthesizeWithFallback(text) {
   }
 }
 
+/** After the text answer: the voice message, when the voice mode of this moment wants one (voiceReplyWanted). */
 async function replyByVoice(text, spoken) {
-  if (!voiceReplyPending) return;
-  voiceReplyPending = false;
+  const trigger = voiceTrigger;
+  voiceTrigger = null;
+  // The mode of this moment: switched while Claude worked, it still counts
+  if (!env.GOOGLE_TTS_API_KEY || !voiceReplyWanted(voiceMode(), trigger)) return;
   const speech = (spoken ?? speakable(text)).slice(0, TTS_MAX_CHARS * 2);
   if (!speech) return;
   try {
@@ -3467,11 +3473,9 @@ async function deliver(message) {
   const oncall = await oncallNote().catch((error) => log('oncall check failed', error));
   if (oncall) text = `${oncall}\n\n${text}`;
   const spokenByOwner = (message.attachments ?? []).some((a) => a.kind === 'voice');
-  if (
-    env.GOOGLE_TTS_API_KEY &&
-    (voiceMode() === 'on' || (voiceMode() === 'auto' && spokenByOwner))
-  ) {
-    voiceReplyPending = true;
+  // A voice message wins over a text one in the same answer
+  if (voiceTrigger !== 'voice') voiceTrigger = spokenByOwner ? 'voice' : 'text';
+  if (env.GOOGLE_TTS_API_KEY && voiceReplyWanted(voiceMode(), voiceTrigger)) {
     text = `${text}\n\n${VOICE_NOTE}`;
   }
   if (turn && session) {

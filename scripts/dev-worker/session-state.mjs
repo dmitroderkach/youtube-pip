@@ -228,6 +228,18 @@ const comparable = (text) =>
     .trim();
 
 /**
+ * Whether an answer goes out as a voice message too, decided when it is sent, with the voice mode of that moment
+ * (the owner may switch it while Claude works): `on` = every answer, also to background tasks and other turns that no
+ * message of the owner started; `auto` = only the answer to the owner's voice message; `off` = never.
+ * trigger: 'voice' / 'text' = the owner's message this answer is for, null = no message of the owner.
+ */
+export function voiceReplyWanted(mode, trigger) {
+  if (mode === 'on') return true;
+  if (mode === 'auto') return trigger === 'voice';
+  return false;
+}
+
+/**
  * The main agent's answer without the paragraphs that repeat a subagent's final message the owner has just seen in
  * its view (/agents): a paragraph goes when the subagent's text contains it, or when nearly all its words (85%) are
  * the subagent's. What is left (Claude's own conclusions, next steps) stays; '' when nothing is.
