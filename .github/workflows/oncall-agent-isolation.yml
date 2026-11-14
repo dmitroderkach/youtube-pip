@@ -1,6 +1,7 @@
 name: On-call agent isolation
 
-# Runs scripts/oncall/run-agent.sh (docs/ONCALL.md, "Agent isolation") on a PR that changes it: its self-checks must
+# Runs scripts/oncall/run-agent.sh (docs/ONCALL.md, "Agent isolation") on a PR that changes it or the on-call job
+# that starts it (e2e-manual.yml, also where the weekly update bumps Claude Code): its self-checks must
 # pass (own user, the runner's checkout and environment out of reach, only the Claude token in its environment) and a
 # secret value in the agent's output must be scrubbed. Fake secrets only: Claude Code starts and fails to log in.
 on:
@@ -10,6 +11,7 @@ on:
       - 'scripts/oncall/agent-settings.json'
       - 'scripts/oncall/scrub-secrets*.mjs'
       - '.github/workflows/oncall-agent-isolation.yml'
+      - '.github/workflows/e2e-manual.yml'
 
 permissions:
   contents: read
