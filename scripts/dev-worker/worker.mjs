@@ -29,6 +29,7 @@ import {
   timeZoneChoices,
   withoutRepeated,
   voiceReplyWanted,
+  classifierDenial,
 } from './session-state.mjs';
 import {
   backgroundRestoreHtml,
@@ -1395,6 +1396,17 @@ async function runSession(resumeId) {
       for (const item of message.message.content) {
         if (item.type !== 'tool_result') continue;
         foregroundToolIds.delete(item.tool_use_id);
+        // The auto mode classifier refused the call: Claude only gets an error, so the owner sees it here
+        const denial = item.is_error ? classifierDenial(item.content) : undefined;
+        if (denial) {
+          const call = toolCalls.get(item.tool_use_id);
+          await say(
+            `🛑 Класифікатор auto-режиму заблокував дію` +
+              (call ? `: ${describeTool(call.name, call.input)}` : '') +
+              (denial.reason ? `\nПричина: ${denial.reason}` : ''),
+            { silent: true }
+          );
+        }
         // A background subagent's Agent call returns at once (`async_launched`): it runs on, so it has not ended
         const launched = ['async_launched', 'remote_launched'].includes(
           message.tool_use_result?.status

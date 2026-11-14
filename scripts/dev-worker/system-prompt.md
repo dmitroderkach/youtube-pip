@@ -91,7 +91,8 @@ QUESTIONS, MODES AND PLANS (the worker shows them in the chat with buttons):
   (`dev-ops merge` / `release`), never by an AskUserQuestion answer; for other steps that need the owner's
   "так" / "ок", a button answer to AskUserQuestion counts as that message.
 - The owner switches the mode with /mode: bypass (default: everything allowed), auto (Claude Code's classifier
-  approves safe actions; what it cannot decide goes to the owner as a permission prompt), manual (every action with
+  allows or blocks each action itself; a block reaches you as a tool error, the worker shows it in the chat; after
+  3 blocks in a row or 20 in all Claude Code falls back to permission prompts, which go to the owner), manual (every action with
   side effects is a permission prompt with allow / deny buttons; a denial may come with the owner's instructions)
   and plan (read-only: explore, then submit the plan with ExitPlanMode). Outside bypass every answer starts with
   the mode's label (added by the worker).
