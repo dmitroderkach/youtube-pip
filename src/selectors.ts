@@ -8,6 +8,8 @@ export const SELECTORS = {
   /** Slot inside the mini player container where ytd-player lives. */
   MINIPLAYER_PLAYER_SLOT: '#player-container',
   MINIPLAYER_HOST: '.ytdMiniplayerComponentHost.ytdMiniplayerComponentVisible',
+  /** The mini player's title: a click is YouTube's own "expand to the watch page" (CoW mini player). */
+  MINIPLAYER_TITLE: 'ytd-miniplayer .ytdMiniplayerInfoBarTitle',
   MOVIE_PLAYER: '#movie_player',
   /** Player that is back on the page, i.e. not inside the mini player container. */
   MOVIE_PLAYER_OUTSIDE_MINIPLAYER: '#movie_player:not(ytd-miniplayer-player-container *)',

@@ -83,6 +83,24 @@ describe('MiniPlayerController', () => {
     });
   });
 
+  it('toggleMiniPlayer when miniplayerIsActive clicks the mini player title (YouTube expand), no navigation', () => {
+    mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdAppWithFire(mockFire, true));
+    const miniplayer = document.createElement(SELECTORS.MINIPLAYER);
+    const title = document.createElement('h1');
+    title.className = 'ytdMiniplayerInfoBarTitle';
+    const onClick = vi.fn();
+    title.addEventListener('click', onClick);
+    miniplayer.appendChild(title);
+    document.body.appendChild(miniplayer);
+
+    controller.toggleMiniPlayer();
+
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(mockFire).not.toHaveBeenCalled();
+    expect(mockPlayerManager.getVideoId).not.toHaveBeenCalled();
+    miniplayer.remove();
+  });
+
   it('initialize throws AppInitializationError when miniplayer not found', async () => {
     const { DOMUtils } = await import('../../utils/DOMUtils');
     vi.mocked(DOMUtils.waitForElementSelector).mockRejectedValue(new Error('timeout'));
