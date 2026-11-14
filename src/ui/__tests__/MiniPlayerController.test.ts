@@ -74,31 +74,13 @@ describe('MiniPlayerController', () => {
     });
   });
 
-  it('toggleMiniPlayer when miniplayerIsActive calls fire with NAVIGATE and getVideoId', () => {
+  it('toggleMiniPlayer when miniplayerIsActive navigates to the content video (getContentVideoId)', () => {
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdAppWithFire(mockFire, true));
-    mockPlayerManager.getVideoId.mockReturnValue('vid123');
+    mockPlayerManager.getContentVideoId.mockReturnValue('vid123');
     controller.toggleMiniPlayer();
     expect(mockFire).toHaveBeenCalledWith(YT_EVENTS.NAVIGATE, {
       endpoint: { watchEndpoint: { videoId: 'vid123' } },
     });
-  });
-
-  it('toggleMiniPlayer when miniplayerIsActive clicks the mini player title (YouTube expand), no navigation', () => {
-    mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdAppWithFire(mockFire, true));
-    const miniplayer = document.createElement(SELECTORS.MINIPLAYER);
-    const title = document.createElement('h1');
-    title.className = 'ytdMiniplayerInfoBarTitle';
-    const onClick = vi.fn();
-    title.addEventListener('click', onClick);
-    miniplayer.appendChild(title);
-    document.body.appendChild(miniplayer);
-
-    controller.toggleMiniPlayer();
-
-    expect(onClick).toHaveBeenCalledTimes(1);
-    expect(mockFire).not.toHaveBeenCalled();
-    expect(mockPlayerManager.getVideoId).not.toHaveBeenCalled();
-    miniplayer.remove();
   });
 
   it('initialize throws AppInitializationError when miniplayer not found', async () => {
@@ -127,7 +109,7 @@ describe('MiniPlayerController', () => {
 
   it('toggleMiniPlayer when miniplayerIsActive and no videoId does not fire', () => {
     mockYtdAppProvider.getApp.mockReturnValue(createFakeYtdAppWithFire(mockFire, true));
-    mockPlayerManager.getVideoId.mockReturnValue(null);
+    mockPlayerManager.getContentVideoId.mockReturnValue(null);
     controller.toggleMiniPlayer();
     expect(mockFire).not.toHaveBeenCalled();
   });

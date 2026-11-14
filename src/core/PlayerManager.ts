@@ -188,6 +188,25 @@ export class PlayerManager {
   }
 
   /**
+   * The id of the content video the player holds: the player response's videoDetails.videoId, else getVideoId().
+   * getVideoData() can give an ad's id while an ad is loaded but not showing.
+   */
+  public getContentVideoId(): Nullable<string> {
+    const player = this.getPlayer();
+    const fromResponse =
+      typeof player.getPlayerResponse === 'function'
+        ? player.getPlayerResponse()?.videoDetails?.videoId
+        : undefined;
+    const fromData = this.getVideoDataFromPlayer(player)?.video_id;
+    if (fromResponse && fromData && fromResponse !== fromData) {
+      this.logger.debug(
+        `Player video data is another video (an ad?): ${fromData}; content video ${fromResponse}`
+      );
+    }
+    return fromResponse || this.getVideoId();
+  }
+
+  /**
    * Get video data (video_id, title, list) from player.
    */
   public getVideoData(): Nullable<VideoData> {

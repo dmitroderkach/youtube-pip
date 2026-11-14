@@ -48,6 +48,8 @@ export interface YouTubePlayerAPI {
   setInternalSize?(): void;
   setSize?(): void;
   getVideoData?(): VideoData;
+  /** The player response of the loaded (content) video; its videoDetails.videoId is not an ad's. */
+  getPlayerResponse?(): { videoDetails?: { videoId?: string } } | null | undefined;
   getDebugText?(fullDebugInfo?: boolean): string;
   getPlayerSize?(): PlayerSize;
 }

@@ -81,6 +81,35 @@ describe('PlayerManager', () => {
     expect(manager.getVideoId()).toBeNull();
   });
 
+  describe('getContentVideoId', () => {
+    const CONTENT_ID = 'content-video';
+    const AD_ID = 'ad-video';
+
+    it('is the player response video, not the video data of a loaded ad', () => {
+      mockPlayer.getPlayerResponse.mockReturnValue({ videoDetails: { videoId: CONTENT_ID } });
+      mockPlayer.getVideoData.mockReturnValue({ video_id: AD_ID });
+      expect(manager.getContentVideoId()).toBe(CONTENT_ID);
+    });
+
+    it('falls back to the video data without a player response id', () => {
+      mockPlayer.getPlayerResponse.mockReturnValue(null);
+      mockPlayer.getVideoData.mockReturnValue({ video_id: CONTENT_ID });
+      expect(manager.getContentVideoId()).toBe(CONTENT_ID);
+    });
+
+    it('falls back to the video data when the player has no getPlayerResponse', () => {
+      delete manager.getPlayer()['getPlayerResponse'];
+      mockPlayer.getVideoData.mockReturnValue({ video_id: CONTENT_ID });
+      expect(manager.getContentVideoId()).toBe(CONTENT_ID);
+    });
+
+    it('is null when neither gives an id', () => {
+      mockPlayer.getPlayerResponse.mockReturnValue({});
+      mockPlayer.getVideoData.mockReturnValue({});
+      expect(manager.getContentVideoId()).toBeNull();
+    });
+  });
+
   it('getVideoData returns data from player', () => {
     expect(manager.getVideoData()).toEqual({ video_id: 'abc', title: 't' });
   });

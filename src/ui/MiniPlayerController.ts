@@ -104,23 +104,14 @@ export class MiniPlayerController {
 
     try {
       if (ytdApp.miniplayerIsActive) {
-        // Return to full player. First YouTube's own expand (a click on the mini player's title): it opens the
-        // video the mini player holds. A navigation to a watch endpoint is taken over by the active mini player and
-        // expands it only for that same video; any other loads into the mini player instead. The player's video id
-        // is not always it: with an ad loaded (and not showing) getVideoData() gives the ad's id, and the navigation
-        // put the ad into the mini player (e2e flake "player stays in the mini player after PiP", 2026-11).
-        const title = document.querySelector<HTMLElement>(SELECTORS.MINIPLAYER_TITLE);
-        if (title) {
-          title.click();
-          this.logger.debug('Returning to full player via the mini player title (YouTube expand)');
-          return;
-        }
-
-        // Older mini player without that title: YT_EVENTS.NAVIGATE with watchEndpoint
+        // Return to full player: use YT_EVENTS.NAVIGATE with watchEndpoint
         this.logger.debug('Returning to full player via YouTube API');
 
-        // Get video ID from player using PlayerManager
-        const videoId = this.playerManager.getVideoId();
+        // The video the mini player holds: YouTube's router hands a watch navigation to the active mini player,
+        // which expands only for that same video and loads any other into itself. Not getVideoData(): with an ad
+        // loaded (not showing) it gives the ad's id, and the ad went into the mini player (e2e flake "player stays
+        // in the mini player after PiP", 2026-11).
+        const videoId = this.playerManager.getContentVideoId();
         if (!videoId) {
           this.logger.error('Video ID not found, cannot navigate to full player');
           return;
