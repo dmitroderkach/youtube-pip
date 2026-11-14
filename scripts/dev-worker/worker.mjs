@@ -626,7 +626,24 @@ async function saveNow() {
   const excludes = WORKSPACE_EXCLUDES.flatMap((dir) => ['--exclude', `./${dir}`]);
   // Packed and uploaded by Claude's user: the worker never reads Claude's files for it
   await claudeSh('mkdir', ['-p', CLAUDE_TMP]);
-  await claudeSh('tar', ['czf', WORKSPACE_ARCHIVE, ...excludes, '-C', REPO_DIR, '.']);
+  // GNU tar exits 1 when a file changed while it read it (Claude or a test run still writing in the working copy): the
+  // archive is complete with what was there, so the save goes on instead of failing as a whole
+  await claudeSh('tar', [
+    'czf',
+    WORKSPACE_ARCHIVE,
+    '--warning=no-file-changed',
+    ...excludes,
+    '-C',
+    REPO_DIR,
+    '.',
+  ]).catch((error) => {
+    if (error.code !== 1) throw error;
+    log(
+      `workspace archived while files changed: ${String(error.stderr ?? '')
+        .trim()
+        .slice(0, 300)}`
+    );
+  });
   await awsClaude('s3', 'cp', WORKSPACE_ARCHIVE, `s3://${BUCKET}/${WORKSPACE_KEY}`, '--quiet');
   // Transcripts (trimmed by Claude Code itself, CLAUDE_CODE_TRANSCRIPT_LOCAL_GC), subagents and tool results of all
   // projects; memory below
