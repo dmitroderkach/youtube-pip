@@ -233,7 +233,7 @@
             <p>Chat, voice, files, session saves.</p>
             <p>
               <span class="k">bot token</span><span class="k">worker App key</span
-              ><span class="k">Google key</span><span class="k">Claude token</span>
+              ><span class="k">Google key</span><span class="k">Claude token (proxy)</span>
             </p>
           </div>
           <div class="box b6">
@@ -243,10 +243,13 @@
               pages and logs → the fewest rights.
             </p>
             <p>
-              Runs as its own user (worker): none of the worker's keys; short-lived GitHub tokens
-              from the worker's broker.
+              Runs as its own user (worker): none of the worker's keys; Claude API through the
+              worker's token proxy; short-lived GitHub tokens from the worker's broker.
             </p>
-            <p><span class="k">Claude token</span><span class="k">GitHub token via broker</span></p>
+            <p>
+              <span class="k">Claude placeholder via proxy</span
+              ><span class="k">GitHub token via broker</span>
+            </p>
           </div>
         </div>
       </div>

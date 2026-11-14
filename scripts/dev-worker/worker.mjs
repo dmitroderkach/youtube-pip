@@ -66,6 +66,7 @@ import {
   readPlainFile,
   spawnClaudeCode,
 } from './isolation.mjs';
+import { startAnthropicProxy } from './anthropic-proxy.mjs';
 import { createSign } from 'node:crypto';
 import {
   chmodSync,
@@ -478,6 +479,25 @@ function startGithubBroker() {
     log(`github token broker on ${GITHUB_BROKER_SOCKET}`);
   });
   server.unref();
+}
+
+// ---------------------------------------------------------------------------------------------- Claude token
+
+/**
+ * Claude token proxy (anthropic-proxy.mjs): the subscription token (a year) stays in the worker; Claude Code gets
+ * ANTHROPIC_BASE_URL pointing at the proxy and a placeholder that only this worker run accepts. ANTHROPIC_PROXY=off
+ * passes the real token as before (debugging).
+ */
+let claudeProxy = null;
+
+async function startClaudeProxy() {
+  if (!env.CLAUDE_CODE_OAUTH_TOKEN || env.ANTHROPIC_PROXY === 'off') return;
+  claudeProxy = await startAnthropicProxy({
+    token: env.CLAUDE_CODE_OAUTH_TOKEN,
+    log: (line) => log(line),
+  });
+  claudeProxy.server.unref();
+  log(`claude token proxy on ${claudeProxy.url}`);
 }
 
 // ---------------------------------------------------------------------------------------------- state
@@ -1313,6 +1333,11 @@ async function runSession(resumeId) {
   const childEnv = claudeEnv(env, { claude: true });
   // Claude Code trims its transcript file after a compaction (once over 5 MB) instead of letting it grow for good
   childEnv.CLAUDE_CODE_TRANSCRIPT_LOCAL_GC = '1';
+  // The placeholder instead of the subscription token: requests go through the worker's proxy
+  if (claudeProxy) {
+    childEnv.ANTHROPIC_BASE_URL = claudeProxy.url;
+    childEnv.CLAUDE_CODE_OAUTH_TOKEN = claudeProxy.placeholder;
+  }
   session = query({
     prompt: userMessages(),
     options: {
@@ -3620,6 +3645,7 @@ async function main() {
   let restored;
   try {
     if (CLAUDE_USER) startGithubBroker();
+    await startClaudeProxy();
     restored = await restore();
     // Package scripts run as Claude's user, never with the worker's secrets
     await claudeSh('npm', ['ci', '--no-audit', '--no-fund'], { cwd: REPO_DIR });

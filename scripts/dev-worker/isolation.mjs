@@ -29,12 +29,15 @@ const SECRET_NAMES = new Set([
   'GH_TOKEN',
 ]);
 const SECRET_PATTERN = /TOKEN|SECRET|PASSWORD|PRIVATE_KEY|API_KEY/i;
-/** Credentials Claude does need: its own OAuth token (it runs on it) and the ECS credentials endpoint (the task role). */
+/**
+ * Credentials Claude does need: its OAuth token (the token proxy's placeholder, anthropic-proxy.mjs; the real token
+ * only when the proxy is off) and the ECS credentials endpoint (the task role).
+ */
 const ALLOWED = new Set(['CLAUDE_CODE_OAUTH_TOKEN', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI']);
 
 /**
  * The environment for Claude Code (claude = true) or for another command run as CLAUDE_USER: the worker's secrets
- * removed, HOME set to Claude's home. Claude's OAuth token only goes to Claude Code itself.
+ * removed, HOME set to Claude's home. Claude's OAuth token (the proxy's placeholder) only goes to Claude Code itself.
  */
 export function claudeEnv(base, { claude = false } = {}) {
   const result = {};
