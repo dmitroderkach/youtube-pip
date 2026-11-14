@@ -117,6 +117,17 @@ export interface NavigationEndpoint {
   watchEndpoint: WatchEndpoint;
 }
 
+/** Detail of a `yt-navigate` event (a watch navigation has a watchEndpoint). */
+export interface WatchNavigateDetail {
+  endpoint?: Partial<NavigationEndpoint>;
+}
+
+/** Argument of the player API's `onPlayVideo` listeners. */
+export interface PlayVideoEvent {
+  videoId?: string;
+  watchEndpoint?: { watchEndpoint?: { videoId?: string } };
+}
+
 /**
  * Navigation state for YouTube SPA
  */

@@ -10,6 +10,9 @@ import { LoggerFactory } from '../logger';
 import { inject, injectable } from '../di';
 import { YtdShortsProvider } from './YtdShortsProvider';
 
+/** movie_player's add/removeEventListener for player API events. */
+type PlayerApiListen<T> = (name: string, listener: (data: T) => void) => void;
+
 /**
  * Manages player state and operations.
  * Holds a reference to the player DOM element, initialized at app startup.
@@ -48,6 +51,26 @@ export class PlayerManager {
     } catch (cause) {
       throw new AppInitializationError(`${SELECTORS.MOVIE_PLAYER} element not found`, cause);
     }
+  }
+
+  /**
+   * Add / remove a listener of a player API event (movie_player.addEventListener(name, listener): the player's own
+   * pub/sub, whose listeners get the event's data, not a DOM Event).
+   */
+  public addPlayerListener<T>(name: string, listener: (data: T) => void): void {
+    (this.player?.addEventListener as Nullable<PlayerApiListen<T>>)?.call(
+      this.player,
+      name,
+      listener
+    );
+  }
+
+  public removePlayerListener<T>(name: string, listener: (data: T) => void): void {
+    (this.player?.removeEventListener as Nullable<PlayerApiListen<T>>)?.call(
+      this.player,
+      name,
+      listener
+    );
   }
 
   /**

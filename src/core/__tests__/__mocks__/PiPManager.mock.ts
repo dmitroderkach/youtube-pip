@@ -7,6 +7,7 @@ import { YtdShortsProvider } from '../../YtdShortsProvider';
 import { PiPWindowHandlers } from '../../PiPWindowHandlers';
 import { PipShortsWindowHandlers } from '../../PipShortsWindowHandlers';
 import { TitleSyncHandler } from '../../../handlers/TitleSyncHandler';
+import { PiPVideoTracker } from '../../PiPVideoTracker';
 
 export interface PiPManagerMocks {
   pipProvider: MockProxy<PipWindowProvider>;
@@ -17,6 +18,7 @@ export interface PiPManagerMocks {
   pipWindowHandlers: MockProxy<PiPWindowHandlers>;
   pipShortsWindowHandlers: MockProxy<PipShortsWindowHandlers>;
   titleSyncHandler: MockProxy<TitleSyncHandler>;
+  pipVideoTracker: MockProxy<PiPVideoTracker>;
 }
 
 export function createPiPManagerMocks(): PiPManagerMocks {
@@ -38,5 +40,6 @@ export function createPiPManagerMocks(): PiPManagerMocks {
     pipWindowHandlers: mock<PiPWindowHandlers>(),
     pipShortsWindowHandlers: mock<PipShortsWindowHandlers>(),
     titleSyncHandler: mock<TitleSyncHandler>(),
+    pipVideoTracker: mock<PiPVideoTracker>(),
   };
 }

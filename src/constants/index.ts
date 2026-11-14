@@ -24,6 +24,7 @@ export {
   PLAYER_STATES,
   isPlayingState,
   YT_EVENTS,
+  YT_PLAYER_EVENTS,
   YT_ACTION_NAMES,
   WEB_PAGE_TYPES,
   ROOT_VE,

@@ -26,6 +26,12 @@ export const YT_EVENTS = {
   NAVIGATE: 'yt-navigate',
 } as const;
 
+/** Events of the player API (movie_player.addEventListener(name, listener)) */
+export const YT_PLAYER_EVENTS = {
+  /** The player starts another video by itself (autoplay of the next one); YouTube's mini player follows it. */
+  PLAY_VIDEO: 'onPlayVideo',
+} as const;
+
 /** YouTube action names for fire() */
 export const YT_ACTION_NAMES = {
   ACTIVATE_MINIPLAYER: 'yt-activate-miniplayer',
