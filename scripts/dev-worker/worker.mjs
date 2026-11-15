@@ -231,15 +231,23 @@ const TRANSCRIBE_FORMATS = {
   'audio/flac': 'flac',
   'audio/webm': 'webm',
 };
-/** Rebuilt / reinstalled on start: not worth saving. */
+/** Rebuilt / reinstalled on start or on demand: not worth saving (paths from the working copy's root). */
 // terraform/.terraform: providers from `terraform init -backend=false` (hundreds of MB, cached per run)
+// terraform/lambda/layer and its zips: `terraform/lambda/build-layer.sh` and plan builds
 const WORKSPACE_EXCLUDES = [
-  'node_modules',
   'dist',
   'playwright-report',
   'test-results',
+  'coverage',
   'terraform/.terraform',
+  'terraform/lambda/layer',
+  'terraform/lambda/*.zip',
 ];
+/**
+ * Excluded at any depth: every package install (npm ci at the root on start; scripts/dev-worker/node_modules from a
+ * test run there holds the Agent SDK's ~340 MB Claude Code binary, which made the archive ~190 MB) and Python caches.
+ */
+const WORKSPACE_EXCLUDES_ANYWHERE = ['node_modules', '__pycache__'];
 const SYSTEM_PROMPT = readFileSync(new URL('./system-prompt.md', import.meta.url), 'utf8');
 
 const log = (...args) => console.log(new Date().toISOString(), ...args);
@@ -697,7 +705,10 @@ async function archiveWorkspace(excludes) {
 }
 
 async function saveNow() {
-  const excludes = WORKSPACE_EXCLUDES.flatMap((dir) => ['--exclude', `./${dir}`]);
+  const excludes = [
+    ...WORKSPACE_EXCLUDES.flatMap((path) => ['--exclude', `./${path}`]),
+    ...WORKSPACE_EXCLUDES_ANYWHERE.flatMap((name) => ['--exclude', name]),
+  ];
   // Packed and uploaded by Claude's user: the worker never reads Claude's files for it
   await claudeSh('mkdir', ['-p', CLAUDE_TMP]);
   // Only a consistent working copy goes to S3 (archiveWorkspace); otherwise the previous one stays there and the rest
