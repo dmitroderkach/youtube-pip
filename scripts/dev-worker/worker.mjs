@@ -233,14 +233,15 @@ const TRANSCRIBE_FORMATS = {
 };
 /** Rebuilt / reinstalled on start or on demand: not worth saving (paths from the working copy's root). */
 // terraform/.terraform: providers from `terraform init -backend=false` (hundreds of MB, cached per run)
-// terraform/lambda/layer and its zips: `terraform/lambda/build-layer.sh` and plan builds
+// terraform/lambda/layer/python/* and the Lambda zips: `terraform/lambda/build-layer.sh` and plan builds; the tracked
+// .gitkeep there stays ([!.]*), so a restored working copy has no deleted file
 const WORKSPACE_EXCLUDES = [
   'dist',
   'playwright-report',
   'test-results',
   'coverage',
   'terraform/.terraform',
-  'terraform/lambda/layer',
+  'terraform/lambda/layer/python/[!.]*',
   'terraform/lambda/*.zip',
 ];
 /**
