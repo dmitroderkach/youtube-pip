@@ -12,6 +12,12 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 # no self-update inside the container
 ENV DISABLE_AUTOUPDATER=1
 
+# Layers and SOCI lazy loading (scripts/build-dev-worker-image.sh): Fargate starts the task before layers over 10 MB
+# are pulled and fetches their files when read. What the worker reads on start (system tools, sudo, git, gh, the AWS
+# CLI, Node, the Agent SDK) and what only some tasks need (Chromium for e2e, Terraform, Python) are separate layers,
+# so a start never fetches pieces of the latter.
+
+# Start: system tools, gh and the AWS CLI (the restore from S3 runs on it)
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ca-certificates curl git gnupg jq less procps sudo tar unzip \
     && mkdir -p /etc/apt/keyrings \
@@ -21,11 +27,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get update && apt-get install -y --no-install-recommends gh \
     && curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip -o /tmp/awscli.zip \
     && unzip -q /tmp/awscli.zip -d /tmp && /tmp/aws/install && rm -rf /tmp/aws /tmp/awscli.zip \
+    && rm -rf /var/lib/apt/lists/*
+
+# On demand: Chromium and its system libraries for local e2e runs (not read on start)
+RUN apt-get update \
     && npx -y playwright@${PLAYWRIGHT_VERSION} install --with-deps --only-shell chromium \
     && rm -rf /var/lib/apt/lists/* /root/.npm
 
-# Terraform for checks of terraform/ (fmt, validate, plan with the worker's read-only rights; apply goes through the
-# owner's button, dev-ops). Keep close to the owner's local version and to dev_ops_terraform_version
+# On demand: Terraform for checks of terraform/ (fmt, validate, plan with the worker's read-only rights; apply goes
+# through the owner's button, dev-ops). Keep close to the owner's local version and to dev_ops_terraform_version
 # (terraform/dev_worker_ops.tf).
 ARG TERRAFORM_VERSION=1.15.4
 RUN cd /tmp \
@@ -35,9 +45,9 @@ RUN cd /tmp \
     && unzip -q terraform_${TERRAFORM_VERSION}_linux_amd64.zip terraform -d /usr/local/bin \
     && rm terraform_${TERRAFORM_VERSION}_linux_amd64.zip
 
-# Python of the Lambda runtime (python3.12, terraform/lambda/*.py) with boto3, which the Lambdas import: compile and
-# test them with stubbed AWS clients. Copied from the official image of the same Debian release (node's /usr/local
-# stays as is); the libraries it links against come from apt.
+# On demand: Python of the Lambda runtime (python3.12, terraform/lambda/*.py) with boto3, which the Lambdas import:
+# compile and test them with stubbed AWS clients. Copied from the official image of the same Debian release (node's
+# /usr/local stays as is); the libraries it links against come from apt.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       libbz2-1.0 libffi8 libgdbm6 liblzma5 libncursesw6 libreadline8 libsqlite3-0 libssl3 libuuid1 zlib1g \
     && rm -rf /var/lib/apt/lists/*
