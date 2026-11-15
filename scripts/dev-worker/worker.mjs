@@ -508,10 +508,36 @@ async function startClaudeProxy() {
 let meta = null;
 
 async function restore() {
+  const started = Date.now();
+  const timings = {};
+  // Each part's time, for the startup line in the log
+  const timed = async (name, part) => {
+    const t = Date.now();
+    const result = await part();
+    timings[name] = ((Date.now() - t) / 1000).toFixed(1);
+    return result;
+  };
   if (await s3Exists(META_KEY)) {
     await aws('s3', 'cp', `s3://${BUCKET}/${META_KEY}`, join(WORKER_TMP, 'meta.json'), '--quiet');
     meta = JSON.parse(readFileSync(join(WORKER_TMP, 'meta.json'), 'utf8'));
   }
+  // Independent parts in parallel: the working copy (then its packages), Claude Code's state, the plans
+  const [workspace] = await Promise.all([
+    timed('workspace', restoreWorkspace),
+    timed('claude', restoreClaudeState),
+    timed('plans', restorePlans),
+  ]);
+  const parts = Object.entries(timings)
+    .map(([name, seconds]) => `${name} ${seconds}s`)
+    .join(', ');
+  log(
+    `restored: session=${meta?.sessionId ?? 'none'} workspace=${workspace} in ${((Date.now() - started) / 1000).toFixed(1)}s (${parts})`
+  );
+  return { workspace };
+}
+
+/** The working copy from S3 (or a fresh clone), fetched, with its packages installed. True when it came from S3. */
+async function restoreWorkspace() {
   let workspace = false;
   if (await s3Exists(WORKSPACE_KEY)) {
     // Downloaded and unpacked by Claude's user into its own home
@@ -523,59 +549,76 @@ async function restore() {
   if (!existsSync(join(REPO_DIR, '.git'))) {
     await claudeSh('git', ['clone', `https://github.com/${REPO}.git`, REPO_DIR]);
   }
-  // As Claude's user: the working copy's .git/config and hooks are Claude's, never run with the worker's rights
-  await claudeSh('git', ['-C', REPO_DIR, 'fetch', '--prune', 'origin']);
+  // As Claude's user: the working copy's .git/config and hooks are Claude's, never run with the worker's rights.
+  // Fetch and package install are independent of each other.
+  await Promise.all([
+    claudeSh('git', ['-C', REPO_DIR, 'fetch', '--prune', 'origin']),
+    // Package scripts run as Claude's user, never with the worker's secrets
+    claudeSh('npm', ['ci', '--no-audit', '--no-fund'], { cwd: REPO_DIR }),
+  ]);
+  return workspace;
+}
+
+/** Claude Code's projects: the session transcript, subagents and tool results, and each project's memory. */
+async function restoreClaudeState() {
   await claudeSh('mkdir', ['-p', CLAUDE_PROJECTS_DIR]);
   const sessionId = meta?.sessionId ?? null;
+  const [transcriptKeys, memoryKeys] = await Promise.all([
+    sessionId ? s3Keys(TRANSCRIPTS_PREFIX) : Promise.resolve([]),
+    s3Keys(MEMORY_PREFIX),
+  ]);
   const transcriptKey = sessionId
-    ? ((await s3Keys(TRANSCRIPTS_PREFIX)).find((key) => key.endsWith(`/${sessionId}.jsonl`)) ??
-      null)
+    ? (transcriptKeys.find((key) => key.endsWith(`/${sessionId}.jsonl`)) ?? null)
     : null;
   // The session's copy under PROJECTS_PREFIX (before TRANSCRIPTS_PREFIX) is not needed once it is there
   const legacy = transcriptKey ? ['--exclude', `*/${sessionId}.jsonl`] : [];
   // A project with memory under memory/ takes it only from there: the old copy under claude/projects/<project>/memory/
   // is no longer updated, so restoring it would bring back memory files Claude has deleted since (until it expires).
   // A project without it yet gets the old copy once; the next save moves it to memory/.
-  const memoryProjects = new Set(
-    (await s3Keys(MEMORY_PREFIX)).map((key) => key.split('/')[1]).filter(Boolean)
-  );
+  const memoryProjects = new Set(memoryKeys.map((key) => key.split('/')[1]).filter(Boolean));
   // `--exclude=…`: project names start with "-", which the CLI would read as an option
   const oldMemory = [...memoryProjects].map((project) => `--exclude=${project}/memory/*`);
-  await awsClaude(
-    's3',
-    'sync',
-    `s3://${BUCKET}/${PROJECTS_PREFIX}`,
-    CLAUDE_PROJECTS_DIR,
-    ...legacy,
-    ...oldMemory,
-    '--quiet'
-  );
-  if (transcriptKey) {
-    const dir = join(CLAUDE_PROJECTS_DIR, transcriptKey.split('/')[1]);
-    await claudeSh('mkdir', ['-p', dir]);
-    await awsClaude(
-      's3',
-      'cp',
-      `s3://${BUCKET}/${transcriptKey}`,
-      join(dir, `${sessionId}.jsonl`),
-      '--quiet'
-    );
-  }
-  for (const project of memoryProjects) {
-    await awsClaude(
+  // The three go to different files (the sync excludes the transcript and the memory directories)
+  await Promise.all([
+    awsClaude(
       's3',
       'sync',
-      `s3://${BUCKET}/${MEMORY_PREFIX}${project}/`,
-      join(CLAUDE_PROJECTS_DIR, project, 'memory'),
+      `s3://${BUCKET}/${PROJECTS_PREFIX}`,
+      CLAUDE_PROJECTS_DIR,
+      ...legacy,
+      ...oldMemory,
       '--quiet'
-    );
-  }
+    ),
+    (async () => {
+      if (!transcriptKey) return;
+      const dir = join(CLAUDE_PROJECTS_DIR, transcriptKey.split('/')[1]);
+      await claudeSh('mkdir', ['-p', dir]);
+      await awsClaude(
+        's3',
+        'cp',
+        `s3://${BUCKET}/${transcriptKey}`,
+        join(dir, `${sessionId}.jsonl`),
+        '--quiet'
+      );
+    })(),
+    ...[...memoryProjects].map((project) =>
+      awsClaude(
+        's3',
+        'sync',
+        `s3://${BUCKET}/${MEMORY_PREFIX}${project}/`,
+        join(CLAUDE_PROJECTS_DIR, project, 'memory'),
+        '--quiet'
+      )
+    ),
+  ]);
   memoryRestored = true;
+}
+
+/** Saved plans of plan mode. */
+async function restorePlans() {
   await claudeSh('mkdir', ['-p', PLANS_DIR]);
   await awsClaude('s3', 'sync', `s3://${BUCKET}/${PLANS_PREFIX}`, PLANS_DIR, '--quiet');
   plansRestored = true;
-  log(`restored: session=${meta?.sessionId ?? 'none'} workspace=${workspace}`);
-  return { workspace };
 }
 
 /** Keys under an S3 prefix. */
@@ -3698,9 +3741,8 @@ async function main() {
   try {
     if (CLAUDE_USER) startGithubBroker();
     await startClaudeProxy();
+    // The working copy, its packages, Claude Code's state and the plans (restore)
     restored = await restore();
-    // Package scripts run as Claude's user, never with the worker's secrets
-    await claudeSh('npm', ['ci', '--no-audit', '--no-fund'], { cwd: REPO_DIR });
   } catch (error) {
     log('startup failed', error);
     await say(
