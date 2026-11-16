@@ -32,3 +32,13 @@ output "dev_worker_ecr_repository_url" {
   description = "ECR repository of the dev worker image (scripts/build-dev-worker-image.sh)."
   value       = aws_ecr_repository.dev_worker.repository_url
 }
+
+output "fast_lane_function_name" {
+  description = "Fast lane Lambda of the dev chat (docs/DEV_WORKER.md, \"Fast lane\")."
+  value       = aws_lambda_function.fast_lane.function_name
+}
+
+output "fast_lane_queue_url" {
+  description = "FIFO queue of the owner's messages for the fast lane (dev-bot sends, the fast lane reads)."
+  value       = aws_sqs_queue.fast_lane_inbox.id
+}

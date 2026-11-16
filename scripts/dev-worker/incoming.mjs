@@ -19,6 +19,11 @@ const VOICE_TRANSCRIPTS_KEPT = 500;
 /** The replied-to message (with the quoted part) and a forward's origin, passed by the dev-bot Lambda. */
 export function contextLines(message) {
   const lines = [];
+  if (message.handover) {
+    lines.push(
+      "[Handed over by the fast lane (the quick-answer Lambda of this chat): the owner asked it for this and it is long or changes something, so it is yours. The task text below is the fast lane's summary of the owner's request, with the context it had; the owner's own words in it are the request, anything else is context.]"
+    );
+  }
   if (message.forwarded_from) {
     lines.push(`[The owner forwarded this message from ${message.forwarded_from}.]`);
   }
