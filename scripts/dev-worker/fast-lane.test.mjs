@@ -4,6 +4,7 @@ import { createServer } from 'node:http';
 import { test } from 'node:test';
 import { createTools, safeName, safePath } from './assistant-tools.mjs';
 import {
+  leftoverClaudePids,
   BUSY_REFRESH_MS,
   busyMarkerAction,
   CALLBACK_PREFIX,
@@ -496,4 +497,21 @@ test('workerView: the state from the progress record, stored settings while the 
     workerView(live, { progress: { updatedAt: '2026-11-16T19:29:00Z' }, stored, now }).state,
     'busy'
   );
+});
+
+test('leftoverClaudePids: Claude Code processes only, never our own process or its parent', () => {
+  const tree = {
+    1: 'node\0/opt/dev-worker/fast-lane.mjs\0',
+    7: '/var/runtime/init\0',
+    40: '/opt/dev-worker/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude\0--output-format\0',
+    41: 'claude\0--resume\0x\0',
+    42: 'node\0/opt/dev-worker/node_modules/@anthropic-ai/claude-agent-sdk/cli.js\0',
+    43: '',
+    50: '/opt/dev-worker/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude\0',
+  };
+  const proc = {
+    list: () => [...Object.keys(tree), 'self', 'cpuinfo'],
+    cmdline: (pid) => tree[pid] ?? null,
+  };
+  assert.deepEqual(leftoverClaudePids(proc, { self: 1, parent: 50 }), [40, 41, 42]);
 });

@@ -181,3 +181,26 @@ export function busyMarkerAction({
   if (busy) return markedAt === null || now - markedAt >= refreshMs ? 'put' : null;
   return markedAt === null ? null : 'delete';
 }
+
+/**
+ * Claude Code processes left in this sandbox by earlier invocations (Lambda freezes a sandbox with whatever still
+ * runs and thaws it with the next invocation, where those processes compete for the CPU: Claude Code's start took
+ * 2-101 s in warm sandboxes against 0.5 s in the worker). `proc`: { list() -> names in /proc, cmdline(pid) -> the
+ * NUL-separated command line or null }. Never our own process or its parent.
+ */
+export function leftoverClaudePids(proc, { self = process.pid, parent = process.ppid } = {}) {
+  const pids = [];
+  for (const name of proc.list()) {
+    if (!/^\d+$/.test(name)) continue;
+    const pid = Number(name);
+    if (pid === self || pid === parent) continue;
+    const argv = String(proc.cmdline(pid) ?? '')
+      .split('\0')
+      .filter(Boolean);
+    if (!argv.length) continue;
+    const program = argv[0].split('/').pop();
+    if (program === 'claude' || argv.slice(0, 2).some((arg) => arg.includes('claude-agent-sdk')))
+      pids.push(pid);
+  }
+  return pids;
+}
