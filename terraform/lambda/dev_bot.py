@@ -70,6 +70,10 @@ PENDING_START_KEY = "state/pending-start.json"
 # Hand-overs of the fast lane (hand_over): one object per task, written by the fast lane, read once by dev-bot
 HANDOVER_KEY = re.compile(r"fast-lane/handover/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json")
 HANDOVER_MAX_AGE_SECONDS = 600
+# The worker's progress record (session-state.mjs progressRecord): while it is in a turn, the fast lane answers
+PROGRESS_KEY = "state/progress.json"
+# An older record is no evidence of a running turn: the message goes to the worker
+PROGRESS_FRESH_SECONDS = 15 * 60
 # Tasks the owner scheduled (scripts/dev-worker/schedule.sh): {id, dueAt (UTC ISO), timeZone, text, createdAt}
 SCHEDULED_PREFIX = "state/scheduled/"
 # Gate (terraform/dev_worker_ops.tf)
@@ -318,12 +322,39 @@ def message_body(message, text, attachments):
     }
 
 
+def worker_busy():
+    """True only when the worker's progress record says it is in a turn, is fresh, and the worker does not wait for the
+    owner's answer (a question, a permission prompt, a plan review: those answers must reach the worker). Anything
+    unreadable or unexpected is False, so the message goes to the worker as before."""
+    try:
+        progress = json.loads(s3.get_object(Bucket=STATE_BUCKET, Key=PROGRESS_KEY)["Body"].read())
+        if not isinstance(progress, dict) or progress.get("turnActive") is not True:
+            return False
+        if progress.get("awaitingAnswer") is True:
+            return False
+        updated = datetime.fromisoformat(str(progress["updatedAt"]).replace("Z", "+00:00"))
+        return 0 <= time.time() - updated.timestamp() <= PROGRESS_FRESH_SECONDS
+    except Exception as error:
+        print(f"progress record: {error}")
+        return False
+
+
 def forward(message, text, attachments):
     tasks = worker_tasks()
-    if FAST_LANE_FUNCTION and not any(t["lastStatus"] == "RUNNING" for t in tasks):
+    running = any(t["lastStatus"] == "RUNNING" for t in tasks)
+    if FAST_LANE_FUNCTION and not running:
         # The working worker is not running: the fast lane answers, and hands long tasks over (hand_over)
         to_fast_lane(
             message_body(message, text, attachments),
+            str(message["chat"]["id"]),
+            str(message["message_id"]),
+        )
+        return
+    if FAST_LANE_FUNCTION and worker_busy():
+        # The worker is in a turn: the fast lane answers at once (status, scheduled tasks, settings) and hands the
+        # message over (or interrupts the worker) when it is for the worker, instead of it waiting for the next step
+        to_fast_lane(
+            {**message_body(message, text, attachments), "workerBusy": True},
             str(message["chat"]["id"]),
             str(message["message_id"]),
         )
@@ -702,6 +733,9 @@ def hand_over(event):
         "message_id": message.get("message_id"),
         "handover": True,
     }
+    if request.get("interrupt") is True:
+        # The owner asked the busy worker to stop its current turn (the worker interrupts it on delivery)
+        body["interrupt"] = True
     for name in ("reply_to", "forwarded_from"):
         if message.get(name):
             body[name] = message[name]

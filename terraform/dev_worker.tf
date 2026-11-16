@@ -363,6 +363,12 @@ resource "aws_iam_role_policy" "dev_bot" {
         Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/meta.json"
       },
       {
+        # Routing: while the worker is in a turn (its progress record), messages go to the fast lane
+        Effect   = "Allow"
+        Action   = ["s3:GetObject"]
+        Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/progress.json"
+      },
+      {
         # Idle watchdog: the worker's activity, and the last answer already warned about
         Effect   = "Allow"
         Action   = ["s3:GetObject"]

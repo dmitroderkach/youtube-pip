@@ -168,5 +168,83 @@ class FastLaneRouting(unittest.TestCase):
         bot.hand_over.assert_not_called()
 
 
+RUNNING = [{"lastStatus": "RUNNING", "arn": "t"}]
+
+
+def iso_ago(seconds):
+    return datetime.fromtimestamp(time.time() - seconds, timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+class BusyWorkerRouting(unittest.TestCase):
+    """While the running worker is in a turn, messages go to the fast lane (docs/DEV_WORKER.md, "Fast lane")."""
+
+    def route(self, progress=None, error=None):
+        bot, clients = load_dev_bot()
+        bot.worker_tasks = mock.MagicMock(return_value=RUNNING)
+        if error:
+            clients["s3"].get_object.side_effect = error
+        else:
+            clients["s3"].get_object.return_value = {"Body": io.BytesIO(json.dumps(progress).encode())}
+        bot.forward(MESSAGE, "привіт", [])
+        return clients
+
+    def test_a_busy_worker_sends_the_message_to_the_fast_lane(self):
+        clients = self.route({"turnActive": True, "updatedAt": iso_ago(30)})
+        self.assertEqual(clients["s3"].get_object.call_args.kwargs["Key"], "state/progress.json")
+        sent = clients["sqs"].send_message.call_args.kwargs
+        self.assertEqual(sent["QueueUrl"], "fast-lane-queue")
+        body = json.loads(sent["MessageBody"])
+        self.assertIs(body["workerBusy"], True)
+        self.assertEqual(body["text"], "привіт")
+        clients["lambda"].invoke.assert_called_once()
+
+    def test_an_idle_running_worker_gets_the_message(self):
+        clients = self.route({"turnActive": False, "updatedAt": iso_ago(30)})
+        self.assertEqual(clients["sqs"].send_message.call_args.kwargs["QueueUrl"], "worker-queue")
+        clients["lambda"].invoke.assert_not_called()
+
+    def test_a_worker_waiting_for_the_owners_answer_gets_the_message(self):
+        clients = self.route({"turnActive": True, "awaitingAnswer": True, "updatedAt": iso_ago(30)})
+        self.assertEqual(clients["sqs"].send_message.call_args.kwargs["QueueUrl"], "worker-queue")
+
+    def test_a_stale_progress_record_means_the_worker(self):
+        clients = self.route({"turnActive": True, "updatedAt": iso_ago(16 * 60)})
+        self.assertEqual(clients["sqs"].send_message.call_args.kwargs["QueueUrl"], "worker-queue")
+
+    def test_an_unreadable_progress_record_means_the_worker(self):
+        for progress, error in (
+            (None, Exception("NoSuchKey")),
+            ({"turnActive": True}, None),
+            ({"turnActive": True, "updatedAt": "yesterday"}, None),
+            (["turnActive"], None),
+        ):
+            with self.subTest(progress=progress, error=error):
+                clients = self.route(progress, error)
+                self.assertEqual(clients["sqs"].send_message.call_args.kwargs["QueueUrl"], "worker-queue")
+
+    def stored_hand_over(self, clients, request):
+        clients["s3"].get_object.return_value = {
+            "Body": io.BytesIO(json.dumps(request).encode()),
+            "LastModified": datetime.fromtimestamp(time.time(), timezone.utc),
+        }
+
+    def test_hand_over_passes_interrupt_to_the_running_worker(self):
+        for flag, expected in ((True, True), ("yes", None), (None, None)):
+            with self.subTest(flag=flag):
+                bot, clients = load_dev_bot()
+                bot.config = mock.MagicMock(return_value={"chat_id": "42"})
+                bot.worker_tasks = mock.MagicMock(return_value=RUNNING)
+                request = {"reason": "stop", "message": {"text": "стоп"}}
+                if flag is not None:
+                    request["interrupt"] = flag
+                self.stored_hand_over(clients, request)
+                result = bot.handler({"action": "hand_over", "key": KEY}, None)
+                self.assertEqual(result, {"handed_over": True, "running": True})
+                body = json.loads(clients["sqs"].send_message.call_args.kwargs["MessageBody"])
+                self.assertEqual(body.get("interrupt"), expected)
+                self.assertEqual(clients["sqs"].send_message.call_args.kwargs["QueueUrl"], "worker-queue")
+                clients["ecs"].run_task.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
