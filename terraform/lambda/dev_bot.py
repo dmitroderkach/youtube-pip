@@ -81,7 +81,8 @@ FAST_LANE_BUSY_KEY = "fast-lane/busy.json"
 # An older marker is left over (the fast lane died or timed out): not busy
 FAST_LANE_BUSY_FRESH_SECONDS = 120
 # Settings and state commands: the fast lane always handles them (both lanes, a lane switch in the buttons), whether
-# the worker runs or not. /agents and /compact need the worker's live session, so they keep the message routing.
+# the worker runs or not. /agents needs the worker's live session, so it keeps the message routing. /compact has a
+# lane switch too (the fast lane compacts its own session, or passes it to the worker).
 FAST_LANE_COMMANDS = {
     "/model",
     "/effort",
@@ -93,6 +94,7 @@ FAST_LANE_COMMANDS = {
     "/status",
     "/background",
     "/context",
+    "/compact",
 }
 # A settings change for a running worker (hand_over "control"; scripts/dev-worker/settings.mjs validControl, which the
 # worker applies after its own check): these keys only, short string values; effort may be null (the default)

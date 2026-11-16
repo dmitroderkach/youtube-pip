@@ -333,15 +333,16 @@ class FastLaneCommands(unittest.TestCase):
 
     def test_settings_and_state_commands_go_to_the_fast_lane_while_the_worker_runs(self):
         for text in ("/model", "/effort high", "/mode@ytpip_dev_bot", "/timezone Europe/Kyiv", "/voice on",
-                     "/scheduled", "/plans", "/status", "/background", "/context", "/MODEL opus"):
+                     "/scheduled", "/plans", "/status", "/background", "/context", "/MODEL opus",
+                     "/compact", "/compact keep the plan"):
             with self.subTest(text=text):
                 queue, bot, clients = self.routed(text, RUNNING)
                 self.assertEqual(queue, "fast-lane-queue")
                 clients["lambda"].invoke.assert_called_once()
                 bot.worker_busy.assert_not_called()
 
-    def test_agents_and_compact_keep_the_message_routing(self):
-        for text in ("/agents", "/compact keep the plan"):
+    def test_agents_keeps_the_message_routing(self):
+        for text in ("/agents",):
             with self.subTest(text=text):
                 self.assertEqual(self.routed(text, RUNNING)[0], "worker-queue")
                 self.assertEqual(self.routed(text, [])[0], "fast-lane-queue")
