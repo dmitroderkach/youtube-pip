@@ -74,6 +74,12 @@ HANDOVER_MAX_AGE_SECONDS = 600
 PROGRESS_KEY = "state/progress.json"
 # An older record is no evidence of a running turn: the message goes to the worker
 PROGRESS_FRESH_SECONDS = 15 * 60
+# The fast lane's marker while it handles a message (written when it takes one, deleted when its answer is sent): later
+# messages go to it too, so it hands them over in order (a message it holds is never overtaken by a newer one sent
+# straight to the worker)
+FAST_LANE_BUSY_KEY = "fast-lane/busy.json"
+# An older marker is left over (the fast lane died or timed out): not busy
+FAST_LANE_BUSY_FRESH_SECONDS = 120
 # Settings and state commands: the fast lane always handles them (both lanes, a lane switch in the buttons), whether
 # the worker runs or not. /agents and /compact need the worker's live session, so they keep the message routing.
 FAST_LANE_COMMANDS = {
@@ -283,6 +289,8 @@ def attachments_of(message):
                     "file_id": item["file_id"],
                     "file_name": item.get("file_name"),
                     "mime_type": item.get("mime_type"),
+                    # Seconds of a voice / audio message: bounds the transcript's length (transcript-guard.mjs)
+                    **({"duration": item["duration"]} if isinstance(item.get("duration"), int) else {}),
                 }
             )
     return found
@@ -359,6 +367,20 @@ def worker_busy():
         return False
 
 
+def fast_lane_busy():
+    """True only when the fast lane's marker exists and is fresh: it still handles earlier messages. A missing marker,
+    a stale one or any read error is False (the message is routed as if the fast lane were idle)."""
+    try:
+        marker = json.loads(s3.get_object(Bucket=STATE_BUCKET, Key=FAST_LANE_BUSY_KEY)["Body"].read())
+        updated = datetime.fromisoformat(str(marker["updatedAt"]).replace("Z", "+00:00"))
+        return 0 <= time.time() - updated.timestamp() <= FAST_LANE_BUSY_FRESH_SECONDS
+    except Exception as error:
+        # No marker is the usual case; without s3:ListBucket S3 reports a missing key as AccessDenied (403)
+        if not any(code in str(error) for code in ("NoSuchKey", "Not Found", "AccessDenied", "403")):
+            print(f"fast lane busy marker: {error}")
+        return False
+
+
 def forward(message, text, attachments):
     tasks = worker_tasks()
     running = any(t["lastStatus"] == "RUNNING" for t in tasks)
@@ -370,11 +392,13 @@ def forward(message, text, attachments):
             str(message["message_id"]),
         )
         return
-    if FAST_LANE_FUNCTION and worker_busy():
+    busy = bool(FAST_LANE_FUNCTION) and worker_busy()
+    if FAST_LANE_FUNCTION and (busy or fast_lane_busy()):
         # The worker is in a turn: the fast lane answers at once (status, scheduled tasks, settings) and hands the
-        # message over (or interrupts the worker) when it is for the worker, instead of it waiting for the next step
+        # message over (or interrupts the worker) when it is for the worker, instead of it waiting for the next step.
+        # The fast lane still handles earlier messages: this one follows them, so a hand-over is never overtaken.
         to_fast_lane(
-            {**message_body(message, text, attachments), "workerBusy": True},
+            {**message_body(message, text, attachments), "workerBusy": busy},
             str(message["chat"]["id"]),
             str(message["message_id"]),
         )

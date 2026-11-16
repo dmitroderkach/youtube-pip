@@ -250,6 +250,71 @@ def command_update(text):
     return {"message_id": 9, "date": 1000, "chat": {"id": 42}, "text": text}
 
 
+class FastLaneBusyOrder(unittest.TestCase):
+    """While the fast lane still handles earlier messages (its marker fast-lane/busy.json), later ones follow them there,
+    so a message it hands over is never overtaken by a newer one sent straight to the worker."""
+
+    def route(self, progress, marker, tasks=RUNNING):
+        bot, clients = load_dev_bot()
+        bot.worker_tasks = mock.MagicMock(return_value=tasks)
+        objects = {"state/progress.json": progress, "fast-lane/busy.json": marker}
+
+        def get_object(Bucket, Key):
+            value = objects.get(Key)
+            if value is None:
+                raise Exception("An error occurred (NoSuchKey) when calling the GetObject operation")
+            return {"Body": io.BytesIO(json.dumps(value).encode())}
+
+        clients["s3"].get_object.side_effect = get_object
+        bot.forward(MESSAGE, "привіт", [])
+        return clients
+
+    def sent(self, clients):
+        sent = clients["sqs"].send_message.call_args.kwargs
+        return sent["QueueUrl"], json.loads(sent["MessageBody"])
+
+    def test_a_fresh_marker_sends_the_message_to_the_fast_lane_even_to_an_idle_worker(self):
+        clients = self.route({"turnActive": False, "updatedAt": iso_ago(5)}, {"since": iso_ago(20), "updatedAt": iso_ago(10)})
+        queue, body = self.sent(clients)
+        self.assertEqual(queue, "fast-lane-queue")
+        self.assertIs(body["workerBusy"], False)
+        clients["lambda"].invoke.assert_called_once()
+
+    def test_a_stale_marker_is_ignored(self):
+        clients = self.route({"turnActive": False, "updatedAt": iso_ago(5)}, {"since": iso_ago(400), "updatedAt": iso_ago(121)})
+        self.assertEqual(self.sent(clients)[0], "worker-queue")
+
+    def test_no_marker_means_the_worker(self):
+        clients = self.route({"turnActive": False, "updatedAt": iso_ago(5)}, None)
+        self.assertEqual(self.sent(clients)[0], "worker-queue")
+
+    def test_a_broken_marker_means_the_worker(self):
+        for marker in ({"since": iso_ago(5)}, {"updatedAt": "now"}, ["x"]):
+            with self.subTest(marker=marker):
+                clients = self.route({"turnActive": False, "updatedAt": iso_ago(5)}, marker)
+                self.assertEqual(self.sent(clients)[0], "worker-queue")
+
+    def test_a_busy_worker_and_a_busy_fast_lane_say_the_worker_is_busy(self):
+        clients = self.route({"turnActive": True, "updatedAt": iso_ago(5)}, {"since": iso_ago(5), "updatedAt": iso_ago(5)})
+        queue, body = self.sent(clients)
+        self.assertEqual(queue, "fast-lane-queue")
+        self.assertIs(body["workerBusy"], True)
+
+    def test_a_sleeping_worker_goes_to_the_fast_lane_without_reading_the_marker(self):
+        clients = self.route(None, None, tasks=[])
+        self.assertEqual(self.sent(clients)[0], "fast-lane-queue")
+        clients["s3"].get_object.assert_not_called()
+
+
+class VoiceDuration(unittest.TestCase):
+    def test_voice_and_audio_carry_their_duration(self):
+        bot, _clients = load_dev_bot()
+        found = bot.attachments_of({"voice": {"file_id": "v", "mime_type": "audio/ogg", "duration": 61}})
+        self.assertEqual(found[0]["duration"], 61)
+        found = bot.attachments_of({"document": {"file_id": "d", "file_name": "a.txt"}})
+        self.assertNotIn("duration", found[0])
+
+
 class FastLaneCommands(unittest.TestCase):
     def routed(self, text, tasks, fast_lane=True, busy=False):
         bot, clients = load_dev_bot(fast_lane=fast_lane)

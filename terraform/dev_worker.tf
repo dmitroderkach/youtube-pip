@@ -364,9 +364,13 @@ resource "aws_iam_role_policy" "dev_bot" {
       },
       {
         # Routing: while the worker is in a turn (its progress record), messages go to the fast lane
-        Effect   = "Allow"
-        Action   = ["s3:GetObject"]
-        Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/progress.json"
+        Effect = "Allow"
+        Action = ["s3:GetObject"]
+        Resource = [
+          "${aws_s3_bucket.dev_worker_state.arn}/state/progress.json",
+          # The fast lane's marker while it handles a message: later messages follow it there, in order
+          "${aws_s3_bucket.dev_worker_state.arn}/fast-lane/busy.json",
+        ]
       },
       {
         # Idle watchdog: the worker's activity, and the last answer already warned about
