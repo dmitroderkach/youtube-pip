@@ -35,6 +35,7 @@ sqs = boto3.client("sqs")
 s3 = boto3.client("s3")
 secrets = boto3.client("secretsmanager")
 codebuild = boto3.client("codebuild")
+lambda_client = boto3.client("lambda")
 # Every PutObject through this client writes only when the key does not exist yet (If-None-Match: *, set on the
 # request itself, so it does not depend on the runtime's boto3 version)
 s3_once = boto3.client("s3")
@@ -73,6 +74,12 @@ TF_APPLY_PROJECT = os.environ.get("TF_APPLY_PROJECT", "")
 IMAGE_PUBLISH_PROJECT = os.environ.get("IMAGE_PUBLISH_PROJECT", "")
 TELEGRAM_SETUP_PROJECT = os.environ.get("TELEGRAM_SETUP_PROJECT", "")
 GITHUB_GATE_PROJECT = os.environ.get("GITHUB_GATE_PROJECT", "")
+# The fast lane (docs/DEV_WORKER.md, "Fast lane"): messages while the working worker is not running go to its queue and
+# wake it; it hands long tasks over with the action start_worker. Empty: everything goes to the worker as before.
+FAST_LANE_FUNCTION = os.environ.get("FAST_LANE_FUNCTION", "")
+FAST_LANE_QUEUE_URL = os.environ.get("FAST_LANE_QUEUE_URL", "")
+# Buttons the fast lane sent: their callback_data starts with this, the rest are the worker's
+FAST_LANE_CALLBACK_PREFIX = "f|"
 # Service messages of a private chat with the bot: never forwarded, never answered
 SERVICE_MESSAGE_KEYS = (
     "pinned_message",
@@ -174,11 +181,11 @@ def start_worker(up_at):
         failures = response.get("failures") or []
         if failures or not response.get("tasks"):
             reason = "; ".join(f"{f.get('reason')} {f.get('detail') or ''}".strip() for f in failures)
-            say(f"🔴 Не вдалося підняти воркера: {reason or 'ECS не створив таск'}")
+            say(f"🔴 Не вдалося підняти робочий воркер: {reason or 'ECS не створив таск'}")
             return False
         return True
     except Exception as error:
-        say(f"🔴 Не вдалося підняти воркера: {error}")
+        say(f"🔴 Не вдалося підняти робочий воркер: {error}")
         return False
 
 
@@ -193,10 +200,10 @@ def request_start_after_stop(up_at):
     # It may have stopped between the check and the write: then its event saw no request, so start now (its STOPPED
     # event may still come after this start: task_stopped then names it the previous worker)
     if not worker_stopping() and not worker_tasks():
-        start_pending("⏳ Попередній воркер уже зупинився: піднімаю новий…")
+        start_pending("🛠 Попередній робочий воркер уже зупинився: піднімаю новий…")
 
 
-def start_pending(announcement="⏳ Піднімаю новий воркер…"):
+def start_pending(announcement="🛠 Піднімаю новий робочий воркер…"):
     """Start the worker for a pending request, if there is one (exactly once: the request is deleted first)."""
     try:
         pending = json.loads(s3.get_object(Bucket=STATE_BUCKET, Key=PENDING_START_KEY)["Body"].read())
@@ -211,23 +218,23 @@ def up(message):
     tasks = worker_tasks()
     if tasks:
         running = any(t["lastStatus"] == "RUNNING" for t in tasks)
-        say("🟢 Воркер уже працює" if running else "⏳ Воркер уже піднімається")
+        say("🛠 Робочий воркер уже працює" if running else "🛠 Робочий воркер уже піднімається")
         return
     if worker_stopping():
         # A new task would restore the state before the stopping one has saved it: start after it stops
-        say("⏳ Попередній воркер ще вимикається: підніму новий, щойно він зупиниться")
+        say("🛠 Попередній робочий воркер ще вимикається: підніму новий, щойно він зупиниться")
         request_start_after_stop(message.get("date", int(time.time())))
         return
-    say("⏳ Піднімаю воркера…")
+    say("🛠 Піднімаю робочий воркер…")
     start_worker(message.get("date", int(time.time())))
 
 
 def down():
     tasks = worker_tasks()
     if not tasks:
-        say("⚪ Воркер і так не запущений")
+        say("😴 Робочий воркер і так не запущений")
         return
-    say("⏳ Зупиняю, зберігаю контекст…")
+    say("😴 Зупиняю робочий воркер, зберігаю контекст…")
     for task in tasks:
         # SIGTERM: the worker saves the session to S3, reports and exits (stopTimeout 120 s)
         ecs.stop_task(cluster=CLUSTER_ARN, task=task["arn"], reason="/down from Telegram")
@@ -285,16 +292,46 @@ def context_of(message):
     return context
 
 
+def to_fast_lane(body, group, dedup):
+    """Put a message (or a button press) into the fast lane's queue and wake it (one instance at a time: its own
+    loop reads the queue, so a message sent while it answers joins the running answer)."""
+    sqs.send_message(
+        QueueUrl=FAST_LANE_QUEUE_URL,
+        MessageBody=json.dumps(body),
+        MessageGroupId=group,
+        MessageDeduplicationId=dedup,
+    )
+    lambda_client.invoke(FunctionName=FAST_LANE_FUNCTION, InvocationType="Event", Payload=json.dumps({"wake": True}).encode())
+
+
+def message_body(message, text, attachments):
+    return {
+        "text": text,
+        "attachments": attachments,
+        "date": message.get("date", 0),
+        "message_id": message.get("message_id"),
+        **context_of(message),
+    }
+
+
 def forward(message, text, attachments):
     tasks = worker_tasks()
+    if FAST_LANE_FUNCTION and not any(t["lastStatus"] == "RUNNING" for t in tasks):
+        # The working worker is not running: the fast lane answers, and hands long tasks over (start_worker)
+        to_fast_lane(
+            message_body(message, text, attachments),
+            str(message["chat"]["id"]),
+            str(message["message_id"]),
+        )
+        return
     if not tasks:
         # Not running: start it for this message (it is delivered once the worker is ready)
         if worker_stopping():
             # Queue it and start a new worker once the stopping one has saved its session
-            say("⏳ Попередній воркер ще вимикається: підніму новий і передам повідомлення")
+            say("🛠 Попередній робочий воркер ще вимикається: підніму новий і передам повідомлення")
             request_start_after_stop(message.get("date", int(time.time())))
         else:
-            say("⏳ Воркер не був запущений: піднімаю, передам повідомлення, щойно підніметься")
+            say("🛠 Робочий воркер не був запущений: піднімаю, передам повідомлення, щойно підніметься")
             if not start_worker(message.get("date", int(time.time()))):
                 return
         tasks = [{"lastStatus": "PROVISIONING"}]
@@ -303,15 +340,7 @@ def forward(message, text, attachments):
         announced = False
     sqs.send_message(
         QueueUrl=QUEUE_URL,
-        MessageBody=json.dumps(
-            {
-                "text": text,
-                "attachments": attachments,
-                "date": message.get("date", 0),
-                "message_id": message.get("message_id"),
-                **context_of(message),
-            }
-        ),
+        MessageBody=json.dumps(message_body(message, text, attachments)),
         MessageGroupId=str(message["chat"]["id"]),
         MessageDeduplicationId=str(message["message_id"]),
     )
@@ -433,11 +462,23 @@ def callback(query):
     gated = GATE_DATA.match(query.get("data") or "")
     if gated:
         return gate(query, *gated.groups())
+    if FAST_LANE_FUNCTION and (query.get("data") or "").startswith(FAST_LANE_CALLBACK_PREFIX):
+        # A button of the fast lane's message: to its queue (it wakes and resolves the waiting question)
+        bot_api("answerCallbackQuery", {"callback_query_id": query["id"]})
+        to_fast_lane(
+            {
+                "callback": {"data": query.get("data", ""), "message_id": query["message"]["message_id"]},
+                "date": int(time.time()),
+            },
+            chat_id,
+            f"callback-{query['id']}",
+        )
+        return {"statusCode": 200, "body": "fast lane"}
     running = any(t["lastStatus"] == "RUNNING" for t in worker_tasks())
     answer = {"callback_query_id": query["id"]}
     if not running:
         # The question it answers went away with the worker's run
-        answer["text"] = "Воркер не запущений: /up"
+        answer["text"] = "Робочий воркер не запущений: /up"
     bot_api("answerCallbackQuery", answer)
     if not running:
         return {"statusCode": 200, "body": "no worker"}
@@ -487,7 +528,8 @@ def telegram_update(event):
         down()
     elif command == "/start":
         say(
-            "Команди: /up — підняти воркера, /down — зупинити. Поки він працює, пиши йому сюди; "
+            "Пиши сюди: на звичайні питання відповідає швидкий помічник, довгі задачі він передає робочому воркеру. "
+            "/up — підняти робочий воркер, /down — зупинити його; "
             "/mode — режим (bypass, auto, manual, plan), /model, /effort, /agents — субагенти, /plans — збережені плани, "
             "/compact — стиснути контекст, /context — ліміти, /background — фонові задачі, /voice — голос, "
             "/timezone — таймзона, /scheduled — заплановані задачі, /status — закріпити статус."
@@ -516,7 +558,7 @@ def task_stopped(event):
     else:
         # The worker said why it stops and that the context is saved; only now is the task really stopped. A new worker
         # may already be starting (a message while this one was stopping): then this is the previous one
-        say("⚪ Попередній воркер зупинено" if worker_tasks() else "⚪ Воркер зупинено")
+        say("😴 Попередній робочий воркер зупинено" if worker_tasks() else "😴 Робочий воркер зупинено")
     # A start requested while this task was saving its session
     if not worker_tasks():
         start_pending()
@@ -531,7 +573,7 @@ def report_unexpected_stop(detail, containers, exit_code):
         parts.append(container_reason)
     if exit_code is not None:
         parts.append(f"exit code {exit_code}")
-    say(f"🔴 Воркер несподівано зупинився ({'; '.join(parts)}). Контекст останнього збереження: {last_save_time()}")
+    say(f"🔴 Робочий воркер несподівано зупинився ({'; '.join(parts)}). Контекст останнього збереження: {last_save_time()}")
 
 
 def read_json(key):
@@ -570,7 +612,7 @@ def idle_watch():
     now = int(time.time())
     s3.put_object(Bucket=STATE_BUCKET, Key=IDLE_ALERT_KEY, Body=json.dumps({"lastAnswerAt": last, "at": now}))
     say(
-        f"🟡 Воркер працює вже {int(minutes)} хв після останньої відповіді, а задачі в роботі немає: "
+        f"🟡 Робочий воркер працює вже {int(minutes)} хв після останньої відповіді, а задачі в роботі немає: "
         "можливо, висить фонова задача, що не дає йому заснути. Передав воркеру: осиротілі фонові задачі він "
         "зупинить сам і засне. /background — подивитись, /down — зупинити"
     )
@@ -621,7 +663,27 @@ def due_tasks():
     return fired
 
 
+def start_for_fast_lane(event):
+    """The fast lane hands a long task over: it has put the task into the worker's queue (date = `since`) and asks
+    for the working worker. Started with UP_AT no later than `since`, so the worker delivers that task."""
+    reason = str(event.get("reason") or "")[:200]
+    since = int(event.get("since") or time.time())
+    up_at = min(int(time.time()), since)
+    tasks = worker_tasks()
+    if tasks:
+        return {"started": False, "running": True}
+    if worker_stopping():
+        request_start_after_stop(up_at)
+        return {"started": False, "pending": True}
+    say(f"🛠 Довга задача: піднімаю робочий воркер…{f' ({reason})' if reason else ''}")
+    return {"started": start_worker(up_at)}
+
+
 def handler(event, _context):
+    # Direct invocation by the fast lane (IAM: only its role may invoke this function besides Telegram's URL and the
+    # schedules); a webhook event never has a top-level "action"
+    if event.get("action") == "start_worker" and "requestContext" not in event:
+        return start_for_fast_lane(event)
     if event.get("source") == "aws.ecs":
         return task_stopped(event)
     if event.get("source") == "aws.events" and event.get("detail-type") == "Scheduled Event":
