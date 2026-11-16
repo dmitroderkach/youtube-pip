@@ -1007,7 +1007,11 @@ let fastLaneSeenAt = null;
 async function fastLaneNote() {
   const content = await stateObjects.get(CHAT_LOG_KEY);
   if (fastLaneSeenAt === null) fastLaneSeenAt = lastEntryAt(content, 'worker') ?? '';
-  const delta = laneDelta(content, { lane: 'worker', after: fastLaneSeenAt || null });
+  const delta = laneDelta(content, {
+    lane: 'worker',
+    after: fastLaneSeenAt || null,
+    timeZone: ownerTimeZone(),
+  });
   if (delta.latest) fastLaneSeenAt = delta.latest;
   return syncNote({ lane: 'worker', delta });
 }
