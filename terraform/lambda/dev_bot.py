@@ -67,6 +67,9 @@ IDLE_ALERT_KEY = "state/idle-alert.json"
 IDLE_ALERT_MINUTES = int(os.environ.get("IDLE_ALERT_MINUTES", "15"))
 # Start requested while a stopped worker was still saving: consumed by the STOPPED event of that task
 PENDING_START_KEY = "state/pending-start.json"
+# Hand-overs of the fast lane (hand_over): one object per task, written by the fast lane, read once by dev-bot
+HANDOVER_KEY = re.compile(r"fast-lane/handover/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json")
+HANDOVER_MAX_AGE_SECONDS = 600
 # Tasks the owner scheduled (scripts/dev-worker/schedule.sh): {id, dueAt (UTC ISO), timeZone, text, createdAt}
 SCHEDULED_PREFIX = "state/scheduled/"
 # Gate (terraform/dev_worker_ops.tf)
@@ -667,14 +670,31 @@ def due_tasks():
 def hand_over(event):
     """The fast lane hands a long task over: put it into the worker's queue (only dev-bot may write it: the permissions
     boundary keeps it ours, a message there is the owner's word), marked as handed over, and start the worker with
-    UP_AT no later than the task's date, so the worker delivers it."""
-    message = event.get("message") or {}
+    UP_AT no later than the task's date, so the worker delivers it.
+
+    The task is not in the event: anyone can invoke this function directly (the Function URL needs a public
+    lambda:InvokeFunction grant, and the provider cannot add its InvokedViaFunctionUrl condition), so the event only
+    names an object under fast-lane/handover/ that the fast lane wrote (only its role and the worker task's can write
+    there). The object is deleted as soon as it is read, and taken only while fresh."""
+    key = str(event.get("key") or "")
+    if not HANDOVER_KEY.fullmatch(key):
+        return {"handed_over": False, "error": "bad key"}
+    try:
+        stored = s3.get_object(Bucket=STATE_BUCKET, Key=key)
+        request = json.loads(stored["Body"].read())
+    except Exception as error:
+        print(f"hand-over {key}: {error}")
+        return {"handed_over": False, "error": "unreadable"}
+    s3.delete_object(Bucket=STATE_BUCKET, Key=key)
+    now = int(time.time())
+    if now - stored["LastModified"].timestamp() > HANDOVER_MAX_AGE_SECONDS:
+        return {"handed_over": False, "error": "stale"}
+    message = request.get("message") or {}
     text = str(message.get("text") or "")[:20000]
     attachments = [a for a in (message.get("attachments") or []) if isinstance(a, dict) and a.get("file_id")]
     if not text and not attachments:
         return {"handed_over": False, "error": "empty"}
-    now = int(time.time())
-    since = min(now, int(event.get("since") or now))
+    since = max(now - HANDOVER_MAX_AGE_SECONDS, min(now, int(request.get("since") or now)))
     body = {
         "text": text,
         "attachments": attachments,
@@ -682,29 +702,32 @@ def hand_over(event):
         "message_id": message.get("message_id"),
         "handover": True,
     }
-    for key in ("reply_to", "forwarded_from"):
-        if message.get(key):
-            body[key] = message[key]
+    for name in ("reply_to", "forwarded_from"):
+        if message.get(name):
+            body[name] = message[name]
     sqs.send_message(
         QueueUrl=QUEUE_URL,
         MessageBody=json.dumps(body),
         MessageGroupId=config()["chat_id"],
         MessageDeduplicationId=f"handover-{since}-{hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]}",
     )
-    reason = str(event.get("reason") or "")[:200]
+    # Every hand-over is shown in the chat, so the owner sees each task the worker gets this way
+    reason = str(request.get("reason") or "").strip()[:200] or "без назви"
     tasks = worker_tasks()
     if tasks:
+        say(f"🛠 Передано робочому воркеру: {reason}")
         return {"handed_over": True, "running": True}
     if worker_stopping():
+        say(f"🛠 Довга задача ({reason}): підніму робочий воркер, щойно попередній зупиниться")
         request_start_after_stop(since)
         return {"handed_over": True, "pending": True}
-    say(f"🛠 Довга задача: піднімаю робочий воркер…{f' ({reason})' if reason else ''}")
+    say(f"🛠 Довга задача ({reason}): піднімаю робочий воркер…")
     return {"handed_over": True, "started": start_worker(since)}
 
 
 def handler(event, _context):
-    # Direct invocation by the fast lane (IAM: only its role may invoke this function besides Telegram's URL and the
-    # schedules); a webhook event never has a top-level "action"
+    # Direct invocation by the fast lane (anyone can invoke this function directly: hand_over trusts only the S3 object
+    # the event names); a webhook event never has a top-level "action"
     if event.get("action") == "hand_over" and "requestContext" not in event:
         return hand_over(event)
     if event.get("source") == "aws.ecs":

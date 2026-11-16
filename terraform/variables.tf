@@ -187,7 +187,7 @@ variable "dev_worker_state_retention_days" {
 }
 
 variable "dev_worker_state_noncurrent_days" {
-  description = "Dev worker state bucket (versioned): days a previous version of an object (overwritten or deleted) is kept, per prefix. Small and precious (memory, plans): a year; transcripts (Claude Code trims them after a compaction): a month; the working copy and temporary files, rewritten after every answer: a day."
+  description = "Dev worker state bucket (versioned): days a previous version of an object (overwritten or deleted) is kept, per prefix. Small and precious (memory, plans): a year; transcripts (Claude Code trims them after a compaction): a month; the working copy, temporary files and the fast lane's session and hand-overs: a day."
   type        = map(number)
   default = {
     memory      = 365
@@ -197,6 +197,7 @@ variable "dev_worker_state_noncurrent_days" {
     claude      = 1
     inbox       = 1
     oncall      = 1
+    fast-lane   = 1
   }
 }
 

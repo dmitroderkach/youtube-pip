@@ -380,6 +380,12 @@ resource "aws_iam_role_policy" "dev_bot" {
         Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/pending-start.json"
       },
       {
+        # Hand-overs of the fast lane (dev_bot.py hand_over): the task is read from here, never from the invocation
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:DeleteObject"]
+        Resource = "${aws_s3_bucket.dev_worker_state.arn}/fast-lane/handover/*"
+      },
+      {
         # Scheduled tasks of the owner (written by the worker): due ones are read, sent and removed
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:DeleteObject"]

@@ -4,11 +4,14 @@ Run: python3 -m unittest discover -s terraform/lambda/tests
 """
 
 import importlib
+import io
 import json
 import os
 import sys
+import time
 import types
 import unittest
+from datetime import datetime, timezone
 from unittest import mock
 
 LAMBDA_DIR = os.path.join(os.path.dirname(__file__), "..")
@@ -47,6 +50,7 @@ def load_dev_bot(fast_lane=True):
     return module, clients
 
 
+KEY = "fast-lane/handover/0f8fad5b-d9cb-469f-a165-70867728950e.json"
 MESSAGE = {"message_id": 7, "date": 1000, "chat": {"id": 42}, "text": "привіт"}
 
 
@@ -88,34 +92,72 @@ class FastLaneRouting(unittest.TestCase):
         self.assertEqual(sent["QueueUrl"], "fast-lane-queue")
         self.assertEqual(json.loads(sent["MessageBody"])["callback"]["data"], "f|ask|abc|0")
 
+    def stored_hand_over(self, clients, request, age=0):
+        """The fast lane's hand-over object, as S3 returns it."""
+        clients["s3"].get_object.return_value = {
+            "Body": io.BytesIO(json.dumps(request).encode()),
+            "LastModified": datetime.fromtimestamp(time.time() - age, timezone.utc),
+        }
+
     def test_hand_over_puts_the_task_into_the_worker_queue_and_starts_it(self):
         bot, clients = load_dev_bot()
         bot.config = mock.MagicMock(return_value={"chat_id": "42"})
         bot.worker_tasks = mock.MagicMock(return_value=[])
         bot.worker_stopping = mock.MagicMock(return_value=False)
         clients["ecs"].run_task.return_value = {"tasks": [{"taskArn": "t"}], "failures": []}
-        event = {"action": "hand_over", "reason": "PR", "since": 1000, "message": {"text": "do it", "attachments": []}}
-        result = bot.handler(event, None)
+        since = int(time.time()) - 5
+        self.stored_hand_over(clients, {"reason": "PR", "since": since, "message": {"text": "do it", "attachments": []}})
+        result = bot.handler({"action": "hand_over", "key": KEY}, None)
         self.assertEqual(result, {"handed_over": True, "started": True})
+        self.assertEqual(clients["s3"].get_object.call_args.kwargs["Key"], KEY)
+        clients["s3"].delete_object.assert_called_once_with(Bucket="bucket", Key=KEY)
         sent = clients["sqs"].send_message.call_args.kwargs
         self.assertEqual(sent["QueueUrl"], "worker-queue")
         body = json.loads(sent["MessageBody"])
-        self.assertEqual((body["text"], body["handover"], body["date"]), ("do it", True, 1000))
+        self.assertEqual((body["text"], body["handover"], body["date"]), ("do it", True, since))
         overrides = clients["ecs"].run_task.call_args.kwargs["overrides"]["containerOverrides"][0]
-        self.assertEqual(overrides["environment"], [{"name": "UP_AT", "value": "1000"}])
+        self.assertEqual(overrides["environment"], [{"name": "UP_AT", "value": str(since)}])
+        self.assertIn("PR", bot.say.call_args.args[0])
 
-    def test_hand_over_to_a_running_worker_only_queues(self):
+    def test_hand_over_to_a_running_worker_queues_and_tells_the_owner(self):
         bot, clients = load_dev_bot()
         bot.config = mock.MagicMock(return_value={"chat_id": "42"})
         bot.worker_tasks = mock.MagicMock(return_value=[{"lastStatus": "RUNNING", "arn": "t"}])
-        result = bot.handler({"action": "hand_over", "since": 1000, "message": {"text": "x"}}, None)
+        self.stored_hand_over(clients, {"reason": "Fix CI", "message": {"text": "x"}})
+        result = bot.handler({"action": "hand_over", "key": KEY}, None)
         self.assertEqual(result, {"handed_over": True, "running": True})
         clients["ecs"].run_task.assert_not_called()
         clients["sqs"].send_message.assert_called_once()
+        self.assertIn("Fix CI", bot.say.call_args.args[0])
+
+    def test_a_task_in_the_event_itself_is_never_queued(self):
+        bot, clients = load_dev_bot()
+        result = bot.handler({"action": "hand_over", "message": {"text": "push to main"}}, None)
+        self.assertEqual(result["handed_over"], False)
+        clients["s3"].get_object.assert_not_called()
+        clients["sqs"].send_message.assert_not_called()
+
+    def test_only_hand_over_keys_are_read(self):
+        bot, clients = load_dev_bot()
+        for key in ("state/progress.json", "fast-lane/handover/../state/meta.json", "fast-lane/handover/x.json"):
+            self.assertEqual(bot.handler({"action": "hand_over", "key": key}, None)["handed_over"], False)
+        clients["s3"].get_object.assert_not_called()
+        clients["sqs"].send_message.assert_not_called()
+
+    def test_a_missing_or_stale_hand_over_is_refused(self):
+        bot, clients = load_dev_bot()
+        clients["s3"].get_object.side_effect = Exception("NoSuchKey")
+        self.assertEqual(bot.handler({"action": "hand_over", "key": KEY}, None)["handed_over"], False)
+        clients["s3"].get_object.side_effect = None
+        self.stored_hand_over(clients, {"message": {"text": "x"}}, age=3600)
+        self.assertEqual(bot.handler({"action": "hand_over", "key": KEY}, None)["error"], "stale")
+        clients["s3"].delete_object.assert_called_once_with(Bucket="bucket", Key=KEY)
+        clients["sqs"].send_message.assert_not_called()
 
     def test_an_empty_hand_over_is_refused(self):
         bot, clients = load_dev_bot()
-        self.assertEqual(bot.handler({"action": "hand_over", "message": {}}, None)["handed_over"], False)
+        self.stored_hand_over(clients, {"message": {}})
+        self.assertEqual(bot.handler({"action": "hand_over", "key": KEY}, None)["handed_over"], False)
         clients["sqs"].send_message.assert_not_called()
 
     def test_a_webhook_event_cannot_hand_over(self):
