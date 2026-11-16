@@ -13,7 +13,7 @@ Smart Picture-in-Picture mode for YouTube with full playback controls, SPA navig
 - **[Greasy Fork auto-update](docs/GREASY_FORK.md)** - The script on Greasy Fork updates itself on every GitHub release (release webhook); one-time setup
 - **[Pre-release](docs/PRERELEASE.md)** - Test build of a release branch as a GitHub pre-release (`vX.Y.Z-rc.N`) to install and check before the release; users and Greasy Fork stay on the stable release
 - **[AI development workflow](docs/AI_DEV_WORKFLOW.md)** - Overview: one owner develops, releases and operates the project from Telegram with Claude Code in the cloud; the safety model of the gated infrastructure changes on a public repository
-- **[Dev worker in Telegram](docs/DEV_WORKER.md)** - Claude Code (Opus) on an on-demand ECS task, started / stopped and talked to from the on-call Telegram chat; session kept in S3, 10 min idle stop
+- **[Dev worker in Telegram](docs/DEV_WORKER.md)** - Claude Code (Opus) on an on-demand ECS task, started / stopped and talked to from the on-call Telegram chat; session kept in S3, 10 min idle stop. A fast lane (a Lambda assistant) answers quick questions in seconds while the worker sleeps or is busy and hands longer tasks over to it
 
 ## Disclaimer
 

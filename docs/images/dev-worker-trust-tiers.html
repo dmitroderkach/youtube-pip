@@ -153,8 +153,10 @@
           <div class="box b2">
             <h3>🤖 dev-bot · Lambda</h3>
             <p>
-              Telegram webhook, /up and /down of the worker (ECS). Checks that a ✅ is real: the
-              recorded gate request, unedited, within an hour, once. Then starts what was approved.
+              Telegram webhook, /up and /down of the worker (ECS), routes each message to the fast
+              lane or the worker, the only writer of the worker's queue and the only one that starts
+              it. Checks that a ✅ is real: the recorded gate request, unedited, within an hour,
+              once. Then starts what was approved.
             </p>
             <p>
               <span class="k">bot token</span><span class="k">webhook secret</span
@@ -226,7 +228,7 @@
       </div>
 
       <div class="tier">
-        <div class="lvl c6">6 · Worker<small>least trusted</small></div>
+        <div class="lvl c6">6 · Assistants<small>least trusted</small></div>
         <div class="row">
           <div class="box b6">
             <h3>💻 worker.mjs · ECS (user devworker)</h3>
@@ -251,12 +253,30 @@
               ><span class="k">GitHub token via broker</span>
             </p>
           </div>
+          <div class="box b6">
+            <h3>⚡ Fast lane · Lambda</h3>
+            <p>
+              Quick answers while the worker sleeps or is busy. Reads project data: chat log,
+              progress, memory, plans, GitHub (read-only), the project's logs, the web (logs and
+              pages through isolated sub-sessions).
+            </p>
+            <p>
+              Writes reminders, settings and, while the worker sleeps, memory and plans. Starts
+              nothing: it can only ask dev-bot to start the worker (a hand-over).
+            </p>
+            <p>Its Claude Code: no shell, no file or fetch tools; the tools run in the handler.</p>
+            <p>
+              <span class="k">bot token</span><span class="k">GitHub read-only token</span
+              ><span class="k">Google key</span><span class="k">Claude token (proxy)</span>
+            </p>
+          </div>
         </div>
       </div>
 
       <div class="legend">
         Principle: less trust, fewer rights; every production change = a dev-ops request → the
-        owner's ✅ → dev-bot checks it → one executor does one action.
+        owner's ✅ → dev-bot checks it → one executor does one action. The fast lane never sends a
+        request: it hands the task to the worker.
       </div>
     </div>
   </body>

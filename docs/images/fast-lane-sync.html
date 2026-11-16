@@ -1,0 +1,265 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        margin: 0;
+        background: #0f1419;
+        font-family: -apple-system, 'Segoe UI', Roboto, sans-serif;
+        color: #e6e6e6;
+      }
+      .wrap {
+        width: 1240px;
+        padding: 28px 32px;
+      }
+      h1 {
+        font-size: 30px;
+        margin: 0 0 4px;
+      }
+      h2 {
+        font-size: 20px;
+        margin: 22px 0 10px;
+        color: #c9d1d9;
+      }
+      .sub {
+        color: #9aa4ad;
+        font-size: 17px;
+        margin-bottom: 8px;
+      }
+      .flow {
+        display: flex;
+        align-items: stretch;
+        gap: 0;
+      }
+      .flow .box {
+        flex: 1;
+      }
+      .to {
+        flex: none;
+        width: 34px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #9aa4ad;
+        font-size: 24px;
+      }
+      .box {
+        border-radius: 12px;
+        padding: 10px 12px;
+        background: #1a222b;
+        border: 2px solid #2c3742;
+      }
+      .box h3 {
+        margin: 0 0 5px;
+        font-size: 17px;
+      }
+      .box p {
+        margin: 3px 0;
+        font-size: 14px;
+        line-height: 1.35;
+        color: #c9d1d9;
+      }
+      .k {
+        display: inline-block;
+        background: #2a3540;
+        border-radius: 6px;
+        padding: 1px 7px;
+        font-size: 13px;
+        color: #ffd38a;
+      }
+      .fast {
+        border-color: #7fd1a6;
+        background: #18302a;
+      }
+      .bot {
+        border-color: #8fb3d9;
+        background: #1c2a38;
+      }
+      .worker {
+        border-color: #c79bf2;
+        background: #2a2236;
+      }
+      .s3 {
+        border-color: #9aa4ad;
+        border-style: dashed;
+        background: #1e252c;
+      }
+      .sync {
+        display: flex;
+        gap: 12px;
+        align-items: stretch;
+      }
+      .side {
+        width: 250px;
+        flex: none;
+      }
+      .mid {
+        flex: 1;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13.5px;
+      }
+      th {
+        text-align: left;
+        color: #9aa4ad;
+        font-weight: 700;
+        padding: 4px 6px;
+        border-bottom: 1px solid #3a4652;
+      }
+      td {
+        padding: 5px 6px;
+        border-bottom: 1px solid #2c3742;
+        color: #c9d1d9;
+        vertical-align: top;
+        line-height: 1.3;
+      }
+      td:first-child {
+        color: #ffd38a;
+        white-space: nowrap;
+      }
+      .cf {
+        color: #7fd1a6;
+      }
+      .cw {
+        color: #c79bf2;
+      }
+      .no {
+        color: #ff9a9a;
+      }
+      .foot {
+        margin-top: 14px;
+        color: #9aa4ad;
+        font-size: 15px;
+        line-height: 1.45;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <h1>Fast lane and worker: hand-over and shared state</h1>
+      <div class="sub">
+        How a task crosses from the Lambda to the ECS worker, and how the two parts stay one
+        assistant through S3. Which part gets a message: the message flow diagram.
+      </div>
+
+      <h2>A hand-over: only dev-bot writes the worker's queue and starts the worker</h2>
+      <div class="flow">
+        <div class="box fast">
+          <h3>⚡ Fast lane</h3>
+          <p>
+            <span class="k">hand_over</span> a task, <span class="k">stop_worker</span>, a setting
+            or a <span class="k">/background</span> stop for the worker.
+          </p>
+          <p>After web or log text in the turn: only after the owner's button.</p>
+        </div>
+        <div class="to">→</div>
+        <div class="box s3">
+          <h3>🗄 S3 fast-lane/handover/&lt;uuid&gt;.json</h3>
+          <p>The task with its reason and date, or <span class="k">control</span>.</p>
+          <p>Only the fast lane's and the worker task's roles can write there.</p>
+        </div>
+        <div class="to">→</div>
+        <div class="box bot">
+          <h3>🤖 dev-bot {"action": "hand_over", "key"}</h3>
+          <p>Reads the object once and deletes it; refuses one older than 10 minutes.</p>
+          <p>The invocation names only the key: anyone may invoke dev-bot.</p>
+        </div>
+        <div class="to">→</div>
+        <div class="box worker">
+          <h3>🛠 Worker queue</h3>
+          <p>A task: says it in the chat, starts a sleeping worker.</p>
+          <p>
+            A stop, <span class="k">/compact</span> or a setting: only to a running worker, never
+            starts one.
+          </p>
+        </div>
+      </div>
+      <div class="foot">
+        One answer per message: when every message of a turn was handed over, the fast lane sends no
+        text of its own and the worker answers.
+      </div>
+
+      <h2>Two-way sync: built by code before every prompt, never by the model</h2>
+      <div class="sync">
+        <div class="box fast side">
+          <h3>⚡ Fast lane learns</h3>
+          <p>
+            A <b>[Worker note]</b> in front of each prompt: the worker's real state (starting, free,
+            busy with which step, waiting for the owner, stopping, stopped), its PRs and runs, what
+            the owner and the worker said since the fast lane's previous answer, new on-call
+            reports, the owner's local time.
+          </p>
+          <p>A new session also gets the memory index and the plan titles.</p>
+        </div>
+        <div class="box s3 mid">
+          <h3>🗄 S3 dev-worker-state</h3>
+          <table>
+            <tr>
+              <th>Object</th>
+              <th class="cf">Fast lane</th>
+              <th class="cw">Worker</th>
+            </tr>
+            <tr>
+              <td>state/chat-log.jsonl</td>
+              <td>appends (lane fast-lane), reads</td>
+              <td>appends, reads</td>
+            </tr>
+            <tr>
+              <td>state/progress.json</td>
+              <td>reads: note, /background, /agents, /stop</td>
+              <td>writes on change, 5 min heartbeat (dev-bot: starting / stopped)</td>
+            </tr>
+            <tr>
+              <td>state/settings.json</td>
+              <td>fastLane, worker, shared</td>
+              <td>only the keys it changed</td>
+            </tr>
+            <tr>
+              <td>state/status.json</td>
+              <td>its section + shared</td>
+              <td>its section + shared</td>
+            </tr>
+            <tr>
+              <td>state/scheduled/</td>
+              <td>add, cancel</td>
+              <td>add, cancel (dev-bot fires them)</td>
+            </tr>
+            <tr>
+              <td>voice transcripts, speech budget</td>
+              <td>both, read-modify-write</td>
+              <td>both, read-modify-write</td>
+            </tr>
+            <tr>
+              <td>memory/, plans/</td>
+              <td>writes <b>only while the worker is stopped</b>; else hands the change over</td>
+              <td>the only writer while starting, running or stopping</td>
+            </tr>
+            <tr>
+              <td>fast-lane/</td>
+              <td>its session, busy marker, hand-overs, on-call list</td>
+              <td class="no">not used (dev-bot reads the busy marker)</td>
+            </tr>
+          </table>
+        </div>
+        <div class="box worker side">
+          <h3>🛠 Worker learns</h3>
+          <p>
+            A note at the start of its next turn: the owner's messages the fast lane took and its
+            answers since the worker's previous turn (what it said, scheduled, cancelled or set).
+          </p>
+          <p>
+            A setting changed in the fast lane arrives at once as a control message, applied to the
+            live session without a model turn.
+          </p>
+        </div>
+      </div>
+      <div class="foot">
+        Files both parts write use conditional writes (ETag, read-modify-write retried on a
+        conflict), so neither part drops the other's change.
+      </div>
+    </div>
+  </body>
+</html>
