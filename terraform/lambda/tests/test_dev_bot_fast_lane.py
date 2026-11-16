@@ -420,10 +420,6 @@ class ControlHandOver(unittest.TestCase):
                 bot.start_worker.assert_not_called()
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class MarkStarting(unittest.TestCase):
     """Plan Phase 0 item 1: a worker start shows in the progress record (the pinned status) as being started."""
 
@@ -545,3 +541,92 @@ class OnlyForARunningWorker(unittest.TestCase):
         result, bot, clients = self.hand_over({"reason": "compact", "message": {"text": "/compact"}}, [])
         self.assertTrue(result["handed_over"])
         bot.start_worker.assert_called_once()
+
+
+class OneTasksSnapshot(unittest.TestCase):
+    """hand_over decides with one snapshot of the worker's tasks: a worker that stops between two looks cannot make a
+    stop or a running-only command start a new one."""
+
+    def test_a_stop_queued_for_a_running_worker_never_starts_one(self):
+        bot, clients = load_dev_bot()
+        bot.config = mock.MagicMock(return_value={"chat_id": "42"})
+        # Running at the first look, gone at any later one
+        bot.worker_tasks = mock.MagicMock(side_effect=[RUNNING, [], [], []])
+        bot.worker_stopping = mock.MagicMock(return_value=True)
+        bot.start_worker = mock.MagicMock(return_value=True)
+        bot.request_start_after_stop = mock.MagicMock()
+        clients["s3"].get_object.return_value = {
+            "Body": io.BytesIO(
+                json.dumps({"reason": "stop", "interrupt": True, "message": {"text": "/stop"}}).encode()
+            ),
+            "LastModified": datetime.fromtimestamp(time.time(), timezone.utc),
+        }
+        result = bot.handler({"action": "hand_over", "key": KEY}, None)
+        self.assertEqual(result, {"handed_over": True, "running": True})
+        self.assertEqual(bot.worker_tasks.call_count, 1)
+        bot.start_worker.assert_not_called()
+        bot.request_start_after_stop.assert_not_called()
+
+
+class MarkStoppedAndRefresh(unittest.TestCase):
+    """A stopped task's record says stopped (a crash or a failed start never wrote it), and the fast lane redraws the
+    pinned status after dev-bot changes the record."""
+
+    def record(self, clients, worker):
+        clients["s3"].get_object.return_value = {
+            "Body": io.BytesIO(json.dumps({"worker": worker, "updatedAt": "2026-11-16T19:00:00Z"}).encode()),
+            "ETag": '"e1"',
+        }
+
+    def refreshes(self, clients):
+        return [
+            call
+            for call in clients["lambda"].invoke.call_args_list
+            if json.loads(call.kwargs["Payload"]) == {"action": "refresh_status"}
+        ]
+
+    def test_running_or_starting_becomes_stopped_and_the_status_is_redrawn(self):
+        for worker in ("running", "starting"):
+            with self.subTest(worker=worker):
+                bot, clients = load_dev_bot()
+                self.record(clients, worker)
+                bot.mark_stopped()
+                args = clients["s3"].put_object.call_args.kwargs
+                self.assertEqual(json.loads(args["Body"])["worker"], "stopped")
+                self.assertEqual(args["IfMatch"], '"e1"')
+                self.assertEqual(len(self.refreshes(clients)), 1)
+
+    def test_a_stopped_record_is_left_alone(self):
+        bot, clients = load_dev_bot()
+        self.record(clients, "stopped")
+        bot.mark_stopped()
+        clients["s3"].put_object.assert_not_called()
+        self.assertEqual(self.refreshes(clients), [])
+
+    def test_mark_starting_redraws_the_status_after_writing(self):
+        bot, clients = load_dev_bot()
+        self.record(clients, "stopped")
+        bot.mark_starting()
+        self.assertEqual(len(self.refreshes(clients)), 1)
+
+    def test_no_fast_lane_no_refresh(self):
+        bot, clients = load_dev_bot(fast_lane=False)
+        self.record(clients, "running")
+        bot.mark_stopped()
+        self.assertEqual(self.refreshes(clients), [])
+
+    def test_task_stopped_marks_stopped_only_when_no_worker_runs(self):
+        event = {"detail": {"lastStatus": "STOPPED", "containers": [{"name": "x", "exitCode": 0}]}}
+        for tasks, marked in (([], True), (RUNNING, False)):
+            with self.subTest(tasks=tasks):
+                bot, clients = load_dev_bot()
+                bot.worker_tasks = mock.MagicMock(return_value=tasks)
+                bot.report_unexpected_stop = mock.MagicMock()
+                bot.mark_stopped = mock.MagicMock()
+                bot.start_pending = mock.MagicMock()
+                bot.task_stopped(event)
+                self.assertEqual(bot.mark_stopped.called, marked)
+
+
+if __name__ == "__main__":
+    unittest.main()
