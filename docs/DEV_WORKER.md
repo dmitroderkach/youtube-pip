@@ -235,6 +235,18 @@ On-demand 2 vCPU / 4 GB ≈ $0.10 per hour of work (plus a public IPv4 address, 
 - `terraform/dev-worker/` — worker image (`Dockerfile`, entrypoint).
 - `scripts/dev-worker/` — the worker loop (queue, Claude Code, Telegram, S3 state, idle timer, modes, questions, plans), `telegram-format.mjs` (plan Markdown → Telegram HTML, buttons), `session-state.mjs` (background task records), `isolation.mjs` (Claude Code as a separate user; tests of the three: `node --test scripts/dev-worker/*.test.mjs`), `isolation-check.mjs` (run in the image by `.github/workflows/dev-worker-image.yml`), `github-app-token.mjs` / `github-token.sh` / `gh-wrapper.sh` (GitHub tokens), the system prompt and a Claude Code `PreToolUse` hook (`english-only-hook.mjs`, installed as the worker's user settings) that blocks `gh pr|issue|release|api` / `git commit|tag` commands with Cyrillic text: the model tends to copy earlier Ukrainian texts from the session despite the prompt, and the block makes it rewrite them in English.
 
+## Code layout
+
+`scripts/dev-worker/`, installed at `/opt/dev-worker` in the image. The chat layer is in modules a second host (the planned fast lane Lambda) imports as well; each is a factory taking its dependencies (`createX({ … })`), so no module reads the worker's globals:
+
+- `telegram.mjs`: Bot API I/O: calls with retries, sending (split at Telegram's limit), HTML with buttons and its plain-text fallback, edits, files to the chat (photos inline, the rest as documents, the outbox), files from the chat (inbox), voice messages.
+- `voice.mjs`: speech to text (Gemini, AWS Transcribe as the fallback), speech synthesis (Chirp 3 HD, Gemini-TTS), the Gemini budget from Google's figures, the `/voice` menu; settings and the state bucket come in as `settings` / `store`.
+- `incoming.mjs`: a queued message as Claude's prompt: transcripts, photos and files, a reply's quote, a forward's origin, the replied-to message's files, the kept voice transcripts.
+- `interactions.mjs`: questions with buttons (AskUserQuestion), permission prompts, the registry of what waits for the owner (a button or a text message answers it).
+- `status.mjs`: the pinned status message (send, pin, edit in place, replace); the host gives its text.
+- `telegram-format.mjs` (HTML and keyboards) and `session-state.mjs` (pure helpers): shared as before.
+- `worker.mjs`: the worker itself: the Claude session, ECS lifecycle, save / restore, modes and plans, `/model`, `/effort`, `/agents`, background tasks, on-call reports, scheduled tasks, the gate requests, isolation (`isolation.mjs`) and the token proxy (`anthropic-proxy.mjs`).
+
 ## Setup and operating
 
 1. Secret `youtube-pip-dev-worker` (Secrets Manager, filled by hand): `github_app_id`, `github_app_installation_id`, `github_app_private_key`, `google_tts_api_key` (all must exist before the task starts: the task definition reads them). The webhook secret is added by step 4. Secret `youtube-pip-gate-github-app` (filled by hand, before the apply that creates github-gate): `app_id`, `installation_id`, `private_key` (PEM) of the gate GitHub App (Contents and Pull requests read / write, installed on this repository only); read only by github-gate. Key `github_read_token` of the secret `youtube-pip-oncall` (optional): a fine-grained token with "Public repositories (read-only)" access and no permissions, for the dev-ops Lambda's GitHub API reads (anonymous calls share 60 an hour per IP with every Lambda on that IP); it can neither write nor read anything private, so the gate App's key stays github-gate's alone. Without it the reads are anonymous; a new value applies within 10 minutes.
