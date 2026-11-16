@@ -1,0 +1,41 @@
+name: Lambda Tests
+
+# Unit tests of the Python Lambdas in terraform/lambda (dev-bot, dev-ops, the dispatcher and the others; AWS clients
+# stubbed). Their own workflow on a GitHub-hosted runner, only for PRs that change them: a change to build.yml would put
+# the PR into the product-code pattern and start the full e2e check on the self-hosted runner.
+on:
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'terraform/lambda/**'
+      - '.github/workflows/lambda-tests.yml'
+
+concurrency:
+  group: lambda-tests-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  lambda-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      # The Lambda runtime's Python (terraform: runtime python3.12)
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install boto3
+        run: python3 -m pip install --quiet boto3
+
+      - name: Compile the handlers
+        run: python3 -m py_compile terraform/lambda/*.py
+
+      - name: Unit tests
+        working-directory: terraform/lambda
+        run: python3 -m unittest discover -s tests -v
