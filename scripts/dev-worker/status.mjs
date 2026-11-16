@@ -221,7 +221,8 @@ export function renderStatus(
       ? time(new Date(windows[name].resetsAt * 1000).toISOString(), withDay)
       : '?';
   const stateEmoji =
-    { busy: '🔵', running: '🟢', starting: '⏳', stopped: '💤' }[worker.state] ?? '❔';
+    { busy: '🔵', running: '🟢', starting: '⏳', stopping: '😴', stopped: '💤' }[worker.state] ??
+    '❔';
   const mode = modes[worker.mode];
   const ctx = (value) => (typeof value === 'number' ? ` · ctx ${Math.round(value)}%` : '');
   const summary =
@@ -235,6 +236,7 @@ export function renderStatus(
       busy: worker.task ? `🔵 працює над «${worker.task}»` : '🔵 працює над задачею',
       running: '🟢 запущений, вільний',
       starting: `⏳ піднімається з ${time(worker.since ?? worker.updatedAt)}`,
+      stopping: '😴 засинає, зберігає контекст',
       stopped: `💤 спить з ${time(worker.since ?? worker.updatedAt)}`,
     }[worker.state] ?? '❔ стан невідомий';
   const voice = shared.voice;

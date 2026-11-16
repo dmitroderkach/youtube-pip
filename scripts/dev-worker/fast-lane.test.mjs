@@ -545,10 +545,10 @@ test('workerView: starting from the record (fresh only) and right after a hand-o
   const text = renderStatus({ worker: starting }, { modes: {} });
   assert.match(text.split('\n')[0], /^⏳/);
   assert.match(text, /Воркер: ⏳ піднімається з /);
-  // A start that never finished: asleep after 5 minutes
+  // A start that never finished: asleep after 15 minutes (three missed heartbeats)
   assert.equal(
     workerView(undefined, {
-      progress: { worker: 'starting', updatedAt: '2026-11-16T20:20:00Z' },
+      progress: { worker: 'starting', updatedAt: '2026-11-16T20:14:00Z' },
       stored,
       now,
     }).state,

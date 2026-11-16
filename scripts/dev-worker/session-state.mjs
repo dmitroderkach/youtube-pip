@@ -320,15 +320,22 @@ export const WORKER_STATES = ['starting', 'running', 'stopping', 'stopped'];
 export const PROGRESS_HEARTBEAT_MS = 5 * 60 * 1000;
 /** A `running` record older than this (three heartbeats missed) is a worker that crashed or was killed. */
 export const RUNNING_STALE_MS = 15 * 60 * 1000;
-/** A `starting` record older than this is a start that failed. */
-export const STARTING_STALE_MS = 5 * 60 * 1000;
+/**
+ * A `starting` record older than this is a start that failed. The worker rewrites its record every
+ * PROGRESS_HEARTBEAT_MS from the first step of its process (also during a slow restore), so this is three missed
+ * heartbeats, as for a running worker.
+ */
+export const STARTING_STALE_MS = 15 * 60 * 1000;
+/** A `stopping` record older than this is a stop that died before writing `stopped` (the final save is long over). */
+export const STOPPING_STALE_MS = 15 * 60 * 1000;
 /** A record without the state field (an older worker image) older than this means the worker is not running. */
 export const LEGACY_STALE_MS = 15 * 60 * 1000;
 
 /**
  * What the progress record says about the worker, with its age taken into account (one rule for every reader: the
  * pinned status, the fast lane's note and its commands): `busy` (running, in a turn), `running` (idle between turns),
- * `starting`, `stopped`, `stale` (a running / starting record nobody refreshed: crashed or killed, treat as not
+ * `starting`, `stopping` (its final save is still to come), `stopped`, `stale` (a running / starting / stopping record nobody
+ * refreshed: crashed or killed, treat as not
  * running) or `unknown` (a fresh record of an older image without the state).
  */
 export function workerLiveness(progress, now = Date.now()) {
@@ -340,17 +347,34 @@ export function workerLiveness(progress, now = Date.now()) {
     return progress.turnActive ? 'busy' : 'running';
   }
   if (progress.worker === 'starting') return age > STARTING_STALE_MS ? 'stale' : 'starting';
-  if (progress.worker === 'stopped' || progress.worker === 'stopping') return 'stopped';
+  // Stopping: its final save (s3 sync --delete of memory and plans) is still to come, so it is not asleep yet
+  if (progress.worker === 'stopping') return age > STOPPING_STALE_MS ? 'stale' : 'stopping';
+  if (progress.worker === 'stopped') return 'stopped';
   return age > LEGACY_STALE_MS ? 'stopped' : 'unknown';
 }
 
 /**
  * The worker certainly does not run: its record says stopped (written as the last step of its stop, after the final
- * save), or nobody refreshed a running / starting record in time (a crash or a failed start: no process saves over S3
- * any more, and the next start restores from it). The fast lane may then write the worker's memory and plans itself.
+ * save), or nobody refreshed a running / starting / stopping record in time (a crash or a failed start: no process
+ * saves over S3 any more, and the next start restores from it). The fast lane may then write the worker's memory and
+ * plans itself. A stopping worker is not asleep: its final save would undo such a write.
  */
 export const workerAsleepNow = (progress, now = Date.now()) =>
   ['stopped', 'stale'].includes(workerLiveness(progress, now));
+
+/**
+ * workerAsleepNow from a read of the progress record: a missing record (the read returns null) counts as asleep, a
+ * failed read (S3 error, access denied) does not: the caller hands the change over instead of writing.
+ */
+export async function workerAsleepFromRead(readProgress, now = Date.now()) {
+  let progress;
+  try {
+    progress = await readProgress();
+  } catch {
+    return false;
+  }
+  return workerAsleepNow(progress, now);
+}
 
 /** The worker can take a message or a control message now (running, busy or starting: it queues them). */
 export const workerReachable = (progress, now = Date.now()) =>

@@ -252,3 +252,26 @@ export function tokenExpiryWarning({
     ? { reason: 'expiring', daysLeft, expiresAt: new Date(at).toISOString() }
     : null;
 }
+
+/** The once-a-day marker of a token warning: one object per local day and reason (created at most once). */
+export const tokenWarningKey = (day, reason) => `fast-lane/token-warning-${day}-${reason}.json`;
+
+/**
+ * Claim a once-only marker: a conditional create (If-None-Match: *). True when this call created it (so it may send
+ * the warning), false when it already existed (another call or invocation sent it). Other errors are thrown.
+ */
+export async function claimMarker(putObject, key, body) {
+  try {
+    await putObject(key, body, { ifNoneMatch: '*' });
+    return true;
+  } catch (error) {
+    const status = error?.$metadata?.httpStatusCode;
+    if (
+      status === 412 ||
+      status === 409 ||
+      /PreconditionFailed|ConditionalRequestConflict/.test(error?.name ?? '')
+    )
+      return false;
+    throw error;
+  }
+}

@@ -50,6 +50,8 @@ import {
   stripCallbackPrefix,
   taskTitle,
   tokenExpiryWarning,
+  tokenWarningKey,
+  claimMarker,
   tooBigToResume,
 } from './fast-lane-core.mjs';
 import { createFastLaneCommands, META_KEY, PROGRESS_KEY } from './fast-lane-commands.mjs';
@@ -73,7 +75,7 @@ import {
   lastEntryAt,
   syncNote,
   voiceReplyWanted,
-  workerAsleepNow,
+  workerAsleepFromRead,
   workerLiveness,
 } from './session-state.mjs';
 import { searchPlaces } from './timezone-search.mjs';
@@ -573,8 +575,8 @@ function inboxFile(path) {
 
 const text = (value) => ({ content: [{ type: 'text', text: String(value) }] });
 
-/** Where the last warning about the read-only GitHub token was recorded (one a day). */
-const TOKEN_WARNING_KEY = 'fast-lane/token-warning.json';
+/** Token warnings this process already handled (`<day>-<reason>`): no S3 call for every GitHub request. */
+const tokenWarned = new Set();
 
 /**
  * Tell the owner (once a day, logged every time) that the fast lane's read-only GitHub token expires soon or no longer
@@ -586,9 +588,16 @@ async function noteTokenExpiry(warning) {
   try {
     const zone = settings.timeZone ?? 'Europe/Warsaw';
     const today = new Date().toLocaleDateString('en-CA', { timeZone: zone });
-    const last = await objects.getJson(TOKEN_WARNING_KEY).catch(() => null);
-    if (last?.date === today && last?.reason === warning.reason) return;
-    await objects.putJson(TOKEN_WARNING_KEY, { date: today, ...warning });
+    const seen = `${today}-${warning.reason}`;
+    if (tokenWarned.has(seen)) return;
+    tokenWarned.add(seen);
+    // One message a day even with concurrent calls: only the call that creates the day's marker sends it
+    const first = await claimMarker(
+      objects.putObject,
+      tokenWarningKey(today, warning.reason),
+      JSON.stringify({ date: today, ...warning })
+    );
+    if (!first) return;
     const when = warning.expiresAt
       ? new Date(warning.expiresAt).toLocaleString('uk-UA', { timeZone: zone })
       : null;
@@ -631,9 +640,15 @@ export function mcpServer() {
     repo: REPO,
     project: MEMORY_PROJECT,
     // The worker's memory and plans are written here only while it sleeps (its stop wrote `stopped` as its last
-    // step); a stopping, starting or running worker is their only writer and gets the change as a message
-    workerAsleep: async () =>
-      workerAsleepNow(await objects.getJson(PROGRESS_KEY).catch(() => null)),
+    // step, or its record went stale); a stopping, starting or running worker is their only writer and gets the
+    // change as a message. A record that cannot be read (anything but a missing object) is not proof of sleep.
+    workerAsleep: () =>
+      workerAsleepFromRead(() =>
+        objects.getJson(PROGRESS_KEY).catch((error) => {
+          log('progress record unreadable: handing the change over', error);
+          throw error;
+        })
+      ),
     toWorker: (task) =>
       handOver(task, "A change of the worker's own files asked in the fast lane."),
   });

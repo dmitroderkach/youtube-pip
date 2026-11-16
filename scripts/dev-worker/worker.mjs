@@ -2877,6 +2877,12 @@ async function main() {
     writeProgressNow().catch((error) => log('starting record failed', error)),
     new Promise((resolveWait) => setTimeout(resolveWait, 10_000)),
   ]);
+  // Heartbeat from the first step on, through a slow restore too: the record is rewritten also when nothing changed,
+  // so a starting / running record older than its stale bound means a failed start or a crashed or killed worker
+  // (session-state.mjs workerLiveness), never a slow but live one
+  setInterval(() => {
+    if (!stopping) void uploadProgress(currentProgress(), { force: true });
+  }, PROGRESS_HEARTBEAT_MS).unref();
   void updateStatus();
   let restored;
   try {
@@ -2927,11 +2933,6 @@ async function main() {
   void writeProgressNow();
   void keepSession();
   setInterval(checkLimits, LIMITS_CHECK_MS).unref();
-  // Heartbeat: the record is rewritten also when nothing changed (a long step, an idle worker with background tasks),
-  // so a record older than RUNNING_STALE_MS means a crashed or killed worker (session-state.mjs workerLiveness)
-  setInterval(() => {
-    if (!stopping) void uploadProgress(currentProgress(), { force: true });
-  }, PROGRESS_HEARTBEAT_MS).unref();
   // Google's figure of the Gemini speech budget (Pub/Sub), now and every BUDGET_PULL_MS
   void pullSpeechBudget();
   setInterval(() => void pullSpeechBudget(), BUDGET_PULL_MS).unref();
