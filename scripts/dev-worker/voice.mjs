@@ -89,15 +89,10 @@ export function createVoice({
    */
   const TRANSCRIBE_MODEL = 'gemini-3.5-flash';
   /**
-   * Tried in order when a model is overloaded (429 "Resource exhausted": Vertex AI's shared quota, seen live on
-   * 2026-11-16; or 5xx): the same model once more after a short pause, then Gemini 2.5 Flash (GA, also on `global`,
-   * its thinking off with a zero budget), and only then AWS Transcribe.
+   * An overloaded Gemini (429 "Resource exhausted": Vertex AI's shared quota, seen live on 2026-11-16; or 5xx) is
+   * asked once more after a short pause; then AWS Transcribe takes the message.
    */
-  const TRANSCRIBE_ATTEMPTS = [
-    { model: TRANSCRIBE_MODEL, thinkingConfig: { thinkingLevel: 'MINIMAL' } },
-    { model: TRANSCRIBE_MODEL, thinkingConfig: { thinkingLevel: 'MINIMAL' }, delayMs: 1000 },
-    { model: 'gemini-2.5-flash', thinkingConfig: { thinkingBudget: 0 } },
-  ];
+  const TRANSCRIBE_RETRY_DELAY_MS = 1000;
   const overloaded = (error) => /^Gemini (429|5\d\d)\b/.test(String(error?.message ?? ''));
   const TRANSCRIBE_PROMPT =
     'Transcribe this voice message word for word, exactly as spoken. It is mostly Ukrainian and may contain English ' +
@@ -107,18 +102,14 @@ export function createVoice({
     'word is not clear, write [нерозбірливо] instead of guessing. Output only the transcript text: no comments, ' +
     'quotes, labels or timestamps. If there is no speech, output nothing.';
 
-  async function transcribeGemini(
-    path,
-    mimeType,
-    { seconds, model = TRANSCRIBE_MODEL, thinkingConfig = { thinkingLevel: 'MINIMAL' } } = {}
-  ) {
+  async function transcribeGemini(path, mimeType, { seconds } = {}) {
     const { token, project } = await gcpAccessToken();
     const audio = readPlainFile(path);
     // Bounds from the audio's length (transcript-guard.mjs): a slower or longer answer is a runaway and falls back
     const length = { seconds, bytes: audio.length };
     const url =
       `https://aiplatform.googleapis.com/v1/projects/${project}/locations/global/publishers/google/models/` +
-      `${model}:generateContent`;
+      `${TRANSCRIBE_MODEL}:generateContent`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -139,8 +130,8 @@ export function createVoice({
         ],
         generationConfig: {
           temperature: 0,
-          // The lowest thinking of the model (Gemini 3.x Flash cannot turn it off): a transcript needs none
-          thinkingConfig,
+          // The lowest thinking level of Gemini 3.x Flash (it cannot be turned off): a transcript needs none
+          thinkingConfig: { thinkingLevel: 'MINIMAL' },
           maxOutputTokens: transcriptTokenBudget(length),
         },
       }),
@@ -163,24 +154,21 @@ export function createVoice({
   /** Text of a voice message or audio file: Gemini when the service account is there, AWS Transcribe otherwise. */
   async function transcribe(path, mimeType, { seconds } = {}) {
     if (ttsServiceAccount()) {
-      let lastError = null;
-      for (const attempt of TRANSCRIBE_ATTEMPTS) {
-        if (lastError && !overloaded(lastError)) break;
-        if (attempt.delayMs)
-          await new Promise((resolveDelay) => setTimeout(resolveDelay, attempt.delayMs));
-        try {
-          return await transcribeGemini(path, mimeType, { seconds, ...attempt });
-        } catch (error) {
-          lastError = error;
-          log(`Gemini transcription (${attempt.model}) failed`, error);
+      try {
+        return await transcribeGemini(path, mimeType, { seconds });
+      } catch (error) {
+        if (overloaded(error)) {
+          log('Gemini transcription overloaded, retrying once', error);
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, TRANSCRIBE_RETRY_DELAY_MS));
+          try {
+            return await transcribeGemini(path, mimeType, { seconds });
+          } catch (retryError) {
+            log('Gemini transcription failed, falling back to AWS Transcribe', retryError);
+          }
+        } else {
+          log('Gemini transcription failed, falling back to AWS Transcribe', error);
         }
       }
-      // The fast lane cannot reach AWS Transcribe (outside the project's boundary): it hands the audio over at once
-      if (env.TRANSCRIBE_AWS_FALLBACK === 'off')
-        throw lastError ?? new Error('Gemini transcription failed');
-      log('falling back to AWS Transcribe');
-    } else if (env.TRANSCRIBE_AWS_FALLBACK === 'off') {
-      throw new Error('no Gemini service account and no AWS Transcribe here');
     }
     return transcribeAws(path, mimeType);
   }
@@ -188,7 +176,8 @@ export function createVoice({
   async function transcribeAws(path, mimeType) {
     const format = TRANSCRIBE_FORMATS[mimeType] ?? 'ogg';
     const key = `${INBOX_PREFIX}${path.slice(path.lastIndexOf('/') + 1)}`;
-    const job = `dev-worker-${Date.now()}`;
+    // The project's prefix: the fast lane's role (permissions boundary) may only touch jobs named so
+    const job = `youtube-pip-voice-${Date.now()}`;
     // Uploaded by Claude's user: the file is in Claude's inbox (never read with the worker's rights)
     await upload(path, `s3://${BUCKET}/${key}`);
     try {

@@ -59,31 +59,29 @@ function voiceFor(env, awsCalls = []) {
   return { voice, path };
 }
 
-test('transcribe: an overloaded Gemini 3.5 Flash is retried once, then Gemini 2.5 Flash answers', async () => {
-  const models = stubGemini([
-    { status: 429 },
-    { status: 429 },
-    { status: 200, text: 'привіт, це тест' },
-  ]);
-  const { voice, path } = voiceFor({});
-  assert.equal(await voice.transcribe(path, 'audio/ogg', { seconds: 2 }), 'привіт, це тест');
-  assert.deepEqual(models, ['gemini-3.5-flash', 'gemini-3.5-flash', 'gemini-2.5-flash']);
-});
-
-test('transcribe: no AWS fallback in the fast lane: every Gemini attempt failed, it throws at once', async () => {
-  const models = stubGemini([{ status: 429 }, { status: 503 }, { status: 429 }]);
+test('transcribe: an overloaded Gemini is asked once more and answers', async () => {
+  const models = stubGemini([{ status: 429 }, { status: 200, text: 'hello there' }]);
   const awsCalls = [];
-  const { voice, path } = voiceFor({ TRANSCRIBE_AWS_FALLBACK: 'off' }, awsCalls);
-  await assert.rejects(voice.transcribe(path, 'audio/ogg', { seconds: 2 }), /Gemini 429/);
-  assert.equal(models.length, 3);
+  const { voice, path } = voiceFor({}, awsCalls);
+  assert.equal(await voice.transcribe(path, 'audio/ogg', { seconds: 2 }), 'hello there');
+  assert.deepEqual(models, ['gemini-3.5-flash', 'gemini-3.5-flash']);
   assert.deepEqual(awsCalls, []);
 });
 
-test('transcribe: a non-overload error is not retried with Gemini (the worker falls back to AWS)', async () => {
+test('transcribe: Gemini still overloaded after the retry: AWS Transcribe takes it (no other Gemini model)', async () => {
+  const models = stubGemini([{ status: 429 }, { status: 503 }]);
+  const awsCalls = [];
+  const { voice, path } = voiceFor({}, awsCalls);
+  await assert.rejects(voice.transcribe(path, 'audio/ogg', { seconds: 2 }), /no AWS in this test/);
+  assert.deepEqual(models, ['gemini-3.5-flash', 'gemini-3.5-flash']);
+  assert.deepEqual(awsCalls[0], ['upload']);
+});
+
+test('transcribe: a non-overload error is not retried: straight to AWS Transcribe', async () => {
   const models = stubGemini([{ status: 400 }]);
   const awsCalls = [];
   const { voice, path } = voiceFor({}, awsCalls);
   await assert.rejects(voice.transcribe(path, 'audio/ogg', { seconds: 2 }));
   assert.deepEqual(models, ['gemini-3.5-flash']);
-  assert.ok(awsCalls.length > 0);
+  assert.deepEqual(awsCalls[0], ['upload']);
 });
