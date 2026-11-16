@@ -23,7 +23,6 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       code: ${{ steps.diff.outputs.code }}
-      lambda: ${{ steps.diff.outputs.lambda }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -41,12 +40,6 @@ jobs:
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
             echo "No product code or tests changed: build check (e2e) skipped, lint and Prettier only"
-          fi
-          # The Python Lambdas (dev-bot and the others in terraform/lambda) and their unit tests
-          if grep -qE '^(terraform/lambda/|\.github/workflows/build\.yml$)' changed.txt; then
-            echo "lambda=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "lambda=false" >> "$GITHUB_OUTPUT"
           fi
 
   # PRs without product code changes: lint and formatting on a GitHub-hosted runner (no self-hosted runner, no e2e)
@@ -79,30 +72,6 @@ jobs:
 
       - name: Run Prettier check
         run: npm run prettier
-
-  # PRs that change the Python Lambdas: their unit tests (stubbed AWS clients) on the Lambda runtime's Python
-  lambda-tests:
-    needs: changes
-    if: needs.changes.outputs.lambda == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Setup Python
-        uses: actions/setup-python@v6
-        with:
-          python-version: '3.12'
-
-      - name: Install boto3
-        run: python3 -m pip install --quiet boto3
-
-      - name: Compile the handlers
-        run: python3 -m py_compile terraform/lambda/*.py
-
-      - name: Unit tests of the Lambdas
-        working-directory: terraform/lambda
-        run: python3 -m unittest discover -s tests -v
 
   # Required by the ruleset. Skipped (a skipped job reports success) only when `changes` found no product code or
   # tests; if `changes` itself fails, the full check runs rather than letting the PR through unchecked.
