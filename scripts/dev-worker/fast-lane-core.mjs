@@ -186,14 +186,26 @@ export function busyMarkerAction({
  * Claude Code processes left in this sandbox by earlier invocations (Lambda freezes a sandbox with whatever still
  * runs and thaws it with the next invocation, where those processes compete for the CPU: Claude Code's start took
  * 2-101 s in warm sandboxes against 0.5 s in the worker). `proc`: { list() -> names in /proc, cmdline(pid) -> the
- * NUL-separated command line or null }. Never our own process or its parent.
+ * NUL-separated command line or null, ppid(pid) -> the parent pid or null }. Only descendants of `self` (this handler
+ * process): never our own process, its parent or any other Claude Code on the machine (a local or smoke run shares
+ * the machine with the dev worker's own session).
  */
 export function leftoverClaudePids(proc, { self = process.pid, parent = process.ppid } = {}) {
+  const descends = (pid) => {
+    let current = pid;
+    for (let depth = 0; depth < 32; depth++) {
+      const up = proc.ppid ? proc.ppid(current) : null;
+      if (up === null || up === undefined || up <= 0) return false;
+      if (up === self) return true;
+      current = up;
+    }
+    return false;
+  };
   const pids = [];
   for (const name of proc.list()) {
     if (!/^\d+$/.test(name)) continue;
     const pid = Number(name);
-    if (pid === self || pid === parent) continue;
+    if (pid === self || pid === parent || !descends(pid)) continue;
     const argv = String(proc.cmdline(pid) ?? '')
       .split('\0')
       .filter(Boolean);

@@ -1,3 +1,5 @@
+import { workerLiveness } from './session-state.mjs';
+
 /**
  * The pinned status of the chat (shared by the worker and the fast lane, docs/DEV_WORKER.md "Pinned status", "Code
  * layout"): a message pinned at the top of the chat with the session's settings and limits, edited in place
@@ -123,10 +125,6 @@ export function mergeStatus(current, { lane, figures, shared = {}, now = new Dat
   return record;
 }
 
-/** A progress record older than this without a worker state (a worker image before it wrote one, or a crash). */
-const PROGRESS_STALE_MS = 15 * 60 * 1000;
-/** A `starting` record older than this is a start that failed (a start takes well under a minute). */
-const STARTING_STALE_MS = 5 * 60 * 1000;
 /** After the fast lane handed a task to a sleeping worker, it shows it as starting this long without a record. */
 const HANDOVER_STARTING_MS = 3 * 60 * 1000;
 
@@ -142,16 +140,14 @@ export function workerView(
 ) {
   const live = section ?? {};
   const updated = Date.parse(progress?.updatedAt ?? '');
-  const age = Number.isNaN(updated) ? Infinity : now - updated;
-  let state;
   let since = Number.isNaN(updated) ? live.since : progress.updatedAt;
-  if (progress?.worker === 'running') state = progress.turnActive ? 'busy' : 'running';
-  // Being started (dev-bot's start or the worker's own first step); an old one is a start that failed
-  else if (progress?.worker === 'starting')
-    state = age > STARTING_STALE_MS ? 'stopped' : 'starting';
-  else if (progress?.worker === 'stopped' || progress?.worker === 'stopping') state = 'stopped';
-  else if (age > PROGRESS_STALE_MS) state = 'stopped';
-  else state = live.state;
+  // One rule for every reader (session-state.mjs workerLiveness): a record nobody refreshed (a crash, a kill, a
+  // failed start) is a worker that does not run, whatever its last state said
+  const liveness = workerLiveness(progress, now);
+  let state;
+  if (liveness === 'stale') state = 'stopped';
+  else if (liveness === 'unknown') state = live.state;
+  else state = liveness;
   // This lane just handed a task over to a sleeping worker: it is being started though no record says so yet
   const handedOver = Date.parse(handoverAt ?? '');
   if (

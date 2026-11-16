@@ -497,7 +497,7 @@ test('workerView: the state from the progress record, stored settings while the 
   );
 });
 
-test('leftoverClaudePids: Claude Code processes only, never our own process or its parent', () => {
+test('leftoverClaudePids: only Claude Code processes descending from the handler, never another one on the machine', () => {
   const tree = {
     1: 'node\0/opt/dev-worker/fast-lane.mjs\0',
     7: '/var/runtime/init\0',
@@ -507,11 +507,20 @@ test('leftoverClaudePids: Claude Code processes only, never our own process or i
     43: '',
     50: '/opt/dev-worker/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude\0',
   };
+  // 40-43 are children of the handler (1); 60 is another Claude Code on the machine (the dev worker's own session,
+  // parent 70) and 61 its child: never touched
+  tree[60] = '/opt/dev-worker/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude\0';
+  tree[61] = 'claude\0--resume\0y\0';
+  tree[70] = 'node\0/opt/dev-worker/worker.mjs\0';
+  const parents = { 1: 0, 7: 0, 40: 1, 41: 40, 42: 1, 43: 1, 50: 7, 60: 70, 61: 60, 70: 7 };
   const proc = {
     list: () => [...Object.keys(tree), 'self', 'cpuinfo'],
     cmdline: (pid) => tree[pid] ?? null,
+    ppid: (pid) => parents[pid] ?? null,
   };
   assert.deepEqual(leftoverClaudePids(proc, { self: 1, parent: 50 }), [40, 41, 42]);
+  // Without parent information nothing is a descendant: nothing is killed
+  assert.deepEqual(leftoverClaudePids({ list: proc.list, cmdline: proc.cmdline }, { self: 1 }), []);
 });
 
 test('workerView: starting from the record (fresh only) and right after a hand-over to a sleeping worker', () => {
@@ -576,4 +585,80 @@ test('workerView: starting from the record (fresh only) and right after a hand-o
     ).state,
     'busy'
   );
+});
+
+test('memory_write / plan_write: written while the worker sleeps, handed over while it runs or starts', async () => {
+  const store = new Map([['memory/proj/MEMORY.md', '- [A](a.md) — first\n']]);
+  const s3 = {
+    get: async (key) => store.get(key) ?? null,
+    list: async () => [],
+    updateObject: async (key, change) => {
+      const next = change(store.get(key) ?? null);
+      store.set(key, next);
+      return next;
+    },
+  };
+  const handed = [];
+  let asleep = [true, true];
+  const tools = createTools({
+    s3,
+    github: async () => [],
+    repo: 'o/r',
+    project: 'proj',
+    workerAsleep: async () => asleep.shift() ?? false,
+    toWorker: async (task) => {
+      handed.push(task);
+      return 'Handed over.';
+    },
+  });
+  // Asleep before and after: written, index line added
+  assert.match(
+    await tools.memoryWrite({
+      name: 'b.md',
+      content: 'B body',
+      index_line: '- [B](b.md) — second',
+    }),
+    /Written/
+  );
+  assert.equal(store.get('memory/proj/b.md'), 'B body\n');
+  assert.equal(store.get('memory/proj/MEMORY.md'), '- [A](a.md) — first\n- [B](b.md) — second\n');
+  assert.equal(handed.length, 0);
+  // Running: nothing written, handed over
+  asleep = [false];
+  assert.match(await tools.planWrite({ name: 'p.md', content: 'Plan' }), /handed over/);
+  assert.equal(store.has('plans/p.md'), false);
+  assert.match(handed.at(-1), /p\.md/);
+  // Started while it was being written: written and handed over too
+  asleep = [true, false];
+  assert.match(await tools.planWrite({ name: 'q.md', content: 'Plan Q' }), /also handed over/);
+  assert.equal(store.get('plans/q.md'), 'Plan Q\n');
+  // Invalid input
+  assert.match(
+    await tools.memoryWrite({ name: 'MEMORY.md', content: 'x', index_line: '- [x](MEMORY.md)' }),
+    /Invalid/
+  );
+  assert.match(
+    await tools.memoryWrite({ name: '../x.md', content: 'x', index_line: '- [x](x.md)' }),
+    /Invalid/
+  );
+  assert.match(
+    await tools.memoryWrite({ name: 'c.md', content: 'x', index_line: 'c' }),
+    /Invalid index line/
+  );
+});
+
+test('a crashed worker (stale running record) is shown asleep and described as not running', () => {
+  const now = Date.parse('2026-11-16T21:00:00Z');
+  const stale = { worker: 'running', turnActive: true, updatedAt: '2026-11-16T19:00:00Z' };
+  const view = workerView({ state: 'busy', model: 'opus' }, { progress: stale, stored: {}, now });
+  assert.equal(view.state, 'stopped');
+  assert.match(workerStateLine(stale, now), /not running .* crashed or was killed/);
+  const note = syncNote({
+    lane: 'fast-lane',
+    delta: { lines: [] },
+    progress: stale,
+    now,
+    timeZone: 'Europe/Warsaw',
+  });
+  assert.match(note, /Now for the owner: Monday, 16 November 2026 at 22:00 \(Europe\/Warsaw\)/);
 });

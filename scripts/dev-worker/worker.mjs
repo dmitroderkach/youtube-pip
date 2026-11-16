@@ -27,6 +27,7 @@ import {
   withoutRepeated,
   voiceReplyWanted,
   classifierDenial,
+  PROGRESS_HEARTBEAT_MS,
   progressRecord,
   chatLogEntry,
   appendChatLog,
@@ -52,7 +53,13 @@ import {
   VOICE_MODELS,
 } from './telegram-format.mjs';
 import { searchPlaces } from './timezone-search.mjs';
-import { SETTINGS_KEY, describeControl, resolveSettings, splitControl } from './settings.mjs';
+import {
+  SETTINGS_KEY,
+  changedSettings,
+  describeControl,
+  resolveSettings,
+  splitControl,
+} from './settings.mjs';
 import { createSettingsCommands } from './settings-commands.mjs';
 import { createS3Objects } from './s3-objects.mjs';
 import { execFile } from 'node:child_process';
@@ -599,24 +606,30 @@ function settingsSections() {
   };
 }
 
+/** The sections as this worker last wrote or read them: only keys that differ from these are written. */
 let lastMirrored = null;
 let settingsUploads = Promise.resolve();
 
 /**
- * Write the worker's settings to state/settings.json (conditional write) when they changed: the fast lane shows and
- * uses them from there. meta.json keeps them too, as this run's copy.
+ * Write the worker's own changes to state/settings.json (conditional write): only the keys this worker changed since
+ * it last read or wrote the file, never whole sections, so a change the fast lane made meanwhile (another key, or the
+ * same key while the worker was starting) is not undone. The fast lane shows and uses them from there; meta.json
+ * keeps them too, as this run's copy.
  */
 function mirrorSettings() {
   const sections = settingsSections();
-  const body = JSON.stringify(sections);
-  if (body === lastMirrored) return settingsUploads;
-  lastMirrored = body;
+  const patch = changedSettings(sections, lastMirrored);
+  if (!Object.keys(patch).length) return settingsUploads;
+  lastMirrored = {
+    worker: { ...(lastMirrored?.worker ?? {}), ...(patch.worker ?? {}) },
+    shared: { ...(lastMirrored?.shared ?? {}), ...(patch.shared ?? {}) },
+  };
   settingsUploads = settingsUploads.then(() =>
     stateObjects
       .updateJson(SETTINGS_KEY, (current) => ({
         ...current,
-        worker: { ...(current.worker ?? {}), ...sections.worker },
-        shared: { ...(current.shared ?? {}), ...sections.shared },
+        worker: { ...(current?.worker ?? {}), ...(patch.worker ?? {}) },
+        shared: { ...(current?.shared ?? {}), ...(patch.shared ?? {}) },
       }))
       .catch((error) => log('settings write failed', error))
   );
@@ -638,8 +651,9 @@ async function loadSettingsFile() {
   else delete meta.effort;
   for (const key of ['voiceMode', 'voiceName', 'voiceModel'])
     if (shared[key] !== undefined) meta[key] = shared[key];
-  if (!file?.worker || !file?.shared) await mirrorSettings();
-  else lastMirrored = JSON.stringify(settingsSections());
+  // What the file says now is the base: later only this worker's own changes are written over it
+  lastMirrored = { worker: { ...(file?.worker ?? {}) }, shared: { ...(file?.shared ?? {}) } };
+  await mirrorSettings();
 }
 
 // ---------------------------------------------------------------------------------------------- attachments
@@ -956,11 +970,11 @@ function currentProgress() {
   });
 }
 
-/** Upload the record (after the uploads before it); skipped when only its time changed. */
-function uploadProgress(record) {
+/** Upload the record (after the uploads before it); skipped when only its time changed, unless `force` (heartbeat). */
+function uploadProgress(record, { force = false } = {}) {
   const { updatedAt, ...content } = record;
   const body = JSON.stringify(content);
-  if (body === lastProgressBody) return progressUploads;
+  if (body === lastProgressBody && !force) return progressUploads;
   lastProgressBody = body;
   progressUploads = progressUploads.then(async () => {
     try {
@@ -2907,6 +2921,11 @@ async function main() {
   void writeProgressNow();
   void keepSession();
   setInterval(checkLimits, LIMITS_CHECK_MS).unref();
+  // Heartbeat: the record is rewritten also when nothing changed (a long step, an idle worker with background tasks),
+  // so a record older than RUNNING_STALE_MS means a crashed or killed worker (session-state.mjs workerLiveness)
+  setInterval(() => {
+    if (!stopping) void uploadProgress(currentProgress(), { force: true });
+  }, PROGRESS_HEARTBEAT_MS).unref();
   // Google's figure of the Gemini speech budget (Pub/Sub), now and every BUDGET_PULL_MS
   void pullSpeechBudget();
   setInterval(() => void pullSpeechBudget(), BUDGET_PULL_MS).unref();

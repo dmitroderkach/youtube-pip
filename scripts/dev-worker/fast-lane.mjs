@@ -72,6 +72,7 @@ import {
   lastEntryAt,
   syncNote,
   voiceReplyWanted,
+  workerLiveness,
 } from './session-state.mjs';
 import { searchPlaces } from './timezone-search.mjs';
 import { createTelegram } from './telegram.mjs';
@@ -92,7 +93,7 @@ const REPO = env.GITHUB_REPO ?? 'dmitroderkach/youtube-pip';
 /** Claude Code's memory project of the worker (memory/<project>/ in the state bucket). */
 const MEMORY_PROJECT = env.MEMORY_PROJECT ?? '-home-worker-youtube-pip';
 /** No message and no turn for this long: the invocation ends. */
-const IDLE_MS = Number(env.IDLE_SECONDS ?? 60) * 1000;
+let IDLE_MS = Number(env.IDLE_SECONDS ?? 60) * 1000;
 /** Stop this long before the Lambda's deadline (save the session, answer the invocation). */
 const DEADLINE_MARGIN_MS = 90_000;
 const RECEIVE_WAIT_SECONDS = 5;
@@ -108,8 +109,13 @@ const MCP_NAME = 'fast_lane';
 const BUILTIN_TOOLS = ['AskUserQuestion'];
 const PROMPT = readFileSync(new URL('./fast-lane-prompt.md', import.meta.url), 'utf8');
 
-const sqs = new SQSClient({ region: REGION });
-const lambda = new LambdaClient({ region: REGION });
+// Through transports the smoke test can swap for stubs (useClientsForTest): the queue and dev-bot's invoke
+let testSqs = null;
+let testLambda = null;
+const realSqs = new SQSClient({ region: REGION });
+const realLambda = new LambdaClient({ region: REGION });
+const sqs = { send: (command) => (testSqs ?? realSqs).send(command) };
+const lambda = { send: (command) => (testLambda ?? realLambda).send(command) };
 
 // ---------------------------------------------------------------------------------------------- S3
 
@@ -149,17 +155,36 @@ const PROC = {
       return null;
     }
   },
+  /** The parent pid from /proc/<pid>/stat (the field after the parenthesised command name). */
+  ppid: (pid) => {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const after = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      return Number(after[1]);
+    } catch {
+      return null;
+    }
+  },
 };
 
+/** How a leftover is killed: SIGKILL in a Lambda; a no-op where tests inject one (useClientsForTest). */
+let killProcess = (pid) => process.kill(pid, 'SIGKILL');
+
 /**
- * Kill the Claude Code processes an earlier invocation left (they would compete for this one's CPU), except `keep`
- * (the live session's process, kept across invocations of this sandbox).
+ * Kill the Claude Code processes an earlier invocation of this sandbox left (they would compete for this one's CPU),
+ * except `keep` (the live session's process, kept across invocations). Only this handler's own descendants
+ * (leftoverClaudePids) and only inside a Lambda: anywhere else (a local or smoke run on a machine that may run the
+ * dev worker's own Claude Code) it only logs what it would kill.
  */
 function killLeftoverClaude(keep = []) {
   const pids = leftoverClaudePids(PROC).filter((pid) => !keep.includes(pid));
+  if (!env.AWS_LAMBDA_RUNTIME_API) {
+    if (pids.length) log(`not in a Lambda: leaving ${pids.length} Claude Code process(es) alone`);
+    return pids.length;
+  }
   for (const pid of pids) {
     try {
-      process.kill(pid, 'SIGKILL');
+      killProcess(pid);
     } catch (error) {
       log(`leftover claude ${pid}: ${error.message}`);
     }
@@ -205,11 +230,21 @@ let testGithub = null;
  * Tests only (fast-lane-smoke.mjs in claude-code-update.yml, no AWS there): the state bucket as an S3 client stub
  * (memory-s3-client.mjs) and GitHub as a function, never inside a Lambda.
  */
-export function useClientsForTest({ s3, github }) {
+export function useClientsForTest({ s3, github, sqs: queue, lambda: invoker, telegram, idleMs }) {
   if (env.AWS_LAMBDA_RUNTIME_API) throw new Error('not in a Lambda');
+  // Never kill a process in a test run (the kill is also off outside a Lambda: killLeftoverClaude)
+  killProcess = () => {};
   testS3 = s3 ?? null;
   testGithub = github ?? null;
+  // The handler path (fast-lane-smoke.mjs): the queue, dev-bot's invoke and the Bot API as stubs
+  testSqs = queue ?? null;
+  testLambda = invoker ?? null;
+  testTelegram = telegram ?? null;
+  if (idleMs) IDLE_MS = idleMs;
 }
+
+/** The Bot API client in the smoke test (createTelegram's functions as stubs that record the calls). */
+let testTelegram = null;
 
 const secretValues = () =>
   secrets
@@ -258,13 +293,14 @@ async function initChat() {
   mkdirSync(INBOX_DIR, { recursive: true });
   if (!tg) {
     tg = fastLaneTelegram(
-      createTelegram({
-        token: secrets.botToken,
-        chatId: secrets.chatId,
-        log,
-        readFile: (path) => readFileSync(path),
-        inboxDir: INBOX_DIR,
-      })
+      testTelegram ??
+        createTelegram({
+          token: secrets.botToken,
+          chatId: secrets.chatId,
+          log,
+          readFile: (path) => readFileSync(path),
+          inboxDir: INBOX_DIR,
+        })
     );
     voice = createVoice({
       env: {
@@ -470,11 +506,12 @@ async function handOverRaw(message, reason) {
 async function toWorker(body, date, reason) {
   const key = `${HANDOVER_PREFIX}${randomUUID()}.json`;
   try {
-    // dev-bot's hand_over reads `control` (a settings change for the running worker) and `interrupt` from the top
-    // level of the object, next to the message
+    // dev-bot's hand_over reads `control` (a settings change for the running worker), `interrupt` and `start` (false:
+    // only for a running worker, never start one for it) from the top level of the object, next to the message
     const request = { reason, since: date, message: body };
     if (body.control) request.control = body.control;
     if (body.interrupt === true) request.interrupt = true;
+    if (body.start === false) request.start = false;
     await putObject(key, JSON.stringify(request), {
       ifNoneMatch: '*',
     });
@@ -490,7 +527,14 @@ async function toWorker(body, date, reason) {
     log('hand_over request failed', error);
     return 'Handing over failed: tell the owner the working worker could not be reached and to send /up.';
   }
-  if (!body.control && body.interrupt !== true) {
+  if (!body.control) {
+    // In the chat log at the moment it is made (also when this lane sends no answer of its own): the worker and the
+    // next turns see what went where
+    await logChat('fast-lane', `Handed over to the worker: ${reason ?? 'a task'}`).catch((error) =>
+      log('hand-over chat log failed', error)
+    );
+  }
+  if (!body.control && body.interrupt !== true && body.start !== false) {
     // A task: a sleeping worker is being started now, which the pinned status shows at once
     lastHandoverAt = new Date().toISOString();
     void pinned?.updateStatus();
@@ -505,10 +549,11 @@ async function toWorker(body, date, reason) {
  */
 async function stopWorker(reason) {
   const progress = await objects.getJson(PROGRESS_KEY).catch(() => null);
-  if (progress?.worker !== 'running' || !progress.turnActive)
+  // A stale record (a crashed worker) runs nothing: a stop must never start a worker
+  if (workerLiveness(progress) !== 'busy')
     return 'The worker is not running a turn (progress record): nothing to stop. Tell the owner so.';
   const result = await handOverRaw(
-    { text: '/stop', interrupt: true, reason: String(reason ?? '').slice(0, 200) },
+    { text: '/stop', interrupt: true, start: false, reason: String(reason ?? '').slice(0, 200) },
     'зупинити поточну задачу'
   );
   return /failed/.test(result) ? result : 'Stop sent: the worker interrupts its turn now.';
@@ -541,7 +586,18 @@ export function mcpServer() {
     return json;
   };
   const github = (path) => (testGithub ?? githubApi)(path);
-  const tools = createTools({ s3: s3Client, github, repo: REPO, project: MEMORY_PROJECT });
+  const tools = createTools({
+    s3: s3Client,
+    github,
+    repo: REPO,
+    project: MEMORY_PROJECT,
+    // The worker's memory and plans are written here only while it sleeps (its stop wrote `stopped` as its last
+    // step); a stopping, starting or running worker is their only writer and gets the change as a message
+    workerAsleep: async () =>
+      (await objects.getJson(PROGRESS_KEY).catch(() => null))?.worker === 'stopped',
+    toWorker: (task) =>
+      handOver(task, "A change of the worker's own files asked in the fast lane."),
+  });
   const wrap = (fn) => async (args) => {
     try {
       return text(await fn(args ?? {}));
@@ -571,6 +627,18 @@ export function mcpServer() {
         'One memory file by name (from the index).',
         { name: z.string() },
         wrap(tools.memoryRead)
+      ),
+      tool(
+        'memory_write',
+        'Write a memory file (Markdown with the memory frontmatter) and its one-line entry in MEMORY.md. Written directly only while the worker sleeps; otherwise it is handed over to the worker.',
+        { name: z.string(), content: z.string(), index_line: z.string() },
+        wrap(tools.memoryWrite)
+      ),
+      tool(
+        'plan_write',
+        'Write a saved plan (a .md file in plans/). Written directly only while the worker sleeps; otherwise it is handed over to the worker.',
+        { name: z.string(), content: z.string() },
+        wrap(tools.planWrite)
       ),
       tool('plans_list', 'Saved plans (file names).', {}, wrap(tools.plansList)),
       tool('plan_read', 'One saved plan by file name.', { name: z.string() }, wrap(tools.planRead)),
@@ -660,6 +728,8 @@ export const EXPECTED_TOOLS = [
     'progress',
     'memory_index',
     'memory_read',
+    'memory_write',
+    'plan_write',
     'plans_list',
     'plan_read',
     'pull_requests',
@@ -717,6 +787,8 @@ let voiceTrigger = null;
 let isolationFailed = null;
 /** Timings of the turn in progress (ms from the message's receipt): one JSON line when it ends. */
 let turnTiming = null;
+/** The owner's messages of the turn in progress (handed over as they came if the session fails its self-check). */
+const turnMessages = [];
 /** The chat log time up to which the worker's exchanges are known to the fast lane's session. */
 let workerSeenAt = null;
 /** When this invocation last wrote the busy marker (null: not marked). */
@@ -759,7 +831,12 @@ async function workerNote() {
     timeZone: settings.timeZone ?? 'Europe/Warsaw',
   });
   if (delta.latest) workerSeenAt = delta.latest;
-  return syncNote({ lane: 'fast-lane', delta, progress });
+  return syncNote({
+    lane: 'fast-lane',
+    delta,
+    progress,
+    timeZone: settings.timeZone ?? 'Europe/Warsaw',
+  });
 }
 
 /** The transcript of a session id under Claude Code's projects directory, or null. */
@@ -858,9 +935,12 @@ async function startSession() {
     }),
   });
   sessionDone = consume()
-    .catch((error) => {
+    .catch(async (error) => {
       log('session failed', error);
       turnActive = false;
+      // The messages of the broken turn go to the worker as they came (fail closed), none waits for an answer
+      for (const owner of turnMessages.splice(0))
+        await failClosed(owner, `session failed: ${error}`);
     })
     .finally(() => {
       sessionAlive = false;
@@ -883,6 +963,12 @@ async function consume() {
         log(`isolation self-check failed: ${isolationFailed}`);
         await session.interrupt().catch(() => {});
         session.close();
+        // Fail closed at once: the messages of this turn go to the worker as they came, nothing waits for an answer
+        turnActive = false;
+        turnTiming = null;
+        const stranded = turnMessages.splice(0);
+        for (const owner of stranded)
+          await failClosed(owner, `isolation self-check: ${isolationFailed}`);
         return;
       }
     }
@@ -897,6 +983,7 @@ async function consume() {
     }
     if (message.type === 'result') {
       turnActive = false;
+      turnMessages.length = 0;
       const final = (typeof message.result === 'string' && message.result) || answer;
       answer = '';
       await finishTurn(final, message.is_error);
@@ -1002,6 +1089,7 @@ async function deliver(message, receivedAt = Date.now()) {
   if (isolationFailed) throw new Error(`isolation self-check: ${isolationFailed}`);
   if (!turnTiming) turnTiming = { start: receivedAt, promptReadyMs: Date.now() - receivedAt };
   if (!session) await startSession();
+  turnMessages.push(message);
   if (turnActive) {
     sendToClaude(
       // Not "read it first": the earlier message still needs its answer (fast-lane-prompt.md, SEVERAL MESSAGES)

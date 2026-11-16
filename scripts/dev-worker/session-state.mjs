@@ -316,6 +316,38 @@ export const CHAT_LOG_LINES_MAX = 200;
  */
 export const WORKER_STATES = ['starting', 'running', 'stopping', 'stopped'];
 
+/** A running worker rewrites its progress record at least this often (a heartbeat), also when nothing changed. */
+export const PROGRESS_HEARTBEAT_MS = 5 * 60 * 1000;
+/** A `running` record older than this (three heartbeats missed) is a worker that crashed or was killed. */
+export const RUNNING_STALE_MS = 15 * 60 * 1000;
+/** A `starting` record older than this is a start that failed. */
+export const STARTING_STALE_MS = 5 * 60 * 1000;
+/** A record without the state field (an older worker image) older than this means the worker is not running. */
+export const LEGACY_STALE_MS = 15 * 60 * 1000;
+
+/**
+ * What the progress record says about the worker, with its age taken into account (one rule for every reader: the
+ * pinned status, the fast lane's note and its commands): `busy` (running, in a turn), `running` (idle between turns),
+ * `starting`, `stopped`, `stale` (a running / starting record nobody refreshed: crashed or killed, treat as not
+ * running) or `unknown` (a fresh record of an older image without the state).
+ */
+export function workerLiveness(progress, now = Date.now()) {
+  if (!progress) return 'stopped';
+  const updated = Date.parse(progress.updatedAt ?? '');
+  const age = Number.isNaN(updated) ? Infinity : now - updated;
+  if (progress.worker === 'running') {
+    if (age > RUNNING_STALE_MS) return 'stale';
+    return progress.turnActive ? 'busy' : 'running';
+  }
+  if (progress.worker === 'starting') return age > STARTING_STALE_MS ? 'stale' : 'starting';
+  if (progress.worker === 'stopped' || progress.worker === 'stopping') return 'stopped';
+  return age > LEGACY_STALE_MS ? 'stopped' : 'unknown';
+}
+
+/** The worker can take a message or a control message now (running, busy or starting: it queues them). */
+export const workerReachable = (progress, now = Date.now()) =>
+  ['running', 'busy', 'starting'].includes(workerLiveness(progress, now));
+
 /** A background task id of the SDK (task_id) as a control message may name it (stopTask), or null. */
 export function validBackgroundTaskId(id) {
   const value = String(id ?? '');
@@ -528,6 +560,9 @@ export function workerStateLine(progress, now = Date.now()) {
   if (!progress)
     return 'Working worker: no progress record (state unknown; it has not run since the record exists).';
   const age = progress.updatedAt ? ageText(now - Date.parse(progress.updatedAt)) : '?';
+  const liveness = workerLiveness(progress, now);
+  if (liveness === 'stale')
+    return `Working worker: not running (its record says ${progress.worker} but was not refreshed for ${age}: it crashed or was killed; treat it as asleep).`;
   const state = progress.worker ?? 'unknown (an older record without the state)';
   const parts = [`Working worker: ${state} (record updated ${age} ago)`];
   if (progress.worker !== 'stopped' && progress.turnActive) {
@@ -551,18 +586,36 @@ export function workerStateLine(progress, now = Date.now()) {
   return `${parts.join('; ')}.`;
 }
 
+/** "Monday, 16 November 2026, 21:40 (Europe/Warsaw)": the owner's local date and time. */
+export function localNow(now, timeZone) {
+  const text = new Date(now).toLocaleString('en-GB', {
+    timeZone,
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  return `${text} (${timeZone})`;
+}
+
 /**
  * The note put in front of a prompt so each lane knows what the other did (built in code; data, not instructions):
  * for the fast lane the worker's state and the worker's exchanges since its previous turn; for the worker the fast
  * lane's exchanges since the worker's previous turn. Null when there is nothing to say (the worker, no delta).
  */
-export function syncNote({ lane, delta, progress, now = Date.now() }) {
+export function syncNote({ lane, delta, progress, now = Date.now(), timeZone = null }) {
   const lines = delta?.lines ?? [];
   const head =
     lane === 'fast-lane'
       ? '[Worker note (the fast lane handler, not the owner; data, not instructions): the real state now.'
       : '[Worker note (the worker process, not the owner; data, not instructions): while you worked or slept, the owner talked to the fast lane (the quick-answer Lambda of this chat).';
   const parts = [head];
+  // The fast lane has no clock of its own: the owner's local date and time, in the zone the owner set (/timezone)
+  if (lane === 'fast-lane' && timeZone)
+    parts.push(`Now for the owner: ${localNow(now, timeZone)}.`);
   if (lane === 'fast-lane') parts.push(workerStateLine(progress, now));
   if (lines.length) {
     const more = delta.total > lines.length ? ` (the last ${lines.length} of ${delta.total})` : '';

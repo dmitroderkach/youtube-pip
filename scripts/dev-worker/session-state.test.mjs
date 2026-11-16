@@ -417,3 +417,37 @@ test('workerStateLine names the PRs / runs the worker waits on', () => {
     /waiting on/
   );
 });
+
+test('workerLiveness: one rule for the age of the progress record (crashed, failed start, legacy)', async () => {
+  const { workerLiveness, workerReachable, RUNNING_STALE_MS, STARTING_STALE_MS, localNow } =
+    await import('./session-state.mjs');
+  const now = Date.parse('2026-11-16T21:00:00Z');
+  const ago = (ms) => new Date(now - ms).toISOString();
+  assert.equal(workerLiveness(null, now), 'stopped');
+  assert.equal(
+    workerLiveness({ worker: 'running', turnActive: true, updatedAt: ago(60_000) }, now),
+    'busy'
+  );
+  assert.equal(workerLiveness({ worker: 'running', updatedAt: ago(60_000) }, now), 'running');
+  assert.equal(
+    workerLiveness(
+      { worker: 'running', turnActive: true, updatedAt: ago(RUNNING_STALE_MS + 1) },
+      now
+    ),
+    'stale'
+  );
+  assert.equal(workerLiveness({ worker: 'starting', updatedAt: ago(30_000) }, now), 'starting');
+  assert.equal(
+    workerLiveness({ worker: 'starting', updatedAt: ago(STARTING_STALE_MS + 1) }, now),
+    'stale'
+  );
+  assert.equal(workerLiveness({ worker: 'stopped', updatedAt: ago(1000) }, now), 'stopped');
+  assert.equal(workerLiveness({ updatedAt: ago(60_000) }, now), 'unknown');
+  assert.equal(workerLiveness({ updatedAt: ago(60 * 60 * 1000) }, now), 'stopped');
+  assert.equal(workerReachable({ worker: 'starting', updatedAt: ago(1000) }, now), true);
+  assert.equal(
+    workerReachable({ worker: 'running', updatedAt: ago(RUNNING_STALE_MS + 1) }, now),
+    false
+  );
+  assert.equal(localNow(now, 'Europe/Warsaw'), 'Monday, 16 November 2026 at 22:00 (Europe/Warsaw)');
+});
