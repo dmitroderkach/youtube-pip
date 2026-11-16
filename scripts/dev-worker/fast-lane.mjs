@@ -81,6 +81,8 @@ import {
   voiceReplyWanted,
   workerAsleepFromRead,
   workerLiveness,
+  oncallNoteForFastLane,
+  pickOncallRuns,
 } from './session-state.mjs';
 import { searchPlaces } from './timezone-search.mjs';
 import { createTelegram } from './telegram.mjs';
@@ -743,28 +745,30 @@ async function noteTokenExpiry(warning) {
   }
 }
 
+/** GET https://api.github.com/<path> with the read-only token (the handler's; never the agent's), parsed JSON. */
+const githubApi = async (path) => {
+  const res = await fetch(`https://api.github.com/${path}`, {
+    headers: {
+      Accept: 'application/vnd.github+json',
+      'User-Agent': 'youtube-pip-fast-lane',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(secrets.githubToken ? { Authorization: `Bearer ${secrets.githubToken}` } : {}),
+    },
+  });
+  if (secrets.githubToken) {
+    void noteTokenExpiry(
+      tokenExpiryWarning({
+        status: res.status,
+        expiration: res.headers.get('github-authentication-token-expiration'),
+      })
+    );
+  }
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`GitHub ${res.status}: ${json.message ?? ''}`);
+  return json;
+};
+
 export function mcpServer() {
-  const githubApi = async (path) => {
-    const res = await fetch(`https://api.github.com/${path}`, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'User-Agent': 'youtube-pip-fast-lane',
-        'X-GitHub-Api-Version': '2022-11-28',
-        ...(secrets.githubToken ? { Authorization: `Bearer ${secrets.githubToken}` } : {}),
-      },
-    });
-    if (secrets.githubToken) {
-      void noteTokenExpiry(
-        tokenExpiryWarning({
-          status: res.status,
-          expiration: res.headers.get('github-authentication-token-expiration'),
-        })
-      );
-    }
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(`GitHub ${res.status}: ${json.message ?? ''}`);
-    return json;
-  };
   /** A job's log: GitHub answers with a redirect to the log file (followed; the token is not sent there). */
   const githubTextApi = async (path) => {
     const res = await fetch(`https://api.github.com/${path}`, {
@@ -1157,6 +1161,54 @@ async function syncBusy(busy) {
  * The worker note in front of every prompt (session-state.mjs syncNote): the worker's real state from its progress
  * record and what the owner and the worker said since this lane's previous turn. Built here, never by the model.
  */
+/** On-call reports: the daily workflow, how far back, how many, how often the fast lane looks (as in the worker). */
+const ONCALL_WORKFLOW = 'e2e-manual.yml';
+const ONCALL_MAX_AGE_MS = 48 * 3600 * 1000;
+const ONCALL_REPORTS_MAX = 3;
+const ONCALL_CHECK_INTERVAL_MS = 60_000;
+/** The runs the fast lane has looked at (its own list: the worker keeps one in its meta). */
+const ONCALL_HANDLED_KEY = 'fast-lane/oncall-handled.json';
+let lastOncallCheck = 0;
+
+/** The on-call job of a run sent its report (or its failure notice) to the chat. */
+async function oncallSent(runId) {
+  const { jobs = [] } = await githubApi(`repos/${REPO}/actions/runs/${runId}/jobs?per_page=50`);
+  return jobs.some((job) =>
+    (job.steps ?? []).some(
+      (step) =>
+        (step.name === 'Send to Telegram' || step.name === 'Report on-call failure') &&
+        step.conclusion === 'success'
+    )
+  );
+}
+
+/**
+ * The note about on-call reports that reached the owner's chat since the fast lane last looked (the on-call posts
+ * through the bot, and Telegram does not deliver a bot's own messages to its webhook, so neither lane sees the report
+ * itself): run links and times only, never the report's text. Null when there is nothing new.
+ */
+async function oncallNote() {
+  if (Date.now() - lastOncallCheck < ONCALL_CHECK_INTERVAL_MS) return null;
+  lastOncallCheck = Date.now();
+  const since = new Date(Date.now() - ONCALL_MAX_AGE_MS).toISOString();
+  const { workflow_runs: runs = [] } = await githubApi(
+    `repos/${REPO}/actions/workflows/${ONCALL_WORKFLOW}/runs?status=completed&per_page=10&created=${encodeURIComponent(`>=${since}`)}`
+  );
+  let reports = [];
+  await objects.updateJson(ONCALL_HANDLED_KEY, (current) => {
+    const { picked, handled } = pickOncallRuns(runs, {
+      handled: current?.handled ?? [],
+      maxAgeMs: ONCALL_MAX_AGE_MS,
+      max: ONCALL_REPORTS_MAX,
+    });
+    reports = picked;
+    return { handled };
+  });
+  const sent = [];
+  for (const run of reports) if (await oncallSent(run.id).catch(() => false)) sent.push(run);
+  return oncallNoteForFastLane(sent, { timeZone: settings.timeZone ?? 'Europe/Warsaw' });
+}
+
 async function workerNote() {
   // A new session (none yet in this sandbox, or its process ended) gets the plan's lazy context once
   const fresh = !session;
@@ -1183,13 +1235,19 @@ async function workerNote() {
     timeZone: settings.timeZone ?? 'Europe/Warsaw',
   });
   if (delta.latest) workerSeenAt = delta.latest;
-  return syncNote({
+  const note = syncNote({
     lane: 'fast-lane',
     delta,
     progress,
     timeZone: settings.timeZone ?? 'Europe/Warsaw',
     context,
   });
+  // On-call reports since the fast lane last looked (the worker gets its own note with the artifacts)
+  const oncall = await oncallNote().catch((error) => {
+    log('on-call note failed', error);
+    return null;
+  });
+  return [note, oncall].filter(Boolean).join('\n\n') || null;
 }
 
 /** The transcript of a session id under Claude Code's projects directory, or null. */
