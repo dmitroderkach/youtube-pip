@@ -170,6 +170,20 @@ resource "aws_iam_role_policy" "fast_lane" {
         Resource = "arn:aws:transcribe:${var.aws_region}:${data.aws_caller_identity.current.account_id}:transcription-job/${local.project_glob}"
       },
       {
+        # Logs the fast lane reads itself (assistant-tools.mjs log_groups / logs): listing groups is not resource-level
+        Effect   = "Allow"
+        Action   = "logs:DescribeLogGroups"
+        Resource = "*"
+      },
+      {
+        # Events of the project's log groups only (Lambdas, ECS tasks, CodeBuild projects); the permissions boundary
+        # already allows arn:aws:logs:*:*:log-group:/*/youtube-pip-* (no gate change)
+        Effect = "Allow"
+        Action = ["logs:FilterLogEvents", "logs:GetLogEvents"]
+        Resource = [for prefix in ["/aws/lambda/", "/ecs/", "/aws/codebuild/"] :
+        "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:${prefix}${local.project_glob}"]
+      },
+      {
         Effect   = "Allow"
         Action   = "s3:ListBucket"
         Resource = aws_s3_bucket.dev_worker_state.arn

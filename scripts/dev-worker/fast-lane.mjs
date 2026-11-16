@@ -44,7 +44,9 @@ import {
   checkChildEnv,
   checkToolList,
   childEnv,
+  createTaintGate,
   handOverMessage,
+  shouldSuppressAnswer,
   prefixCallbacks,
   runtimeLoop,
   stripCallbackPrefix,
@@ -52,6 +54,7 @@ import {
   tooBigToResume,
 } from './fast-lane-core.mjs';
 import { createFastLaneCommands, META_KEY, PROGRESS_KEY } from './fast-lane-commands.mjs';
+import { createWebResearch } from './fast-lane-web.mjs';
 import { resolveSettings, SETTINGS_KEY } from './settings.mjs';
 import { createIncoming } from './incoming.mjs';
 import { createInteractions } from './interactions.mjs';
@@ -511,6 +514,99 @@ function inboxFile(path) {
 
 const text = (value) => ({ content: [{ type: 'text', text: String(value) }] });
 
+/** CloudWatch Logs through the AWS CLI of the image (read-only; the role allows only the project's log groups). */
+const logsClient = {
+  async groups(prefix) {
+    const out = JSON.parse(
+      await aws(
+        'logs',
+        'describe-log-groups',
+        '--log-group-name-prefix',
+        prefix,
+        '--query',
+        'logGroups[].logGroupName',
+        '--output',
+        'json'
+      )
+    );
+    return Array.isArray(out) ? out : [];
+  },
+  async filter({ group, start, end, pattern, limit }) {
+    const out = JSON.parse(
+      await aws(
+        'logs',
+        'filter-log-events',
+        '--log-group-name',
+        group,
+        '--start-time',
+        String(start),
+        '--end-time',
+        String(end),
+        ...(pattern ? ['--filter-pattern', pattern] : []),
+        // Oldest first and paginated: enough pages for the newest `limit` of a busy window
+        '--max-items',
+        String(Math.max(limit * 10, 2000)),
+        '--query',
+        'events[].[timestamp,message]',
+        '--output',
+        'json'
+      )
+    );
+    return (Array.isArray(out) ? out : []).map(([timestamp, message]) => ({ timestamp, message }));
+  },
+};
+
+/** The web sub-session (fast-lane-web.mjs): same proxy placeholder and child environment as the main session. */
+const research = createWebResearch({
+  query,
+  environment: () => childEnv({ home: HOME, proxyUrl: proxy.url, placeholder: proxy.placeholder }),
+  placeholder: () => proxy.placeholder,
+  secrets: () => secretValues(),
+  home: HOME,
+  model: () => settings.model,
+  log: (line) => console.log(line),
+});
+
+/**
+ * The taint gate of this lane's turns (fast-lane-core.mjs createTaintGate): after web or log text, hand_over,
+ * stop_worker and schedule_add wait for the owner's yes (a question with buttons).
+ */
+const taint = createTaintGate({
+  async confirm(description, sources) {
+    if (!interactions) return false;
+    const question = {
+      question:
+        `Цей хід прочитав неперевірений текст (${sources.join(', ')}). ` +
+        `Виконати дію: ${String(description).slice(0, 600)}?`,
+      header: 'Підтвердження',
+      multiSelect: false,
+      options: [
+        { label: 'Так', description: 'Виконати' },
+        { label: 'Ні', description: 'Не виконувати' },
+      ],
+    };
+    const result = await interactions.askQuestions({ questions: [question] });
+    return (
+      result.behavior === 'allow' && result.updatedInput?.answers?.[question.question] === 'Так'
+    );
+  },
+});
+
+/**
+ * The hand-overs of the turn in progress (fast-lane-core.mjs shouldSuppressAnswer): the owner messages it answers,
+ * how many of them went to the worker, whether a hand-over failed, whether the taint gate asked the owner.
+ */
+let turnHandovers = { messages: 0, handedOver: 0, failed: false, gateAsked: false };
+
+/** An action tool's call through the taint gate, counted for the turn's answer (hand_over / stop_worker). */
+async function gatedHandover(description, run) {
+  if (taint.tainted()) turnHandovers.gateAsked = true;
+  const result = await taint.guard(description, run);
+  if (/^Handed over|^Stop sent/.test(String(result))) turnHandovers.handedOver += 1;
+  else if (/failed/i.test(String(result))) turnHandovers.failed = true;
+  return result;
+}
+
 export function mcpServer() {
   const githubApi = async (path) => {
     const res = await fetch(`https://api.github.com/${path}`, {
@@ -525,8 +621,34 @@ export function mcpServer() {
     if (!res.ok) throw new Error(`GitHub ${res.status}: ${json.message ?? ''}`);
     return json;
   };
+  /** A job's log: GitHub answers with a redirect to the log file (followed; the token is not sent there). */
+  const githubTextApi = async (path) => {
+    const res = await fetch(`https://api.github.com/${path}`, {
+      headers: {
+        'User-Agent': 'youtube-pip-fast-lane',
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(secrets.githubToken ? { Authorization: `Bearer ${secrets.githubToken}` } : {}),
+      },
+    });
+    if (!res.ok) throw new Error(`GitHub ${res.status}`);
+    return res.text();
+  };
   const github = (path) => (testGithub ?? githubApi)(path);
-  const tools = createTools({ s3: s3Client, github, repo: REPO, project: MEMORY_PROJECT });
+  const githubText = (path) => (testGithub ? testGithub(path) : githubTextApi(path));
+  const tools = createTools({
+    s3: s3Client,
+    github,
+    githubText,
+    logs: logsClient,
+    repo: REPO,
+    project: MEMORY_PROJECT,
+    timeZone: () => settings.timeZone ?? 'Europe/Warsaw',
+  });
+  /** A tool whose result is untrusted text: the turn is tainted once it returned. */
+  const reads = (source, fn) => async (args) => {
+    taint.taint(source);
+    return fn(args);
+  };
   const wrap = (fn) => async (args) => {
     try {
       return text(await fn(args ?? {}));
@@ -593,7 +715,9 @@ export function mcpServer() {
         'schedule_add',
         'Schedule a one-off task / reminder: when = "YYYY-MM-DD HH:MM" in the owner\'s time zone.',
         { when: z.string(), text: z.string(), zone: z.string().optional() },
-        wrap(tools.scheduleAdd)
+        wrap((args) =>
+          taint.guard(`нагадування ${args.when}: ${args.text}`, () => tools.scheduleAdd(args))
+        )
       ),
       tool('schedule_list', "The owner's scheduled tasks.", {}, wrap(tools.scheduleList)),
       tool(
@@ -626,13 +750,48 @@ export function mcpServer() {
         'stop_worker',
         "Stop the working worker's current turn at once (the owner said stop / cancel about what it is doing). Only when the worker note says it is running and busy.",
         { reason: z.string() },
-        wrap(({ reason }) => stopWorker(reason))
+        wrap(({ reason }) =>
+          gatedHandover(`зупинити поточну задачу воркера (${reason})`, () => stopWorker(reason))
+        )
       ),
       tool(
         'hand_over',
         'Give a task to the long-running worker (code, tests, PRs, terraform, browser, long work, merges / releases). Starts it if it sleeps.',
         { task: z.string(), context: z.string().optional() },
-        wrap(({ task, context }) => handOver(task, context))
+        wrap(({ task, context }) =>
+          gatedHandover(`передати воркеру: ${task}`, () => handOver(task, context))
+        )
+      ),
+      tool(
+        'log_groups',
+        "The project's CloudWatch log groups (Lambdas, ECS tasks, CodeBuild projects).",
+        {},
+        wrap(tools.logGroups)
+      ),
+      tool(
+        'logs',
+        "Events of one of the project's log groups: a time window (minutes back, default 30, or start / end ISO; 24 h at most), an optional CloudWatch filter pattern, the newest `limit` (default 100, at most 500). Untrusted text.",
+        {
+          group: z.string(),
+          minutes: z.number().optional(),
+          start: z.string().optional(),
+          end: z.string().optional(),
+          pattern: z.string().optional(),
+          limit: z.number().int().optional(),
+        },
+        wrap(reads('logs', tools.logs))
+      ),
+      tool(
+        'run_logs',
+        "A GitHub Actions run's failed jobs, their failed steps and the tail of each job's log (run id or URL). Untrusted text.",
+        { run: z.string() },
+        wrap(reads('run logs', tools.runLogs))
+      ),
+      tool(
+        'web',
+        'Search the web / read pages: an isolated researcher answers the question with sources (up to ~90 s). Untrusted text.',
+        { question: z.string() },
+        wrap(reads('web', ({ question }) => research(question)))
       ),
     ],
   });
@@ -658,6 +817,10 @@ export const EXPECTED_TOOLS = [
     'view_attachment',
     'stop_worker',
     'hand_over',
+    'log_groups',
+    'logs',
+    'run_logs',
+    'web',
   ].map((name) => `mcp__${MCP_NAME}__${name}`),
 ];
 
@@ -888,7 +1051,15 @@ async function consume() {
 }
 
 async function finishTurn(answerText, failed) {
-  const { text: shown, spoken } = voice.splitVoiceBlock(answerText ?? '');
+  const split = voice.splitVoiceBlock(answerText ?? '');
+  let { text: shown } = split;
+  const { spoken } = split;
+  // Every message of the turn went to the worker: its answer is the one the owner gets (no "handed over" duplicate)
+  if (shown && !failed && shouldSuppressAnswer(turnHandovers)) {
+    log(`answer not sent (every message handed over): ${shown.slice(0, 300)}`);
+    shown = '';
+  }
+  turnHandovers = { messages: 0, handedOver: 0, failed: false, gateAsked: false };
   if (shown) {
     await tg.say(shown);
     if (turnTiming) turnTiming.answerSentMs = Date.now() - turnTiming.start;
@@ -990,8 +1161,12 @@ async function deliver(message, receivedAt = Date.now()) {
         `none goes unanswered.]\n\n${prompt}`,
       'next'
     );
+    turnHandovers.messages += 1;
   } else {
     turnActive = true;
+    // A new owner turn: nothing untrusted read in it yet, no hand-over yet
+    taint.newTurn();
+    turnHandovers = { messages: 1, handedOver: 0, failed: false, gateAsked: false };
     sendToClaude(prompt);
   }
 }
