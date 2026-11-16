@@ -88,28 +88,42 @@ class FastLaneRouting(unittest.TestCase):
         self.assertEqual(sent["QueueUrl"], "fast-lane-queue")
         self.assertEqual(json.loads(sent["MessageBody"])["callback"]["data"], "f|ask|abc|0")
 
-    def test_start_worker_uses_the_hand_over_time_as_up_at(self):
+    def test_hand_over_puts_the_task_into_the_worker_queue_and_starts_it(self):
         bot, clients = load_dev_bot()
+        bot.config = mock.MagicMock(return_value={"chat_id": "42"})
         bot.worker_tasks = mock.MagicMock(return_value=[])
         bot.worker_stopping = mock.MagicMock(return_value=False)
         clients["ecs"].run_task.return_value = {"tasks": [{"taskArn": "t"}], "failures": []}
-        result = bot.handler({"action": "start_worker", "reason": "PR", "since": 1000}, None)
-        self.assertEqual(result, {"started": True})
+        event = {"action": "hand_over", "reason": "PR", "since": 1000, "message": {"text": "do it", "attachments": []}}
+        result = bot.handler(event, None)
+        self.assertEqual(result, {"handed_over": True, "started": True})
+        sent = clients["sqs"].send_message.call_args.kwargs
+        self.assertEqual(sent["QueueUrl"], "worker-queue")
+        body = json.loads(sent["MessageBody"])
+        self.assertEqual((body["text"], body["handover"], body["date"]), ("do it", True, 1000))
         overrides = clients["ecs"].run_task.call_args.kwargs["overrides"]["containerOverrides"][0]
         self.assertEqual(overrides["environment"], [{"name": "UP_AT", "value": "1000"}])
 
-    def test_start_worker_is_a_no_op_when_it_runs(self):
+    def test_hand_over_to_a_running_worker_only_queues(self):
         bot, clients = load_dev_bot()
+        bot.config = mock.MagicMock(return_value={"chat_id": "42"})
         bot.worker_tasks = mock.MagicMock(return_value=[{"lastStatus": "RUNNING", "arn": "t"}])
-        self.assertEqual(bot.handler({"action": "start_worker", "since": 1000}, None), {"started": False, "running": True})
+        result = bot.handler({"action": "hand_over", "since": 1000, "message": {"text": "x"}}, None)
+        self.assertEqual(result, {"handed_over": True, "running": True})
         clients["ecs"].run_task.assert_not_called()
+        clients["sqs"].send_message.assert_called_once()
 
-    def test_a_webhook_event_cannot_ask_for_start_worker(self):
+    def test_an_empty_hand_over_is_refused(self):
+        bot, clients = load_dev_bot()
+        self.assertEqual(bot.handler({"action": "hand_over", "message": {}}, None)["handed_over"], False)
+        clients["sqs"].send_message.assert_not_called()
+
+    def test_a_webhook_event_cannot_hand_over(self):
         bot, _clients = load_dev_bot()
         bot.telegram_update = mock.MagicMock(return_value={"statusCode": 200})
-        bot.start_for_fast_lane = mock.MagicMock()
-        bot.handler({"action": "start_worker", "requestContext": {"http": {}}, "body": "{}"}, None)
-        bot.start_for_fast_lane.assert_not_called()
+        bot.hand_over = mock.MagicMock()
+        bot.handler({"action": "hand_over", "requestContext": {"http": {}}, "body": "{}"}, None)
+        bot.hand_over.assert_not_called()
 
 
 if __name__ == "__main__":

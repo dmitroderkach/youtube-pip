@@ -20,6 +20,7 @@ hour; the decision is written once, then ✅ starts tf-apply / image-publish in 
 Statuses go to the chat through the Bot API. Always answers Telegram with 200, so it never retries an update.
 """
 
+import hashlib
 import json
 import os
 import re
@@ -75,7 +76,7 @@ IMAGE_PUBLISH_PROJECT = os.environ.get("IMAGE_PUBLISH_PROJECT", "")
 TELEGRAM_SETUP_PROJECT = os.environ.get("TELEGRAM_SETUP_PROJECT", "")
 GITHUB_GATE_PROJECT = os.environ.get("GITHUB_GATE_PROJECT", "")
 # The fast lane (docs/DEV_WORKER.md, "Fast lane"): messages while the working worker is not running go to its queue and
-# wake it; it hands long tasks over with the action start_worker. Empty: everything goes to the worker as before.
+# wake it; it hands long tasks over with the action hand_over. Empty: everything goes to the worker as before.
 FAST_LANE_FUNCTION = os.environ.get("FAST_LANE_FUNCTION", "")
 FAST_LANE_QUEUE_URL = os.environ.get("FAST_LANE_QUEUE_URL", "")
 # Buttons the fast lane sent: their callback_data starts with this, the rest are the worker's
@@ -317,7 +318,7 @@ def message_body(message, text, attachments):
 def forward(message, text, attachments):
     tasks = worker_tasks()
     if FAST_LANE_FUNCTION and not any(t["lastStatus"] == "RUNNING" for t in tasks):
-        # The working worker is not running: the fast lane answers, and hands long tasks over (start_worker)
+        # The working worker is not running: the fast lane answers, and hands long tasks over (hand_over)
         to_fast_lane(
             message_body(message, text, attachments),
             str(message["chat"]["id"]),
@@ -663,27 +664,49 @@ def due_tasks():
     return fired
 
 
-def start_for_fast_lane(event):
-    """The fast lane hands a long task over: it has put the task into the worker's queue (date = `since`) and asks
-    for the working worker. Started with UP_AT no later than `since`, so the worker delivers that task."""
+def hand_over(event):
+    """The fast lane hands a long task over: put it into the worker's queue (only dev-bot may write it: the permissions
+    boundary keeps it ours, a message there is the owner's word), marked as handed over, and start the worker with
+    UP_AT no later than the task's date, so the worker delivers it."""
+    message = event.get("message") or {}
+    text = str(message.get("text") or "")[:20000]
+    attachments = [a for a in (message.get("attachments") or []) if isinstance(a, dict) and a.get("file_id")]
+    if not text and not attachments:
+        return {"handed_over": False, "error": "empty"}
+    now = int(time.time())
+    since = min(now, int(event.get("since") or now))
+    body = {
+        "text": text,
+        "attachments": attachments,
+        "date": since,
+        "message_id": message.get("message_id"),
+        "handover": True,
+    }
+    for key in ("reply_to", "forwarded_from"):
+        if message.get(key):
+            body[key] = message[key]
+    sqs.send_message(
+        QueueUrl=QUEUE_URL,
+        MessageBody=json.dumps(body),
+        MessageGroupId=config()["chat_id"],
+        MessageDeduplicationId=f"handover-{since}-{hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]}",
+    )
     reason = str(event.get("reason") or "")[:200]
-    since = int(event.get("since") or time.time())
-    up_at = min(int(time.time()), since)
     tasks = worker_tasks()
     if tasks:
-        return {"started": False, "running": True}
+        return {"handed_over": True, "running": True}
     if worker_stopping():
-        request_start_after_stop(up_at)
-        return {"started": False, "pending": True}
+        request_start_after_stop(since)
+        return {"handed_over": True, "pending": True}
     say(f"🛠 Довга задача: піднімаю робочий воркер…{f' ({reason})' if reason else ''}")
-    return {"started": start_worker(up_at)}
+    return {"handed_over": True, "started": start_worker(since)}
 
 
 def handler(event, _context):
     # Direct invocation by the fast lane (IAM: only its role may invoke this function besides Telegram's URL and the
     # schedules); a webhook event never has a top-level "action"
-    if event.get("action") == "start_worker" and "requestContext" not in event:
-        return start_for_fast_lane(event)
+    if event.get("action") == "hand_over" and "requestContext" not in event:
+        return hand_over(event)
     if event.get("source") == "aws.ecs":
         return task_stopped(event)
     if event.get("source") == "aws.events" and event.get("detail-type") == "Scheduled Event":
