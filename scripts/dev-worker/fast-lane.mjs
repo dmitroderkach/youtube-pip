@@ -38,6 +38,7 @@ import { S3Client } from '@aws-sdk/client-s3';
 import { startAnthropicProxy } from './anthropic-proxy.mjs';
 import { createTools, STATE_KEYS } from './assistant-tools.mjs';
 import {
+  leftoverClaudePids,
   BUSY_KEY,
   busyMarkerAction,
   checkChildEnv,
@@ -131,6 +132,40 @@ const stateStore = objects;
 
 /** One JSON line per measured step (CloudWatch Logs Insights: filter timing), so it shows where seconds go. */
 const timing = (name, fields) => console.log(JSON.stringify({ timing: name, ...fields }));
+
+/** /proc of this sandbox for leftoverClaudePids (fast-lane-core.mjs). */
+const PROC = {
+  list: () => {
+    try {
+      return readdirSync('/proc');
+    } catch {
+      return [];
+    }
+  },
+  cmdline: (pid) => {
+    try {
+      return readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+    } catch {
+      return null;
+    }
+  },
+};
+
+/**
+ * Kill the Claude Code processes an earlier invocation left (they would compete for this one's CPU), except `keep`
+ * (the live session's process, kept across invocations of this sandbox).
+ */
+function killLeftoverClaude(keep = []) {
+  const pids = leftoverClaudePids(PROC).filter((pid) => !keep.includes(pid));
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 'SIGKILL');
+    } catch (error) {
+      log(`leftover claude ${pid}: ${error.message}`);
+    }
+  }
+  return pids.length;
+}
 
 /** The AWS CLI (in the image): AWS Transcribe of voice messages when Gemini is not configured or fails. */
 const aws = async (...args) =>
@@ -647,9 +682,21 @@ function sendToClaude(content, priority) {
   wakeInput?.();
 }
 
+/**
+ * The Claude Code session lives across invocations of the same sandbox: Lambda freezes the process (and its Claude
+ * Code child) after an invocation and thaws it for the next one, so the next message goes into the live session
+ * without a start (2-101 s in the Lambda). A new one is started (resumed from S3) only when there is none or its
+ * process ended.
+ */
 let session = null;
 let sessionDone = null;
 let sessionId = null;
+/** False once the live session's stream ended (its Claude Code process is gone). */
+let sessionAlive = false;
+/** Pids of the live session's Claude Code process (not killed as leftovers). */
+let sessionPids = [];
+/** Claude Code processes running just before the session started (to tell its own process apart). */
+let pidsBeforeStart = [];
 let turnActive = false;
 let voiceTrigger = null;
 let isolationFailed = null;
@@ -783,6 +830,9 @@ async function startSession() {
     secrets: secretValues(),
   });
   if (problems.length) throw new Error(`isolation self-check: ${problems.join('; ')}`);
+  pidsBeforeStart = leftoverClaudePids(PROC);
+  sessionPids = [];
+  sessionAlive = true;
   session = query({
     prompt: userMessages(),
     options: queryOptions({
@@ -792,10 +842,14 @@ async function startSession() {
       effort: settings.effort,
     }),
   });
-  sessionDone = consume().catch((error) => {
-    log('session failed', error);
-    turnActive = false;
-  });
+  sessionDone = consume()
+    .catch((error) => {
+      log('session failed', error);
+      turnActive = false;
+    })
+    .finally(() => {
+      sessionAlive = false;
+    });
 }
 
 /** The stream of the session: the isolation check on init, the answer of each turn to the chat. */
@@ -804,6 +858,8 @@ async function consume() {
   for await (const message of session) {
     if (message.session_id) sessionId = message.session_id;
     if (message.type === 'system' && message.subtype === 'init') {
+      if (!sessionPids.length)
+        sessionPids = leftoverClaudePids(PROC).filter((pid) => !pidsBeforeStart.includes(pid));
       if (turnTiming && !turnTiming.sdkReadyMs)
         turnTiming.sdkReadyMs = Date.now() - turnTiming.start;
       const { unexpected, missing } = checkToolList(message.tools, EXPECTED_TOOLS);
@@ -979,6 +1035,15 @@ async function failClosed(message, reason) {
 export async function handler(event, context = {}) {
   const deadline = context.deadline ?? Date.now() + 900_000;
   const invoked = Date.now();
+  if (session && !sessionAlive) {
+    // Its Claude Code process ended (while frozen or before): the next message starts a new one
+    session = null;
+    sessionDone = null;
+    isolationFailed = null;
+    sessionPids = [];
+  }
+  timing('fast-lane-session', { reused: Boolean(session) });
+  timing('fast-lane-leftovers', { count: killLeftoverClaude(session ? sessionPids : []) });
   await initChat();
   await loadSettings();
   timing('fast-lane-init', { ms: Date.now() - invoked });
@@ -1015,17 +1080,28 @@ export async function handler(event, context = {}) {
   await syncBusy(false);
   interactions.abortAll();
   await settingWrites;
+  // Kept for the next invocation of this sandbox unless a turn still runs (the deadline) or it failed its checks
+  const keep = Boolean(session) && sessionAlive && !turnActive && !isolationFailed;
   if (session) {
-    session.close();
-    await Promise.race([sessionDone, new Promise((r) => setTimeout(r, 10_000))]);
+    if (!keep) {
+      session.close();
+      await Promise.race([sessionDone, new Promise((r) => setTimeout(r, 10_000))]);
+    }
     const saveStart = Date.now();
     await saveSession().catch((error) => log('session save failed', error));
-    timing('fast-lane-save', { ms: Date.now() - saveStart });
+    timing('fast-lane-save', { ms: Date.now() - saveStart, kept: keep });
   }
-  session = null;
-  sessionDone = null;
+  // Nothing but the kept session's process may run on in the frozen sandbox
+  const left = killLeftoverClaude(keep ? sessionPids : []);
+  if (left)
+    log(`killed ${left} Claude Code process(es) still running at the end of the invocation`);
+  if (!keep) {
+    session = null;
+    sessionDone = null;
+    isolationFailed = null;
+    sessionPids = [];
+  }
   turnActive = false;
-  isolationFailed = null;
   turnTiming = null;
   workerSeenAt = null;
   rmSync(INBOX_DIR, { recursive: true, force: true });
@@ -1038,4 +1114,6 @@ if (env.AWS_LAMBDA_RUNTIME_API) {
 } else if (process.argv[1]?.endsWith('fast-lane.mjs') && process.argv.includes('--once')) {
   // Local run (tests): one invocation
   console.log(JSON.stringify(await handler({ wake: true })));
+  // A Lambda keeps the session for the next invocation; a local run ends here
+  session?.close();
 }
