@@ -451,3 +451,19 @@ test('workerLiveness: one rule for the age of the progress record (crashed, fail
   );
   assert.equal(localNow(now, 'Europe/Warsaw'), 'Monday, 16 November 2026 at 22:00 (Europe/Warsaw)');
 });
+
+test('workerStateLine: running and free, busy, starting and asleep read differently', () => {
+  const now = Date.parse('2026-11-16T21:00:00Z');
+  const at = new Date(now - 30_000).toISOString();
+  assert.match(
+    workerStateLine({ worker: 'running', turnActive: false, updatedAt: at }, now),
+    /^Working worker: running \(record updated 30 s ago\); free, between turns\.$/
+  );
+  assert.match(
+    workerStateLine({ worker: 'running', turnActive: true, purpose: 'fix CI', updatedAt: at }, now),
+    /busy with a turn; request: "fix CI"/
+  );
+  // A starting or stopped worker is never called free
+  assert.doesNotMatch(workerStateLine({ worker: 'starting', updatedAt: at }, now), /free/);
+  assert.doesNotMatch(workerStateLine({ worker: 'stopped', updatedAt: at }, now), /free/);
+});

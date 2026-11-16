@@ -61,6 +61,7 @@ import {
   splitControl,
 } from './settings.mjs';
 import { createSettingsCommands } from './settings-commands.mjs';
+import { compactResultText, createCompactCommand } from './compact-command.mjs';
 import { createS3Objects } from './s3-objects.mjs';
 import { execFile } from 'node:child_process';
 import {
@@ -1829,6 +1830,8 @@ async function onCallback(callback) {
   const { kind, id, value } = parsed;
   // /model, /effort, /mode buttons of both lanes (settings-commands.mjs)
   if (await settingsCommands.handleCallback(callback.message_id, parsed)) return;
+  // The lane switch of /compact (compact-command.mjs)
+  if (await compactSwitch.handleCallback(callback.message_id, parsed)) return;
   if (kind === 'agents') {
     await onAgentsButton(Number(id));
     await editHtml(callback.message_id, agentsHtml(), agentsKeyboard());
@@ -2345,13 +2348,26 @@ async function compactReport(result) {
   const { before } = compacting;
   compacting = null;
   const after = await session?.getContextUsage({ detail: 'summary' }).catch(() => null);
-  const usage = (c) =>
-    c ? `${Math.round(c.percentage)}% (${Math.round(c.totalTokens / 1000)}k)` : '?';
-  if (result.subtype !== 'success' || result.is_error) {
-    return `⚠️ /compact не вдався: ${(result.errors ?? []).join(' ') || result.result || result.subtype}`;
-  }
-  return `🗜 Контекст стиснуто: ${usage(before)} → ${usage(after)}`;
+  return compactResultText(result, before, after);
 }
+
+/** The fast lane's compaction is its own: the worker cannot reach that session (the lane switch's `⚡`). */
+const FAST_LANE_COMPACT_ELSEWHERE =
+  '⚡ Контекст Лямбди стискає сама Лямбда: звідси робочий воркер до її сесії не дістає';
+
+/**
+ * `/compact` typed to the worker (while dev-bot still sends it here): the same lane switch as in the fast lane
+ * (compact-command.mjs). `🛠` compacts this session; `⚡` only says where the fast lane's compaction is done. A
+ * `/compact` handed over by the fast lane (the owner already chose the worker there) compacts at once.
+ */
+const compactSwitch = createCompactCommand({
+  telegram: tg,
+  log,
+  compactLane: async (lane, instructions) => {
+    if (lane === 'w') return compactCommand(instructions);
+    await say(FAST_LANE_COMPACT_ELSEWHERE);
+  },
+});
 
 // ---------------------------------------------------------------------------------------------- /context
 
@@ -2968,13 +2984,10 @@ async function main() {
         await handleIdleWatchdog(message).catch((error) => log('idle watchdog failed', error));
         continue;
       }
-      lastActivity = Date.now();
       try {
-        if (message.callback) {
-          await onCallback(message.callback);
-          continue;
-        }
         const command = message.attachments?.length ? '' : (message.text?.trim() ?? '');
+        // A settings change from the fast lane or a stop is no work: it does not keep an idle worker up (the idle
+        // timer counts from the last real message, button press or turn step)
         if (message.control) {
           await applyControl(message.control);
           continue;
@@ -2983,13 +2996,20 @@ async function main() {
           await stopTurn(message);
           continue;
         }
+        lastActivity = Date.now();
+        if (message.callback) {
+          await onCallback(message.callback);
+          continue;
+        }
         const [, name, argument] = /^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i.exec(command) ?? [];
         if (name && (await settingsCommands.handleCommand(name.toLowerCase(), argument ?? ''))) {
           continue;
         }
         const compact = command.match(COMPACT_COMMAND);
         if (compact) {
-          await compactCommand(compact[3]);
+          // Handed over by the fast lane: the owner chose the worker there; typed here: the lane switch
+          if (message.handover) await compactCommand(compact[3]);
+          else await compactSwitch.handleCommand(compact[3] ?? '');
           continue;
         }
         if (AGENTS_COMMAND.test(command)) {
