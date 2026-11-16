@@ -40,9 +40,10 @@ resource "aws_lambda_function" "fast_lane" {
   image_uri     = "${aws_ecr_repository.dev_worker.repository_url}@${data.aws_ecr_image.fast_lane.image_digest}"
   architectures = ["x86_64"]
   timeout       = 900
-  # CPU scales with memory (4096 MB: about 2.3 vCPU; the handler uses ~440 MB): Claude Code's start is CPU-bound and
-  # took 2-101 s at 2048 MB
-  memory_size = 4096
+  # CPU scales with memory (the handler uses ~440 MB): Claude Code's start is CPU-bound and took 2-101 s at 2048 MB.
+  # 3008 MB (about 1.75 vCPU) is this account's limit: 4096 failed with "Member must have value less than or equal to
+  # 3008" (raising it is a Service Quotas request)
+  memory_size = 3008
   # One conversation, one session: never two invocations at once (a second wake waits as a throttled async event)
   reserved_concurrent_executions = 1
 
