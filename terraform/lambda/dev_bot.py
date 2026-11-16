@@ -88,8 +88,9 @@ FAST_LANE_COMMANDS = {
     "/background",
     "/context",
 }
-# A settings change for a running worker (hand_over "control"): these keys only, short string values
-CONTROL_KEYS = {"model", "effort", "mode", "timeZone", "voice"}
+# A settings change for a running worker (hand_over "control"; scripts/dev-worker/settings.mjs validControl, which the
+# worker applies after its own check): these keys only, short string values; effort may be null (the default)
+CONTROL_KEYS = {"model", "effort", "mode", "timeZone", "voiceMode", "voiceName", "voiceModel"}
 CONTROL_VALUE_MAX = 100
 # Tasks the owner scheduled (scripts/dev-worker/schedule.sh): {id, dueAt (UTC ISO), timeZone, text, createdAt}
 SCHEDULED_PREFIX = "state/scheduled/"
@@ -790,6 +791,8 @@ def valid_control(control):
     if not isinstance(control, dict) or not control:
         return None
     for key, value in control.items():
+        if key == "effort" and value is None:
+            continue
         if key not in CONTROL_KEYS or not isinstance(value, str) or not value or len(value) > CONTROL_VALUE_MAX:
             return None
     return dict(control)

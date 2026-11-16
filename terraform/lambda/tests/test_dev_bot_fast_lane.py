@@ -308,7 +308,7 @@ class ControlHandOver(unittest.TestCase):
         return bot.handler({"action": "hand_over", "key": KEY}, None), bot, clients
 
     def test_control_is_queued_for_a_running_worker(self):
-        control = {"model": "opus", "effort": "high", "mode": "auto", "timeZone": "Europe/Kyiv", "voice": "on"}
+        control = {"model": "opus", "effort": "high", "mode": "auto", "timeZone": "Europe/Kyiv", "voiceMode": "on"}
         result, bot, clients = self.hand_over({"control": control}, RUNNING)
         self.assertEqual(result, {"handed_over": True, "control": True, "running": True})
         sent = clients["sqs"].send_message.call_args.kwargs
@@ -318,6 +318,10 @@ class ControlHandOver(unittest.TestCase):
         self.assertEqual(body["text"], "")
         bot.say.assert_not_called()
         bot.start_worker.assert_not_called()
+
+    def test_control_effort_default_is_null(self):
+        result, bot, clients = self.hand_over({"control": {"effort": None}}, RUNNING)
+        self.assertEqual(result, {"handed_over": True, "control": True, "running": True})
 
     def test_control_for_a_sleeping_worker_is_neither_queued_nor_starts_it(self):
         result, bot, clients = self.hand_over({"control": {"model": "opus"}, "message": {"text": "x"}}, [])
@@ -333,6 +337,8 @@ class ControlHandOver(unittest.TestCase):
             {"model": 1},
             {"model": ""},
             {"model": "x" * 101},
+            {"voice": "on"},
+            {"mode": None},
             ["model", "opus"],
             "opus",
             None,
