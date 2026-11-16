@@ -171,6 +171,8 @@ export function createInteractions({ telegram, onWaiting = () => {} }) {
 
   /** The entry a text message answers now (the newest one that takes text), or null. */
   const getTextTarget = () => textTarget;
+  /** True while a question or a permission prompt waits for the owner (no "typing…" then). */
+  const waitingForOwner = () => pending.size > 0;
   /** Make `entry` the one a text message answers (e.g. "own answer", "revise"). */
   const setTextTarget = (entry) => {
     textTarget = entry;
@@ -196,6 +198,7 @@ export function createInteractions({ telegram, onWaiting = () => {} }) {
     getPending,
     abortAll,
     getTextTarget,
+    waitingForOwner,
     setTextTarget,
     askQuestions,
     onQuestionButton,

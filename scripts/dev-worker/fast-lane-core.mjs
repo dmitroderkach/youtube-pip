@@ -319,3 +319,37 @@ export async function claimMarker(putObject, key, body) {
     throw error;
   }
 }
+
+/** Telegram shows a chat action for about 5 s: it is sent again this often while the fast lane works. */
+export const TYPING_INTERVAL_MS = 4000;
+
+/**
+ * "typing…" in the chat for as long as the fast lane works on the owner's message (from its receipt to the answer):
+ * `start` sends it at once and every TYPING_INTERVAL_MS while `active()` (false while a question waits for the
+ * owner's button), `stop` ends it; both idempotent, so several queued messages share one timer.
+ */
+export function createTypingKeeper({
+  send,
+  active = () => true,
+  intervalMs = TYPING_INTERVAL_MS,
+  setTimer = setInterval,
+  clearTimer = clearInterval,
+}) {
+  let timer = null;
+  return {
+    start() {
+      if (timer) return;
+      if (active()) send();
+      timer = setTimer(() => {
+        if (active()) send();
+      }, intervalMs);
+      timer?.unref?.();
+    },
+    stop() {
+      if (!timer) return;
+      clearTimer(timer);
+      timer = null;
+    },
+    running: () => Boolean(timer),
+  };
+}

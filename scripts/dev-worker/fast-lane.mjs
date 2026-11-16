@@ -45,6 +45,7 @@ import {
   checkToolList,
   childEnv,
   createTaintGate,
+  createTypingKeeper,
   handOverMessage,
   shouldSuppressAnswer,
   prefixCallbacks,
@@ -1111,6 +1112,15 @@ let sessionPids = [];
 /** Claude Code processes running just before the session started (to tell its own process apart). */
 let pidsBeforeStart = [];
 let turnActive = false;
+/**
+ * "typing…" while the fast lane works on the owner's messages (fast-lane-core.mjs createTypingKeeper): not while a
+ * question waits for the owner's button.
+ */
+const typing = createTypingKeeper({
+  send: () =>
+    tg?.call('sendChatAction', { action: 'typing' }).catch((error) => log('typing failed', error)),
+  active: () => !interactions?.waitingForOwner(),
+});
 let voiceTrigger = null;
 let isolationFailed = null;
 /** Timings of the turn in progress (ms from the message's receipt): one JSON line when it ends. */
@@ -1337,6 +1347,8 @@ async function consume() {
 }
 
 async function finishTurn(answerText, failed) {
+  // The answer (or nothing, when every message was handed over) goes out now: no more "typing…"
+  typing.stop();
   const split = voice.splitVoiceBlock(answerText ?? '');
   let { text: shown } = split;
   const { spoken } = split;
@@ -1436,7 +1448,6 @@ async function deliver(message, receivedAt = Date.now()) {
   if (secrets.googleKey && voiceReplyWanted(voice.voiceMode(), voiceTrigger)) {
     prompt = `${prompt}\n\n${voice.VOICE_NOTE}`;
   }
-  void tg.call('sendChatAction', { action: 'typing' });
   if (isolationFailed) throw new Error(`isolation self-check: ${isolationFailed}`);
   if (!turnTiming) turnTiming = { start: receivedAt, promptReadyMs: Date.now() - receivedAt };
   if (!session) await startSession();
@@ -1479,6 +1490,7 @@ async function receive() {
 /** Fail closed: the fast lane cannot answer safely, so the owner's message goes to the worker as it is. */
 async function failClosed(message, reason) {
   log(`fail closed: ${reason}`);
+  if (!turnActive) typing.stop();
   await tg
     ?.say('⚠️ Швидка смуга недоступна: передаю повідомлення робочому воркеру')
     .catch(() => {});
@@ -1529,7 +1541,11 @@ export async function handler(event, context = {}) {
     }
     const receivedAt = Date.now();
     // Mark busy before handling (dev-bot then keeps the owner's next messages here, in order)
-    if (messages.some((message) => !message.callback)) await syncBusy(true);
+    if (messages.some((message) => !message.callback)) {
+      // "typing…" from the receipt (also through transcription and the session start) until the answer is sent
+      typing.start();
+      await syncBusy(true);
+    }
     for (const message of messages) {
       lastActivity = Date.now();
       handled++;
@@ -1540,10 +1556,15 @@ export async function handler(event, context = {}) {
       }
     }
     if (turnActive) lastActivity = Date.now();
+    // A command, a hand-over without a turn or a button press: done once deliver returns; a running turn keeps it
+    // (a button that answered the turn's question resumes it)
+    if (turnActive) typing.start();
+    else typing.stop();
     // Busy while a turn runs (refreshed, dev-bot counts it only while fresh); a command or a hand-over without a turn
     // is done once deliver returns
     await syncBusy(turnActive);
   }
+  typing.stop();
   await syncBusy(false);
   interactions.abortAll();
   await settingWrites;
