@@ -283,7 +283,9 @@ test('progressRecord: request, step and tasks while a turn runs, clipped', () =>
     now: NOW,
   });
   assert.equal(record.updatedAt, NOW.toISOString());
+  assert.equal(record.worker, 'running');
   assert.equal(record.turnActive, true);
+  assert.equal(record.awaitingAnswer, false);
   assert.equal(record.purpose.length, 1000);
   assert.equal(record.step, 'Bash: npm test');
   assert.equal(record.steps, 7);
@@ -307,6 +309,20 @@ test('progressRecord: between turns only the background tasks and the last answe
   assert.equal(record.steps, 0);
   assert.deepEqual(record.backgroundTasks, []);
   assert.equal(record.lastAnswerAt, '2026-11-16T09:58:00.000Z');
+});
+
+test('progressRecord: the worker state and waiting for the owner (only within a turn)', () => {
+  const base = { backgroundTasks: [], lastAnswerAt: null };
+  assert.equal(progressRecord({ ...base, worker: 'stopped' }).worker, 'stopped');
+  assert.equal(progressRecord({ ...base, worker: 'bogus' }).worker, 'running');
+  assert.equal(
+    progressRecord({ ...base, turnActive: true, awaitingAnswer: true }).awaitingAnswer,
+    true
+  );
+  assert.equal(
+    progressRecord({ ...base, turnActive: false, awaitingAnswer: true }).awaitingAnswer,
+    false
+  );
 });
 
 test('chatLogEntry and appendChatLog: clipped texts, newest lines kept, broken lines dropped', () => {

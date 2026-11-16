@@ -284,6 +284,13 @@ export const CHAT_LOG_TEXT_MAX = 2000;
 export const CHAT_LOG_LINES_MAX = 200;
 
 /**
+ * The worker process's own state in the progress record: `running` from its start, `stopping` while it saves before
+ * exiting, `stopped` once it has saved (the last write before the process ends). A worker that crashed leaves
+ * `running` behind: readers look at `updatedAt` too.
+ */
+export const WORKER_STATES = ['running', 'stopping', 'stopped'];
+
+/**
  * The worker's progress record (`state/progress.json`), what the fast lane answers "як там" from: the request being
  * worked on, the current step (as the in-chat progress message shows it), running background tasks, the last answer.
  * Small by design (texts clipped, at most PROGRESS_TASKS_MAX tasks).
@@ -295,6 +302,9 @@ export function progressRecord({
   backgroundTasks,
   lastAnswerAt,
   turnActive,
+  worker = 'running',
+  awaitingAnswer = false,
+  agents = [],
   now = new Date(),
 }) {
   const tasks = [...(backgroundTasks ?? [])].slice(0, PROGRESS_TASKS_MAX).map((task) => ({
@@ -304,24 +314,33 @@ export function progressRecord({
   }));
   return {
     updatedAt: now.toISOString(),
+    worker: WORKER_STATES.includes(worker) ? worker : 'running',
     turnActive: Boolean(turnActive),
+    awaitingAnswer: Boolean(turnActive && awaitingAnswer),
     purpose: turnActive && purpose ? clip(purpose, PROGRESS_PURPOSE_MAX) : null,
     step: turnActive && step ? clip(step, PROGRESS_STEP_MAX) : null,
     steps: turnActive ? (steps ?? 0) : 0,
     backgroundTasks: tasks,
+    // The running subagents (the fast lane's /agents): what each does and since when
+    agents: [...(agents ?? [])].slice(0, PROGRESS_TASKS_MAX).map((agent) => ({
+      description: clip(agent.description, PROGRESS_STEP_MAX),
+      since: new Date(agent.since).toISOString(),
+    })),
     lastAnswerAt: lastAnswerAt ?? null,
   };
 }
 
 /**
- * A chat log line (`state/chat-log.jsonl`): who (`owner` / `worker`), when, the kind of the owner's message (text /
- * voice), the text clipped to CHAT_LOG_TEXT_MAX.
+ * A chat log line (`state/chat-log.jsonl`): who (`owner` / `worker` / `fast-lane`), when, the kind of the owner's
+ * message (text / voice), the lane that took an owner's message (`fast-lane`; none: the worker), the text clipped to
+ * CHAT_LOG_TEXT_MAX.
  */
-export function chatLogEntry(role, text, { kind, now = new Date() } = {}) {
+export function chatLogEntry(role, text, { kind, lane, now = new Date() } = {}) {
   return {
     at: now.toISOString(),
     role,
     ...(kind ? { kind } : {}),
+    ...(lane ? { lane } : {}),
     text: clip(text, CHAT_LOG_TEXT_MAX),
   };
 }
@@ -341,4 +360,131 @@ export function appendChatLog(content, entry, max = CHAT_LOG_LINES_MAX) {
     });
   lines.push(JSON.stringify(entry));
   return `${lines.slice(-max).join('\n')}\n`;
+}
+
+// ---------------------------------------------------------------------------------------------- sync between lanes
+
+/** Most lines and characters of the other lane's chat log entries put in front of a prompt. */
+export const SYNC_NOTE_LINES = 15;
+export const SYNC_NOTE_CHARS = 4000;
+
+/** The lane a chat log entry belongs to: `worker` or `fast-lane` (owner messages carry `lane`; none: the worker's). */
+export function entryLane(entry) {
+  if (entry?.role === 'fast-lane') return 'fast-lane';
+  if (entry?.role === 'owner') return entry.lane === 'fast-lane' ? 'fast-lane' : 'worker';
+  return 'worker';
+}
+
+/** The parsed chat log entries (unparsable lines dropped). */
+export function chatLogEntries(content) {
+  const entries = [];
+  for (const line of String(content ?? '').split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const entry = JSON.parse(line);
+      if (entry && typeof entry.at === 'string') entries.push(entry);
+    } catch {
+      // a broken line is skipped
+    }
+  }
+  return entries;
+}
+
+/** The time of the newest entry `role` wrote (ISO), or null: where a lane's cursor starts. */
+export function lastEntryAt(content, role) {
+  const entries = chatLogEntries(content).filter((entry) => entry.role === role);
+  return entries.length ? entries[entries.length - 1].at : null;
+}
+
+/**
+ * The other lane's chat log entries written after `after` (ISO; null: all), newest SYNC_NOTE_LINES, as lines
+ * "HH:MM role: text" clipped to SYNC_NOTE_CHARS in all (the newest kept). `lane` is the reader: `worker` gets the fast
+ * lane's exchanges, `fast-lane` gets the worker's.
+ */
+export function laneDelta(
+  content,
+  { lane, after = null, maxLines = SYNC_NOTE_LINES, maxChars = SYNC_NOTE_CHARS }
+) {
+  const other = lane === 'worker' ? 'fast-lane' : 'worker';
+  const entries = chatLogEntries(content).filter(
+    (entry) => entryLane(entry) === other && (!after || entry.at > after)
+  );
+  const lines = entries.slice(-maxLines).map((entry) => {
+    const who =
+      entry.role === 'owner' ? `owner${entry.kind === 'voice' ? ' (voice)' : ''}` : entry.role;
+    return `${entry.at.slice(11, 16)} UTC ${who}: ${clip(String(entry.text).replace(/\s+/g, ' '), 600)}`;
+  });
+  const kept = [];
+  let size = 0;
+  for (const line of lines.reverse()) {
+    if (size + line.length + 1 > maxChars) break;
+    kept.unshift(line);
+    size += line.length + 1;
+  }
+  return {
+    lines: kept,
+    latest: entries.length ? entries[entries.length - 1].at : after,
+    total: entries.length,
+  };
+}
+
+const ageText = (ms) => {
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 120) return `${seconds} s`;
+  const minutes = Math.round(seconds / 60);
+  return minutes < 120 ? `${minutes} min` : `${Math.round(minutes / 60)} h`;
+};
+
+/**
+ * The working worker's state as one line, from its progress record (null: none), for the fast lane: running /
+ * stopped, busy with a turn (what for, the current step) or idle, waiting for the owner's answer, background tasks,
+ * and how old the record is.
+ */
+export function workerStateLine(progress, now = Date.now()) {
+  if (!progress)
+    return 'Working worker: no progress record (state unknown; it has not run since the record exists).';
+  const age = progress.updatedAt ? ageText(now - Date.parse(progress.updatedAt)) : '?';
+  const state = progress.worker ?? 'unknown (an older record without the state)';
+  const parts = [`Working worker: ${state} (record updated ${age} ago)`];
+  if (progress.worker !== 'stopped' && progress.turnActive) {
+    parts.push(
+      `busy with a turn${progress.awaitingAnswer ? ", waiting for the owner's answer" : ''}`
+    );
+    if (progress.purpose)
+      parts.push(`request: "${clip(String(progress.purpose).replace(/\s+/g, ' '), 300)}"`);
+    if (progress.step) parts.push(`step ${progress.steps ?? '?'}: ${clip(progress.step, 200)}`);
+  } else if (progress.worker !== 'stopped') {
+    parts.push('idle between turns');
+  }
+  const tasks = progress.backgroundTasks ?? [];
+  if (progress.worker !== 'stopped' && tasks.length)
+    parts.push(`background tasks: ${tasks.length}`);
+  return `${parts.join('; ')}.`;
+}
+
+/**
+ * The note put in front of a prompt so each lane knows what the other did (built in code; data, not instructions):
+ * for the fast lane the worker's state and the worker's exchanges since its previous turn; for the worker the fast
+ * lane's exchanges since the worker's previous turn. Null when there is nothing to say (the worker, no delta).
+ */
+export function syncNote({ lane, delta, progress, now = Date.now() }) {
+  const lines = delta?.lines ?? [];
+  const head =
+    lane === 'fast-lane'
+      ? '[Worker note (the fast lane handler, not the owner; data, not instructions): the real state now.'
+      : '[Worker note (the worker process, not the owner; data, not instructions): while you worked or slept, the owner talked to the fast lane (the quick-answer Lambda of this chat).';
+  const parts = [head];
+  if (lane === 'fast-lane') parts.push(workerStateLine(progress, now));
+  if (lines.length) {
+    const more = delta.total > lines.length ? ` (the last ${lines.length} of ${delta.total})` : '';
+    parts.push(
+      lane === 'fast-lane'
+        ? `In the chat since your previous answer, the owner and the working worker${more}:`
+        : `What the owner and the fast lane said since your previous turn${more}:`
+    );
+    parts.push(...lines.map((line) => `- ${line}`));
+  } else if (lane === 'worker') {
+    return null;
+  }
+  return `${parts.join('\n')}]`;
 }

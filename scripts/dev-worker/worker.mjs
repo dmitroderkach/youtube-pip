@@ -30,6 +30,9 @@ import {
   progressRecord,
   chatLogEntry,
   appendChatLog,
+  lastEntryAt,
+  laneDelta,
+  syncNote,
 } from './session-state.mjs';
 import {
   backgroundRestoreHtml,
@@ -37,21 +40,21 @@ import {
   callbackData,
   timeZoneKeyboard,
   DEFAULT_MODE,
-  EFFORT_LEVELS,
   MODES,
-  effortKeyboard,
   escapeHtml,
-  modeKeyboard,
-  modeText,
-  modelKeyboard,
-  modelText,
   parseCallback,
   planKeyboard,
   planMessages,
   planSlug,
   planTitle,
+  scheduledHtml,
+  scheduledKeyboard,
   VOICE_MODELS,
 } from './telegram-format.mjs';
+import { searchPlaces } from './timezone-search.mjs';
+import { SETTINGS_KEY, describeControl, resolveSettings, splitControl } from './settings.mjs';
+import { createSettingsCommands } from './settings-commands.mjs';
+import { createS3Objects } from './s3-objects.mjs';
 import { execFile } from 'node:child_process';
 import {
   asClaude,
@@ -66,7 +69,7 @@ import { createTelegram } from './telegram.mjs';
 import { createVoice } from './voice.mjs';
 import { createIncoming } from './incoming.mjs';
 import { createInteractions } from './interactions.mjs';
-import { createPinnedStatus } from './status.mjs';
+import { createPinnedStatus, mergeStatus, renderStatus, STATUS_KEY } from './status.mjs';
 import {
   chmodSync,
   existsSync,
@@ -100,6 +103,8 @@ if (CLAUDE_USER) process.env.CLAUDE_CONFIG_DIR ??= join(CLAUDE_HOME, '.claude');
 const CLAUDE_TMP = join(CLAUDE_HOME, '.cache', 'dev-worker');
 const WORKSPACE_ARCHIVE = join(CLAUDE_TMP, 'workspace.tar.gz');
 const BUCKET = env.STATE_BUCKET;
+/** The state bucket through the S3 SDK: conditional writes (ETag) of the stores the fast lane writes too. */
+const stateObjects = createS3Objects({ region: env.AWS_REGION ?? 'eu-central-1', bucket: BUCKET });
 const QUEUE_URL = env.QUEUE_URL;
 const MODEL = env.CLAUDE_MODEL ?? 'opus';
 const IDLE_MS = Number(env.IDLE_TIMEOUT_SECONDS ?? 600) * 1000;
@@ -580,6 +585,61 @@ async function saveMeta() {
   await aws('s3', 'cp', join(WORKER_TMP, 'meta.json'), `s3://${BUCKET}/${META_KEY}`, '--quiet');
   // Settings (mode, model, effort, voice, time zone) live in meta: the pinned status follows them
   scheduleStatusUpdate();
+  mirrorSettings();
+}
+
+/** The worker's settings and the shared ones as they are in settings.json (settings.mjs). */
+function settingsSections() {
+  const shared = { timeZone: ownerTimeZone() };
+  for (const key of ['voiceMode', 'voiceName', 'voiceModel'])
+    if (meta?.[key] !== undefined) shared[key] = meta[key];
+  return {
+    worker: { model: modelName(), effort: meta?.effort ?? null, mode: currentMode() },
+    shared,
+  };
+}
+
+let lastMirrored = null;
+let settingsUploads = Promise.resolve();
+
+/**
+ * Write the worker's settings to state/settings.json (conditional write) when they changed: the fast lane shows and
+ * uses them from there. meta.json keeps them too, as this run's copy.
+ */
+function mirrorSettings() {
+  const sections = settingsSections();
+  const body = JSON.stringify(sections);
+  if (body === lastMirrored) return settingsUploads;
+  lastMirrored = body;
+  settingsUploads = settingsUploads.then(() =>
+    stateObjects
+      .updateJson(SETTINGS_KEY, (current) => ({
+        ...current,
+        worker: { ...(current.worker ?? {}), ...sections.worker },
+        shared: { ...(current.shared ?? {}), ...sections.shared },
+      }))
+      .catch((error) => log('settings write failed', error))
+  );
+  return settingsUploads;
+}
+
+/**
+ * The settings at start: state/settings.json (either lane may have changed them while the worker slept) over
+ * meta.json's old values; written back once, so settings.json has them from then on.
+ */
+async function loadSettingsFile() {
+  const file = await stateObjects.getJson(SETTINGS_KEY).catch((error) => {
+    log('settings read failed', error);
+    return null;
+  });
+  const { worker, shared } = resolveSettings(file, meta, { workerModel: MODEL });
+  meta = { ...(meta ?? {}), model: worker.model, mode: worker.mode, timeZone: shared.timeZone };
+  if (worker.effort) meta.effort = worker.effort;
+  else delete meta.effort;
+  for (const key of ['voiceMode', 'voiceName', 'voiceModel'])
+    if (shared[key] !== undefined) meta[key] = shared[key];
+  if (!file?.worker || !file?.shared) await mirrorSettings();
+  else lastMirrored = JSON.stringify(settingsSections());
 }
 
 // ---------------------------------------------------------------------------------------------- attachments
@@ -617,6 +677,7 @@ const voice = createVoice({
     set: (patch) => {
       meta = { ...(meta ?? {}), ...patch };
       scheduleStatusUpdate();
+      mirrorSettings();
       save().catch((error) => log('save failed', error));
     },
   },
@@ -859,63 +920,91 @@ function publishActivity(turnActive) {
 
 /** The current step of the turn, as the in-chat progress message shows it (for the progress record). */
 let currentStep = null;
+/** The worker process's state in the progress record (session-state.mjs WORKER_STATES). */
+let workerState = 'running';
 let progressTimer = null;
 let progressUploads = Promise.resolve();
 let lastProgressBody = '';
+
+/** The progress record now (session-state.mjs progressRecord). */
+function currentProgress() {
+  return progressRecord({
+    purpose: turnPurpose,
+    step: currentStep,
+    steps: turn?.steps ?? 0,
+    backgroundTasks: backgroundTasks.values(),
+    lastAnswerAt,
+    turnActive: Boolean(turn),
+    worker: workerState,
+    awaitingAnswer: Boolean(interactions.getTextTarget()),
+    agents: runningAgents().map(([, agent]) => agent),
+  });
+}
+
+/** Upload the record (after the uploads before it); skipped when only its time changed. */
+function uploadProgress(record) {
+  const { updatedAt, ...content } = record;
+  const body = JSON.stringify(content);
+  if (body === lastProgressBody) return progressUploads;
+  lastProgressBody = body;
+  progressUploads = progressUploads.then(async () => {
+    try {
+      await stateObjects.putObject(PROGRESS_KEY, JSON.stringify({ updatedAt, ...content }));
+    } catch (error) {
+      log('publish progress failed', error);
+    }
+  });
+  return progressUploads;
+}
 
 /** Write the progress record to S3 soon (debounced; only when it changed). Best effort. */
 function scheduleProgress() {
   if (progressTimer) return;
   progressTimer = setTimeout(() => {
     progressTimer = null;
-    const record = progressRecord({
-      purpose: turnPurpose,
-      step: currentStep,
-      steps: turn?.steps ?? 0,
-      backgroundTasks: backgroundTasks.values(),
-      lastAnswerAt,
-      turnActive: Boolean(turn),
-    });
-    const { updatedAt, ...content } = record;
-    const body = JSON.stringify(content);
-    if (body === lastProgressBody) return;
-    lastProgressBody = body;
-    progressUploads = progressUploads.then(async () => {
-      try {
-        const path = join(WORKER_TMP, 'progress.json');
-        writeFileSync(path, JSON.stringify({ updatedAt, ...content }));
-        await aws('s3', 'cp', path, `s3://${BUCKET}/${PROGRESS_KEY}`, '--quiet');
-      } catch (error) {
-        log('publish progress failed', error);
-      }
-    });
+    void uploadProgress(currentProgress());
   }, PROGRESS_DEBOUNCE_MS);
   progressTimer.unref?.();
 }
 
-/** The chat log as last read or written (null until first used: read from S3 then). */
-let chatLog = null;
+/** Write the progress record at once (the worker's start and stop: the fast lane routes by them). */
+function writeProgressNow() {
+  if (progressTimer) clearTimeout(progressTimer);
+  progressTimer = null;
+  return uploadProgress(currentProgress());
+}
+
 let chatLogUploads = Promise.resolve();
 
-/** Append an owner's message or an answer to the chat log in S3 (read-modify-write, one at a time). Best effort. */
+/**
+ * Append an owner's message or an answer to the chat log in S3, one at a time, with a conditional write (ETag,
+ * retried): the fast lane appends to the same log at any time, and neither drops the other's lines. Best effort.
+ */
 function logChat(role, text, options = {}) {
   if (!text) return;
   const entry = chatLogEntry(role, text, options);
   chatLogUploads = chatLogUploads.then(async () => {
     try {
-      const path = join(WORKER_TMP, 'chat-log.jsonl');
-      if (chatLog === null) {
-        chatLog = (await s3Exists(CHAT_LOG_KEY))
-          ? (await aws('s3', 'cp', `s3://${BUCKET}/${CHAT_LOG_KEY}`, '-', '--quiet')) || ''
-          : '';
-      }
-      chatLog = appendChatLog(chatLog, entry);
-      writeFileSync(path, chatLog);
-      await aws('s3', 'cp', path, `s3://${BUCKET}/${CHAT_LOG_KEY}`, '--quiet');
+      await stateObjects.updateObject(CHAT_LOG_KEY, (content) => appendChatLog(content, entry));
     } catch (error) {
       log('chat log failed', error);
     }
   });
+}
+
+/** The chat log time up to which the fast lane's exchanges are known to the session (null until first read). */
+let fastLaneSeenAt = null;
+
+/**
+ * The worker note with what the owner and the fast lane said since the previous turn (session-state.mjs syncNote),
+ * or null. The cursor starts at the worker's own last line in the log (what it saw before this run).
+ */
+async function fastLaneNote() {
+  const content = await stateObjects.get(CHAT_LOG_KEY);
+  if (fastLaneSeenAt === null) fastLaneSeenAt = lastEntryAt(content, 'worker') ?? '';
+  const delta = laneDelta(content, { lane: 'worker', after: fastLaneSeenAt || null });
+  if (delta.latest) fastLaneSeenAt = delta.latest;
+  return syncNote({ lane: 'worker', delta });
 }
 
 /** Start tracking a turn (a message from the owner, or a turn Claude starts for a finished background task). */
@@ -1264,26 +1353,29 @@ const VOICE_COMMAND = /^\/voice(@\w+)?(\s+(.+))?$/i;
 
 // ---------------------------------------------------------------------------------------------- pinned status
 
-// The pinned status (status.mjs); its text is statusBody below, its id in meta.json
+/**
+ * The pinned message's id, shared with the fast lane (state/status.json; meta.json held it before both lanes did):
+ * refreshed from the record on every update, so either lane edits the same message.
+ */
+let pinnedIds = { statusMessageId: null };
+
+// The pinned status (status.mjs): one message for both lanes, rendered from state/status.json (statusBody below)
 const pinned = createPinnedStatus({
   log,
   telegram: tg,
   chatId: env.TELEGRAM_CHAT_ID,
-  getMeta: () => meta,
+  getMeta: () => pinnedIds,
   setMeta: (value) => {
-    meta = value;
+    pinnedIds = { statusMessageId: value?.statusMessageId ?? null };
   },
-  persistMeta: async () => {
-    writeFileSync(join(WORKER_TMP, 'meta.json'), JSON.stringify(meta));
-    await aws('s3', 'cp', join(WORKER_TMP, 'meta.json'), `s3://${BUCKET}/${META_KEY}`, '--quiet');
-  },
+  persistMeta: () =>
+    stateObjects.updateJson(STATUS_KEY, { statusMessageId: pinnedIds.statusMessageId }),
   body: (options) => statusBody(options),
   isStopping: () => stopping,
   formatTime: (date) => shortTime(date),
 });
 const { scheduleStatusUpdate, updateStatus } = pinned;
 
-const percent = (value) => `${Math.round(value * 100)}%`;
 const shortTime = (date, withDay = false) =>
   date.toLocaleString('uk-UA', {
     timeZone: ownerTimeZone(),
@@ -1292,37 +1384,57 @@ const shortTime = (date, withDay = false) =>
     minute: '2-digit',
   });
 
+/** When this worker went to sleep (the status's "спить з"). */
+let sleepingSince = null;
+
 /**
- * The status text. Telegram's pinned bar shows only the start of the first line (~60 characters on a phone), so the
- * first line is a dense summary (state, mode, model, context, Claude's windows, Gemini speech spend); the details
- * follow.
+ * The status text (status.mjs renderStatus): this worker's figures and the shared ones are written to
+ * state/status.json first, so the message also shows the fast lane's last known figures.
  */
 async function statusBody({ sleeping }) {
   const windows = await planWindows().catch(() => ({}));
-  const used = (name) => (windows[name] ? percent(windows[name].utilization) : '?');
-  const reset = (name, withDay) =>
-    windows[name]?.resetsAt ? shortTime(new Date(windows[name].resetsAt * 1000), withDay) : '?';
   const usage = await speechUsage().catch(() => null);
   const spend =
-    budgetLevel(usage) === 'none' ? '?' : `$${usage.usd.toFixed(2)}/${Number(usage.budget)}`;
-  let context = '';
+    budgetLevel(usage) === 'none' ? undefined : `$${usage.usd.toFixed(2)}/${Number(usage.budget)}`;
+  let ctx = null;
   if (!sleeping) {
     const contextUsage = await session?.getContextUsage({ detail: 'summary' }).catch(() => null);
-    if (contextUsage) context = ` · ctx ${Math.round(contextUsage.percentage)}%`;
+    if (contextUsage) ctx = contextUsage.percentage;
   }
-  const summary =
-    `${sleeping ? '💤' : '🟢'}${MODES[currentMode()].emoji} ${modelName()}${context} · ` +
-    `5г ${used('five_hour')} · тж ${used('seven_day')} · 🔊${spend}`;
-
+  if (sleeping) sleepingSince ??= new Date().toISOString();
   const scheduled = (await s3Keys(SCHEDULED_PREFIX).catch(() => [])).length;
-  return [
-    summary,
-    '',
-    `${sleeping ? `💤 Спить з ${shortTime(new Date())}` : '🟢 Працює'} · режим ${currentMode()} · effort ${meta?.effort ?? 'default'}`,
-    `📊 5 год ↻${reset('five_hour', false)} · тиждень ↻${reset('seven_day', true)}`,
-    `🔊 ${voiceMode()} · ${VOICE_MODELS[voiceModel()].label} · ${voiceName()}`,
-    `🕐 ${ownerTimeZone()}${scheduled ? ` · ⏰ ${scheduled}` : ''}`,
-  ].join('\n');
+  const figures = {
+    state: sleeping ? 'stopped' : turn ? 'busy' : 'running',
+    ...(sleeping ? { since: sleepingSince } : {}),
+    mode: currentMode(),
+    model: modelName(),
+    effort: meta?.effort ?? null,
+    ctx,
+  };
+  const shared = {
+    windows: Object.keys(windows).length ? windows : undefined,
+    speech: spend,
+    voice: { mode: voiceMode(), model: voiceModel(), name: voiceName() },
+    timeZone: ownerTimeZone(),
+    scheduled,
+  };
+  let record = null;
+  try {
+    record = await stateObjects.updateJson(STATUS_KEY, (current) =>
+      mergeStatus(current, { lane: 'worker', figures, shared })
+    );
+  } catch (error) {
+    log('status record failed', error);
+    record = mergeStatus(null, { lane: 'worker', figures, shared });
+  }
+  // The pinned message either lane made last (meta.json's id until the record has one)
+  pinnedIds.statusMessageId =
+    record?.statusMessageId ?? pinnedIds.statusMessageId ?? meta?.statusMessageId ?? null;
+  return renderStatus(record, {
+    timeZone: ownerTimeZone(),
+    modes: MODES,
+    voiceModels: VOICE_MODELS,
+  });
 }
 
 const STATUS_COMMAND = /^\/status(@\w+)?$/i;
@@ -1351,28 +1463,8 @@ async function reportScheduled(messageId) {
     log('scheduled tasks failed', error);
     return [];
   });
-  const html = tasks.length
-    ? [
-        `⏰ <b>Заплановані задачі</b> (${escapeHtml(ownerTimeZone())})`,
-        '',
-        ...tasks.map((task, i) => {
-          const when = new Date(task.dueAt).toLocaleString('uk-UA', {
-            timeZone: ownerTimeZone(),
-            weekday: 'short',
-            day: '2-digit',
-            month: '2-digit',
-            hour: '2-digit',
-            minute: '2-digit',
-          });
-          return `<b>${i + 1}.</b> ${escapeHtml(when)} — ${escapeHtml(String(task.text).slice(0, 300))}`;
-        }),
-      ].join('\n')
-    : '⏰ Запланованих задач немає. Напиши, наприклад: «о 18:00 перевір CI».';
-  const keyboard = {
-    inline_keyboard: tasks.map((task, i) => [
-      { text: `🗑 Скасувати ${i + 1}`, callback_data: callbackData('sch', task.id) },
-    ]),
-  };
+  const html = scheduledHtml(tasks, ownerTimeZone());
+  const keyboard = scheduledKeyboard(tasks);
   if (messageId) await editHtml(messageId, html, keyboard);
   else await sayHtml(html, keyboard);
 }
@@ -1391,41 +1483,6 @@ async function onScheduledButton(messageId, id) {
 // ---------------------------------------------------------------------------------------------- /timezone
 
 const TIMEZONE_COMMAND = /^\/timezone(@\w+)?(\s+(.+))?$/i;
-/** Open-Meteo geocoding: free, no key, names in any language, the place's IANA time zone in the answer. */
-const GEOCODING_URL = 'https://geocoding-api.open-meteo.com/v1/search';
-/** Languages searched at once (Ukrainian first: its names label the buttons; then English and local languages). */
-const GEOCODING_LANGUAGES = [
-  'uk',
-  'en',
-  'pl',
-  'de',
-  'fr',
-  'es',
-  'it',
-  'pt',
-  'nl',
-  'cs',
-  'sk',
-  'hu',
-  'ro',
-  'bg',
-  'hr',
-  'sr',
-  'sl',
-  'el',
-  'tr',
-  'lt',
-  'lv',
-  'et',
-  'fi',
-  'sv',
-  'da',
-  'no',
-  'he',
-  'ja',
-  'zh',
-  'ko',
-];
 /** City choices waiting for a button: id → [{ label, timeZone }]. */
 const timeZoneOffers = new Map();
 /** Notes for Claude added to the next message delivered to it (e.g. a new time zone). */
@@ -1459,26 +1516,7 @@ async function timeZoneCommand(argument) {
   if (isTimeZone(query)) return setTimeZone(query, null);
   let results = [];
   try {
-    // Open-Meteo matches names only in the language asked: search the city's own languages too ("Warszawa",
-    // "München", "Kraków"); Ukrainian names are used for the labels
-    const search = async (language) => {
-      const params = new URLSearchParams({ name: query, count: '10', language });
-      const res = await fetch(`${GEOCODING_URL}?${params}`);
-      return res.ok ? ((await res.json()).results ?? []) : [];
-    };
-    const answers = await Promise.all(GEOCODING_LANGUAGES.map(search));
-    const places = new Map();
-    for (const [i, answer] of answers.entries()) {
-      for (const result of answer) {
-        const place = places.get(result.id) ?? { names: new Set() };
-        // The first language with this place (Ukrainian first) gives the label
-        if (!place.result) place.result = result;
-        place.names.add(result.name);
-        if (i === 0) place.result = result;
-        places.set(result.id, place);
-      }
-    }
-    results = [...places.values()].map(({ result, names }) => ({ ...result, names: [...names] }));
+    results = await searchPlaces(query);
   } catch (error) {
     log('geocoding failed', error);
     await say(
@@ -1544,6 +1582,8 @@ const SDK_MODES = { bypass: 'default', auto: 'auto', manual: 'default', plan: 'p
 const interactions = createInteractions({
   telegram: tg,
   onWaiting: () => {
+    // The progress record says so: the fast lane leaves the owner's text answer to the worker
+    scheduleProgress();
     if (turn?.progress) void edit(turn.progress.message_id, '⏳ Чекаю на твою відповідь (вище)…');
   },
 });
@@ -1613,22 +1653,6 @@ async function syncSdkMode(sdkMode) {
   }
   // The session is in that mode already (`default` is bypass and manual alike): record it, do not apply it
   await setMode(mode, { quiet: true, apply: false, announce: 'self' });
-}
-
-const MODE_COMMAND = /^\/mode(@\w+)?(\s+(\S+))?\s*$/i;
-
-/** `/mode` [bypass | auto | manual | plan]: without an argument, the current mode with buttons. */
-async function modeCommand(argument) {
-  const name = (argument ?? '').toLowerCase();
-  if (!name) {
-    await sayHtml(modeText(currentMode()), modeKeyboard(currentMode()));
-    return;
-  }
-  if (!MODES[name]) {
-    await say('ℹ️ /mode bypass | auto | manual | plan');
-    return;
-  }
-  await setMode(name);
 }
 
 /** The plan Claude submits with ExitPlanMode: its input, else the newest plan file Claude Code wrote. */
@@ -1756,33 +1780,12 @@ async function canUseTool(toolName, input, options) {
 
 /** A button pressed in the chat (forwarded by the dev-bot Lambda): { data, message_id }. */
 async function onCallback(callback) {
-  const { kind, id, value } = parseCallback(callback.data);
-  if (kind === 'mode') {
-    // Also the current mode: pressing it again re-applies it to the session (resync)
-    if (MODES[id]) await setMode(id, { quiet: true });
-    await editHtml(callback.message_id, modeText(currentMode()), modeKeyboard(currentMode()));
-    return;
-  }
-  if (kind === 'model') {
-    const model = modelsListed[Number(id)];
-    if (model && model.value !== modelName()) await setModel(model.value);
-    await editHtml(
-      callback.message_id,
-      modelText(modelsListed, modelName()),
-      modelKeyboard(modelsListed, modelName())
-    );
-    return;
-  }
-  if (kind === 'effort') {
-    if (id !== (meta?.effort ?? 'default') && (id === 'default' || EFFORT_LEVELS.includes(id)))
-      await setEffort(id);
-    await editHtml(
-      callback.message_id,
-      effortHtml(),
-      effortKeyboard(await effortLevels(), meta?.effort ?? null)
-    );
-    return;
-  }
+  // A button may answer what waits for the owner: the progress record follows (debounced)
+  scheduleProgress();
+  const parsed = parseCallback(callback.data);
+  const { kind, id, value } = parsed;
+  // /model, /effort, /mode buttons of both lanes (settings-commands.mjs)
+  if (await settingsCommands.handleCallback(callback.message_id, parsed)) return;
   if (kind === 'agents') {
     await onAgentsButton(Number(id));
     await editHtml(callback.message_id, agentsHtml(), agentsKeyboard());
@@ -1826,21 +1829,17 @@ async function onCallback(callback) {
 /** A text (or voice) message from the owner while a question / plan / prompt waits: it is the answer. */
 async function answerPending(message) {
   interactions.answerText(await incoming.spokenText(message));
+  scheduleProgress();
 }
 
 // ---------------------------------------------------------------------------------------------- /model, /effort
 
 /** The model the session reports (its init message), else the one asked for. */
 let sessionModel = null;
-/** The list `/model` showed last (its buttons pick a model by index). */
-let modelsListed = [];
 
 const modelName = () => meta?.model ?? MODEL;
 
-const MODEL_COMMAND = /^\/model(@\w+)?(\s+(\S+))?\s*$/i;
-const EFFORT_COMMAND = /^\/effort(@\w+)?(\s+(\S+))?\s*$/i;
-
-/** Switch the session's model now and for later runs (meta.json). */
+/** Switch the session's model now and for later runs (meta.json, settings.json). */
 async function setModel(model) {
   try {
     await session?.setModel(model);
@@ -1853,30 +1852,6 @@ async function setModel(model) {
   meta = { ...(meta ?? {}), model };
   await saveMeta().catch((error) => log('save meta failed', error));
   return true;
-}
-
-/** `/model` [name]: without an argument the session's models as buttons. */
-async function modelCommand(argument) {
-  if (argument) {
-    if (await setModel(argument)) await say(`🧠 Модель: ${argument}`);
-    return;
-  }
-  modelsListed =
-    (await session?.supportedModels().catch((error) => log('supportedModels failed', error))) ?? [];
-  if (!modelsListed.length) {
-    await say(
-      `🧠 Модель: ${modelName()}${sessionModel ? ` (${sessionModel})` : ''}\n/model <назва> — змінити`
-    );
-    return;
-  }
-  await sayHtml(modelText(modelsListed, modelName()), modelKeyboard(modelsListed, modelName()));
-}
-
-/** Effort levels of the current model (all of them when the session does not say). */
-async function effortLevels() {
-  const models = (await session?.supportedModels().catch(() => null)) ?? [];
-  const model = models.find((m) => m.value === modelName() || m.resolvedModel === sessionModel);
-  return model?.supportedEffortLevels?.length ? model.supportedEffortLevels : EFFORT_LEVELS;
 }
 
 /** Set the effort now and for later runs; 'default' goes back to the model's own. */
@@ -1896,22 +1871,48 @@ async function setEffort(level) {
   return true;
 }
 
-const effortHtml = () =>
-  `Effort: <b>${meta?.effort ?? 'за замовчуванням моделі'}</b> (модель ${escapeHtml(modelName())})\n<i>Або текстом: /effort low | medium | high | xhigh | max | default</i>`;
+/**
+ * `/model`, `/effort`, `/mode` with the lane switch (settings-commands.mjs, shared with the fast lane): the worker's
+ * lane is applied to the live session, the fast lane's is written for its next answer.
+ */
+const settingsCommands = createSettingsCommands({
+  host: 'w',
+  telegram: tg,
+  store: stateObjects,
+  readMeta: async () => meta,
+  log,
+  applyLive: async (lane, patch) => {
+    if ('model' in patch) return setModel(patch.model);
+    if ('effort' in patch) return setEffort(patch.effort ?? 'default');
+    if ('mode' in patch) return setMode(patch.mode, { quiet: true });
+    return true;
+  },
+  notifyOther: async () => 'Лямбда застосує з наступної відповіді',
+});
 
-/** `/effort` [low | medium | high | xhigh | max | default]: without an argument the levels as buttons. */
-async function effortCommand(argument) {
-  const level = (argument ?? '').toLowerCase();
-  if (!level) {
-    await sayHtml(effortHtml(), effortKeyboard(await effortLevels(), meta?.effort ?? null));
-    return;
+/**
+ * A control message (the fast lane changed a setting of the worker or a shared one while it runs): applied to the
+ * live session at once, without a model turn, and confirmed in one line.
+ */
+async function applyControl(raw) {
+  const parts = splitControl(raw);
+  if (!parts) return;
+  const { session: live, shared } = parts;
+  const applied = {};
+  if ('model' in live && (await setModel(live.model))) applied.model = live.model;
+  if ('effort' in live && (await setEffort(live.effort ?? 'default'))) applied.effort = live.effort;
+  if ('mode' in live && (await setMode(live.mode, { quiet: true }))) applied.mode = live.mode;
+  if (Object.keys(shared).length) {
+    meta = { ...(meta ?? {}), ...shared };
+    if (shared.timeZone)
+      notesForClaude.push(
+        `[Worker note: the owner's working time zone is now ${shared.timeZone}; read times the owner gives in it.]`
+      );
+    await saveMeta().catch((error) => log('save meta failed', error));
+    Object.assign(applied, shared);
   }
-  if (level !== 'default' && !EFFORT_LEVELS.includes(level)) {
-    await say('ℹ️ /effort low | medium | high | xhigh | max | default');
-    return;
-  }
-  if (await setEffort(level))
-    await say(`🎚 Effort: ${level === 'default' ? 'за замовчуванням моделі' : level}`);
+  if (Object.keys(applied).length)
+    await say(`⚙️ Робочий воркер: ${describeControl(applied)} (змінено в Лямбді)`);
 }
 
 // ---------------------------------------------------------------------------------------------- /agents
@@ -1935,6 +1936,8 @@ const heldAnswers = [];
 
 /** A `system` message about tasks: keep track of the session's subagents. */
 function onTaskEvent(message) {
+  // The progress record lists the running subagents (the fast lane's /agents)
+  scheduleProgress();
   if (
     message.subtype === 'task_started' &&
     (message.task_type === 'local_agent' || message.subagent_type)
@@ -2554,7 +2557,38 @@ async function oncallNote() {
 }
 
 /** Deliver one message from the owner; while Claude works, its running commands go to the background first. */
-async function deliver(message) {
+/** `/stop` (or a message with `interrupt`, the fast lane's stop_worker): the current turn ends at once. */
+const STOP_COMMAND = /^\/stop(@\w+)?$/i;
+
+/** Interrupt the running turn now (the SDK's interrupt, not at the next tool boundary); one line in the chat. */
+async function stopTurn(message) {
+  const why =
+    message.interrupt && message.reason ? ` (${String(message.reason).slice(0, 200)})` : '';
+  if (!turn || !session) {
+    await say(`ℹ️ Робочий воркер зараз нічого не виконує${why}`);
+    return;
+  }
+  log(`turn interrupted by the owner${why}`);
+  await session.interrupt().catch((error) => log('interrupt failed', error));
+  logChat('owner', `/stop${why}`, { kind: 'text' });
+  await say(`⏹ Поточну задачу зупинено${why}`);
+}
+
+/** One JSON line per delivered message: how long it took from the owner's message and from SQS to the session. */
+function logTiming(message, receivedAt, kind) {
+  const now = Date.now();
+  console.log(
+    JSON.stringify({
+      timing: 'worker-deliver',
+      kind,
+      fromReceiveMs: now - receivedAt,
+      fromOwnerMs: message.date ? now - message.date * 1000 : null,
+      handover: Boolean(message.handover),
+    })
+  );
+}
+
+async function deliver(message, receivedAt = Date.now()) {
   // The plan limit is still in force: Claude would refuse it, so say when it resets instead of running a turn
   if (limitInForce()) {
     await say(`${limitMessage()}\nЦе повідомлення не передав: надішли його ще раз після скидання.`);
@@ -2582,6 +2616,9 @@ async function deliver(message) {
   });
   scheduleProgress();
   if (notesForClaude.length) text = `${notesForClaude.splice(0).join('\n')}\n\n${text}`;
+  // What the owner and the fast lane said since the previous turn (two-way sync; the fast lane reads the worker's)
+  const laneNote = await fastLaneNote().catch((error) => log('fast lane note failed', error));
+  if (laneNote) text = `${laneNote}\n\n${text}`;
   const oncall = await oncallNote().catch((error) => log('oncall check failed', error));
   if (oncall) text = `${oncall}\n\n${text}`;
   const spokenByOwner = (message.attachments ?? []).some((a) => a.kind === 'voice');
@@ -2602,6 +2639,7 @@ async function deliver(message) {
     deliveredMidTurn = true;
     // 'next': read at the turn's next step (right away once the commands are in the background) without cutting
     // off what the model is writing now
+    logTiming(message, receivedAt, 'mid-turn');
     sendToClaude(
       `[New message from the owner while you were working.${
         moved
@@ -2613,6 +2651,7 @@ async function deliver(message) {
     await say(moved ? '📨 Передав одразу; поточні команди пішли у фон' : '📨 Передав одразу');
   } else {
     lastPrompt = text;
+    logTiming(message, receivedAt, 'turn');
     sendToClaude(text);
     ensureTurn();
   }
@@ -2711,6 +2750,8 @@ async function stop() {
   if (stopping) return;
   stopping = true;
   publishActivity(Boolean(turn));
+  workerState = 'stopping';
+  void writeProgressNow();
   const reason = stopReason;
   const interrupted = Boolean(turn);
   if (session) {
@@ -2728,6 +2769,10 @@ async function stop() {
     saved = false;
     log('save failed', error);
   }
+  // The last progress record of this run: the fast lane knows the worker is gone (it routes and answers by it)
+  workerState = 'stopped';
+  turn = null;
+  await Promise.race([writeProgressNow(), new Promise((r) => setTimeout(r, 5000))]);
   const context = saved ? 'контекст збережено' : 'контекст НЕ вдалося зберегти (див. логи)';
   const minutes = Math.round(IDLE_MS / 60000);
   // Sent as the process ends; ECS still needs a while to stop the task. "⚪ Воркер зупинено" comes from the bot on
@@ -2773,6 +2818,7 @@ async function main() {
     process.exit(REPORTED_EXIT_CODE);
   }
   if (stopReason) return stop();
+  await loadSettingsFile();
   const branch = (await claudeSh('git', ['-C', REPO_DIR, 'branch', '--show-current'])).trim();
   const modeNote =
     (currentMode() === DEFAULT_MODE
@@ -2803,6 +2849,7 @@ async function main() {
   // The ready message counts as an answer for the watchdog
   lastAnswerAt = new Date().toISOString();
   publishActivity(false);
+  void writeProgressNow();
   void keepSession();
   setInterval(checkLimits, LIMITS_CHECK_MS).unref();
   // Google's figure of the Gemini speech budget (Pub/Sub), now and every BUDGET_PULL_MS
@@ -2822,6 +2869,7 @@ async function main() {
       if (!stopReason) log('receive failed', error);
       continue;
     }
+    const receivedAt = Date.now();
     for (const message of messages) {
       if (stopReason) break;
       // Sent before this /up (left in the queue by a previous run): not meant for this session
@@ -2846,24 +2894,21 @@ async function main() {
           continue;
         }
         const command = message.attachments?.length ? '' : (message.text?.trim() ?? '');
-        const mode = command.match(MODE_COMMAND);
-        if (mode) {
-          await modeCommand(mode[3]);
+        if (message.control) {
+          await applyControl(message.control);
+          continue;
+        }
+        if (message.interrupt || STOP_COMMAND.test(command)) {
+          await stopTurn(message);
+          continue;
+        }
+        const [, name, argument] = /^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i.exec(command) ?? [];
+        if (name && (await settingsCommands.handleCommand(name.toLowerCase(), argument ?? ''))) {
           continue;
         }
         const compact = command.match(COMPACT_COMMAND);
         if (compact) {
           await compactCommand(compact[3]);
-          continue;
-        }
-        const model = command.match(MODEL_COMMAND);
-        if (model) {
-          await modelCommand(model[3]);
-          continue;
-        }
-        const effort = command.match(EFFORT_COMMAND);
-        if (effort) {
-          await effortCommand(effort[3]);
           continue;
         }
         if (AGENTS_COMMAND.test(command)) {
@@ -2905,7 +2950,7 @@ async function main() {
           await answerPending(message);
           continue;
         }
-        await deliver(message);
+        await deliver(message, receivedAt);
       } catch (error) {
         log('deliver failed', error);
         await say(`⚠️ Помилка воркера: ${String(error.message ?? error).slice(0, 1500)}`);

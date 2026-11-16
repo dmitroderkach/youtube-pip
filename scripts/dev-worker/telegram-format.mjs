@@ -459,23 +459,28 @@ export function permissionHtml(toolName, input = {}, options = {}) {
 /** Effort levels of Claude Code (`/effort`); a model may support fewer (ModelInfo.supportedEffortLevels). */
 export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'];
 
-/** `/model` buttons: one per model of `supportedModels()` (by index: model ids can be long), the current one marked. */
-export function modelKeyboard(models, current) {
+/**
+ * `/model` buttons: one per model of `supportedModels()` (by index: model ids can be long), the current one marked.
+ * `lane` (the fast lane's lane switch: `f` the fast lane, `w` the worker) goes into the callback data as its value.
+ */
+export function modelKeyboard(models, current, { lane } = {}) {
   return {
     inline_keyboard: models.map((model, i) => [
       {
         text: buttonText(
           `${model.value === current ? '✓ ' : ''}${model.displayName || model.value}`
         ),
-        callback_data: callbackData('model', String(i)),
+        callback_data: lane
+          ? callbackData('model', String(i), lane)
+          : callbackData('model', String(i)),
       },
     ]),
   };
 }
 
-export function modelText(models, current) {
+export function modelText(models, current, { header = 'Модель' } = {}) {
   return [
-    `Модель: <b>${escapeHtml(current)}</b>`,
+    `${header}: <b>${escapeHtml(current)}</b>`,
     '',
     ...models.map(
       (model) =>
@@ -486,22 +491,73 @@ export function modelText(models, current) {
   ].join('\n');
 }
 
-/** `/effort` buttons: the levels the model supports and "default" (the model's own), the current one marked. */
-export function effortKeyboard(levels, current) {
+/**
+ * `/effort` buttons: the levels the model supports and "default" (the model's own), the current one marked. `lane`:
+ * as in modelKeyboard.
+ */
+export function effortKeyboard(levels, current, { lane } = {}) {
   const mark = (level) => (level === current ? '✓ ' : '');
+  const data = (level) =>
+    lane ? callbackData('effort', level, lane) : callbackData('effort', level);
   return {
     inline_keyboard: [
       levels.map((level) => ({
         text: `${mark(level)}${level}`,
-        callback_data: callbackData('effort', level),
+        callback_data: data(level),
       })),
       [
         {
           text: `${current ? '' : '✓ '}за замовчуванням моделі`,
-          callback_data: callbackData('effort', 'default'),
+          callback_data: data('default'),
         },
       ],
     ],
+  };
+}
+
+/** Lane names of the fast lane's settings buttons (`f` / `w` in callback data). */
+export const LANES = {
+  f: { emoji: '⚡', name: 'Лямбда (швидка смуга)' },
+  w: { emoji: '🛠', name: 'Робочий воркер' },
+};
+
+/** The lane switch under the fast lane's `/model` and `/effort` buttons: shows the other lane's setting. */
+export function laneSwitchRow(kind, lane) {
+  const other = lane === 'w' ? 'f' : 'w';
+  return [
+    {
+      text: `${LANES[other].emoji} Показати для: ${LANES[other].name}`,
+      callback_data: callbackData(kind, 'show', other),
+    },
+  ];
+}
+
+/** `/scheduled`: the owner's scheduled tasks (sorted by due time), in their time zone. */
+export function scheduledHtml(tasks, timeZone) {
+  if (!tasks.length) return '⏰ Запланованих задач немає. Напиши, наприклад: «о 18:00 перевір CI».';
+  return [
+    `⏰ <b>Заплановані задачі</b> (${escapeHtml(timeZone)})`,
+    '',
+    ...tasks.map((task, i) => {
+      const when = new Date(task.dueAt).toLocaleString('uk-UA', {
+        timeZone,
+        weekday: 'short',
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      return `<b>${i + 1}.</b> ${escapeHtml(when)} — ${escapeHtml(String(task.text).slice(0, 300))}`;
+    }),
+  ].join('\n');
+}
+
+/** A cancel button per scheduled task (`sch:<id>`). */
+export function scheduledKeyboard(tasks) {
+  return {
+    inline_keyboard: tasks.map((task, i) => [
+      { text: `🗑 Скасувати ${i + 1}`, callback_data: callbackData('sch', task.id) },
+    ]),
   };
 }
 
@@ -579,5 +635,22 @@ export function timeZoneKeyboard(id, choices) {
         callback_data: callbackData('tz', id, String(i)),
       },
     ]),
+  };
+}
+
+/**
+ * `/timezone` city buttons with the zone itself in the callback data (`tz:z:<IANA zone>`): no state between the
+ * question and the press (the fast lane's invocation may have ended by then).
+ */
+export function timeZoneZoneKeyboard(choices) {
+  return {
+    inline_keyboard: choices
+      .filter((choice) => Buffer.byteLength(`f|tz:z:${choice.timeZone}`) <= CALLBACK_DATA_MAX)
+      .map((choice) => [
+        {
+          text: `${choice.label} · ${choice.timeZone}`.slice(0, 60),
+          callback_data: callbackData('tz', 'z', choice.timeZone),
+        },
+      ]),
   };
 }

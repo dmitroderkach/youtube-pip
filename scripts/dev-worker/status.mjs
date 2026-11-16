@@ -85,3 +85,97 @@ export function createPinnedStatus({
 
   return { scheduleStatusUpdate, updateStatus, cancelScheduled };
 }
+
+// ---------------------------------------------------------------------------------------------- both lanes
+
+/**
+ * The figures behind the pinned status, shared by both lanes (`state/status.json`, conditional writes): the pinned
+ * message's id, a section per lane (`worker`, `fastLane`: what each knows of itself) and `shared` (Claude's plan
+ * windows, voice, time zone, scheduled tasks; whoever saw them last). Each lane writes its own section and the shared
+ * figures it has, then renders the whole message from the record, so the other lane's last known figures stay.
+ */
+export const STATUS_KEY = 'state/status.json';
+
+/** Plan windows of a `rate_limit_event` (`unifiedWindows`, or one window from older CLIs): name → { utilization 0-1, resetsAt }. */
+export function rateWindows(info = {}) {
+  const windows = info.unifiedWindows ?? (info.rateLimitType ? { [info.rateLimitType]: info } : {});
+  const out = {};
+  for (const [name, window] of Object.entries(windows)) {
+    if (typeof window?.utilization === 'number')
+      out[name] = { utilization: window.utilization, resetsAt: window.resetsAt ?? null };
+  }
+  return out;
+}
+
+/**
+ * The record with one lane's section replaced (`lane`: `worker` | `fastLane`) and the shared figures given merged in
+ * (undefined ones keep the last known value; plan windows merge per window).
+ */
+export function mergeStatus(current, { lane, figures, shared = {}, now = new Date() }) {
+  const record = { ...(current ?? {}) };
+  if (lane) record[lane] = { ...figures, updatedAt: now.toISOString() };
+  const merged = { ...(record.shared ?? {}) };
+  for (const [name, value] of Object.entries(shared)) {
+    if (value === undefined) continue;
+    merged[name] = name === 'windows' ? { ...(merged.windows ?? {}), ...value } : value;
+  }
+  record.shared = merged;
+  return record;
+}
+
+const pct = (value) => (typeof value === 'number' ? `${Math.round(value * 100)}%` : '?');
+
+/**
+ * The pinned status text of both lanes. Telegram's pinned bar shows only the start of the first line (~60 characters
+ * on a phone), so the first line is a dense summary (worker state, mode and model, the fast lane's model, Claude's
+ * windows, speech spend); the lanes and the shared lines follow. `modes`: telegram-format.mjs MODES.
+ */
+export function renderStatus(
+  record,
+  { timeZone = 'Europe/Warsaw', modes = {}, voiceModels = {} } = {}
+) {
+  const time = (iso, withDay = false) =>
+    iso
+      ? new Date(iso).toLocaleString('uk-UA', {
+          timeZone,
+          ...(withDay ? { weekday: 'short' } : {}),
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : '?';
+  const worker = record?.worker ?? {};
+  const fast = record?.fastLane ?? {};
+  const shared = record?.shared ?? {};
+  const windows = shared.windows ?? {};
+  const reset = (name, withDay) =>
+    windows[name]?.resetsAt
+      ? time(new Date(windows[name].resetsAt * 1000).toISOString(), withDay)
+      : '?';
+  const stateEmoji = { busy: '🔵', running: '🟢', stopped: '💤' }[worker.state] ?? '❔';
+  const mode = modes[worker.mode];
+  const ctx = (value) => (typeof value === 'number' ? ` · ctx ${Math.round(value)}%` : '');
+  const summary =
+    `${stateEmoji}${mode?.emoji ?? ''} ${worker.model ?? '?'}${ctx(worker.ctx)} · ⚡${fast.model ?? '?'} · ` +
+    `5г ${pct(windows.five_hour?.utilization)} · тж ${pct(windows.seven_day?.utilization)}` +
+    `${shared.speech ? ` · 🔊${shared.speech}` : ''}`;
+  const workerState =
+    {
+      busy: '🔵 працює над задачею',
+      running: '🟢 запущений, вільний',
+      stopped: `💤 спить з ${time(worker.since ?? worker.updatedAt)}`,
+    }[worker.state] ?? '❔ стан невідомий';
+  const voice = shared.voice;
+  return [
+    summary,
+    '',
+    `🛠 Воркер: ${workerState} · режим ${worker.mode ?? '?'} · ${worker.model ?? '?'} · effort ${worker.effort ?? 'default'}${ctx(worker.ctx)}`,
+    `⚡ Лямбда: ${fast.model ?? '?'} · effort ${fast.effort ?? 'default'}${ctx(fast.ctx)}${fast.lastAnswerAt ? ` · відповідь ${time(fast.lastAnswerAt)}` : ''}`,
+    `📊 5 год ↻${reset('five_hour', false)} · тиждень ↻${reset('seven_day', true)}`,
+    ...(voice
+      ? [
+          `🔊 ${voice.mode ?? 'auto'} · ${voiceModels[voice.model]?.label ?? voice.model ?? '?'} · ${voice.name ?? '?'}`,
+        ]
+      : []),
+    `🕐 ${shared.timeZone ?? timeZone}${shared.scheduled ? ` · ⏰ ${shared.scheduled}` : ''}`,
+  ].join('\n');
+}
