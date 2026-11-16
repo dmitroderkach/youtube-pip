@@ -59,6 +59,7 @@ import { SCHEDULED_PREFIX } from './scheduled-tasks.mjs';
 import {
   createPinnedStatus,
   mergeStatus,
+  workerView,
   rateWindows,
   renderStatus,
   STATUS_KEY,
@@ -353,6 +354,14 @@ async function statusBody() {
     const meta = await objects.getJson(META_KEY).catch(() => null);
     pinnedIds.statusMessageId = meta?.statusMessageId ?? null;
   }
+  // The worker's state from its progress record, its settings from state/settings.json while it sleeps
+  const [progress, own, meta] = await Promise.all([
+    objects.getJson(PROGRESS_KEY).catch(() => null),
+    stateStore.getJson(SETTINGS_KEY).catch(() => null),
+    objects.getJson(META_KEY).catch(() => null),
+  ]);
+  const stored = resolveSettings(own, meta).worker;
+  record = { ...record, worker: workerView(record?.worker, { progress, stored }) };
   return renderStatus(record, {
     timeZone: settings.timeZone,
     modes: MODES,
