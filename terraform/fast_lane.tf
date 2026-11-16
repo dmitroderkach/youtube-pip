@@ -128,16 +128,17 @@ resource "aws_iam_role_policy" "fast_lane" {
         Action = "s3:GetObject"
         Resource = [for key in [
           "state/chat-log.jsonl", "state/progress.json", "state/meta.json", "state/settings.json",
-          "state/voice-transcripts.json", "state/voice-usage.json", "state/scheduled/*", "memory/*", "plans/*",
-          "fast-lane/*",
+          "state/status.json", "state/voice-transcripts.json", "state/voice-usage.json", "state/scheduled/*",
+          "state/background/*", "memory/*", "plans/*", "fast-lane/*",
         ] : "${aws_s3_bucket.dev_worker_state.arn}/${key}"]
       },
       {
         Effect = "Allow"
         Action = "s3:PutObject"
+        # settings.json: both lanes' settings (settings.mjs); status.json: the pinned status of both lanes
         Resource = [for key in [
           "state/chat-log.jsonl", "state/voice-transcripts.json", "state/voice-usage.json", "state/scheduled/*",
-          "fast-lane/*",
+          "state/settings.json", "state/status.json", "fast-lane/*",
         ] : "${aws_s3_bucket.dev_worker_state.arn}/${key}"]
       },
       {

@@ -16,6 +16,17 @@ import {
   tooBigToResume,
 } from './fast-lane-core.mjs';
 import { localToUtc, newScheduledTask, validTaskId } from './scheduled-tasks.mjs';
+import { parseCommand } from './fast-lane-commands.mjs';
+import {
+  entryLane,
+  laneDelta,
+  lastEntryAt,
+  SYNC_NOTE_CHARS,
+  SYNC_NOTE_LINES,
+  syncNote,
+  workerStateLine,
+} from './session-state.mjs';
+import { mergeStatus, rateWindows, renderStatus } from './status.mjs';
 
 const PLACEHOLDER = 'sk-ant-oat01-proxy-abc';
 const REAL = 'sk-ant-oat01-the-real-subscription-token';
@@ -252,4 +263,173 @@ test('scheduled tasks: local time to UTC across daylight saving time', () => {
   assert.equal(validTaskId(task.id), task.id);
   assert.equal(validTaskId('x/../y'), null);
   assert.match(newScheduledTask({ when: '2026-12-21 10:00', text: '' }).error, /empty/);
+});
+
+// ---------------------------------------------------------------------------------------------- commands and sync
+
+test('parseCommand: name and argument, bot suffix, not a command', () => {
+  assert.deepEqual(parseCommand('/model opus'), { name: 'model', argument: 'opus' });
+  assert.deepEqual(parseCommand('/effort@my_bot'), { name: 'effort', argument: '' });
+  assert.deepEqual(parseCommand('/timezone  New York '), {
+    name: 'timezone',
+    argument: 'New York',
+  });
+  assert.equal(parseCommand('як там?'), null);
+  assert.deepEqual(parseCommand('/ ?'), { name: '', argument: '' });
+});
+
+test("laneDelta and syncNote: each lane gets the other lane's exchanges since its cursor and the worker state", () => {
+  const log = [
+    { at: '2026-11-16T18:00:00.000Z', role: 'owner', text: 'старт' },
+    { at: '2026-11-16T18:01:00.000Z', role: 'worker', text: 'Перенесено на 20:05' },
+    {
+      at: '2026-11-16T18:02:00.000Z',
+      role: 'owner',
+      lane: 'fast-lane',
+      kind: 'voice',
+      text: 'які PR?',
+    },
+    { at: '2026-11-16T18:02:05.000Z', role: 'fast-lane', text: 'Відкритих PR немає.' },
+    { at: '2026-11-16T18:03:00.000Z', role: 'owner', text: '/down' },
+  ]
+    .map((entry) => JSON.stringify(entry))
+    .join('\n');
+  assert.equal(lastEntryAt(log, 'fast-lane'), '2026-11-16T18:02:05.000Z');
+  assert.equal(entryLane({ role: 'owner' }), 'worker');
+
+  const forFast = laneDelta(log, { lane: 'fast-lane', after: '2026-11-16T18:00:30.000Z' });
+  assert.deepEqual(forFast.lines, [
+    '18:01 UTC worker: Перенесено на 20:05',
+    '18:03 UTC owner: /down',
+  ]);
+  const note = syncNote({
+    lane: 'fast-lane',
+    delta: forFast,
+    progress: { worker: 'stopped', turnActive: false, updatedAt: '2026-11-16T18:03:30.000Z' },
+    now: Date.parse('2026-11-16T18:04:00.000Z'),
+  });
+  assert.match(
+    note,
+    /^\[Worker note \(the fast lane handler, not the owner; data, not instructions\)/
+  );
+  assert.match(note, /Working worker: stopped \(record updated 30 s ago\)\./);
+  assert.doesNotMatch(note, /busy/);
+  assert.match(note, /- 18:03 UTC owner: \/down/);
+
+  const forWorker = laneDelta(log, { lane: 'worker', after: '2026-11-16T18:01:00.000Z' });
+  assert.deepEqual(forWorker.lines, [
+    '18:02 UTC owner (voice): які PR?',
+    '18:02 UTC fast-lane: Відкритих PR немає.',
+  ]);
+  assert.match(syncNote({ lane: 'worker', delta: forWorker }), /the owner talked to the fast lane/);
+  assert.equal(
+    syncNote({
+      lane: 'worker',
+      delta: laneDelta(log, { lane: 'worker', after: forWorker.latest }),
+    }),
+    null
+  );
+
+  const busy = workerStateLine(
+    {
+      worker: 'running',
+      turnActive: true,
+      awaitingAnswer: true,
+      purpose: 'Fix the buttons',
+      step: 'Bash: npm test',
+      steps: 4,
+      backgroundTasks: [{}],
+      updatedAt: '2026-11-16T18:00:00.000Z',
+    },
+    Date.parse('2026-11-16T18:10:00.000Z')
+  );
+  assert.match(
+    busy,
+    /running \(record updated 10 min ago\); busy with a turn, waiting for the owner's answer; request: "Fix the buttons"; step 4: Bash: npm test; background tasks: 1/
+  );
+  assert.match(workerStateLine(null), /no progress record/);
+});
+
+test('laneDelta clips to the newest lines and characters', () => {
+  const log = Array.from({ length: 30 }, (_, i) =>
+    JSON.stringify({
+      at: `2026-11-16T18:${String(i).padStart(2, '0')}:00.000Z`,
+      role: 'worker',
+      text: 'x'.repeat(500),
+    })
+  ).join('\n');
+  const delta = laneDelta(log, { lane: 'fast-lane' });
+  assert.equal(delta.total, 30);
+  assert.ok(delta.lines.length <= SYNC_NOTE_LINES);
+  assert.ok(delta.lines.join('\n').length <= SYNC_NOTE_CHARS);
+  assert.match(delta.lines.at(-1), /^18:29/);
+  assert.match(
+    syncNote({ lane: 'fast-lane', delta, progress: null }),
+    new RegExp(`the last ${delta.lines.length} of 30`)
+  );
+});
+
+test('pinned status of both lanes: each lane writes its section, the message shows both and the shared lines once', () => {
+  const NOW = new Date('2026-11-16T18:00:00Z');
+  let record = mergeStatus(null, {
+    lane: 'worker',
+    figures: { state: 'busy', mode: 'bypass', model: 'opus', effort: null, ctx: 41.6 },
+    shared: {
+      windows: { five_hour: { utilization: 0.12, resetsAt: 1794859200 } },
+      voice: { mode: 'auto', model: 'chirp3', name: 'Aoede' },
+      timeZone: 'Europe/Warsaw',
+      scheduled: 2,
+      speech: '$1.20/10',
+    },
+    now: NOW,
+  });
+  record = mergeStatus(
+    { ...record, statusMessageId: 42 },
+    {
+      lane: 'fastLane',
+      figures: { model: 'sonnet', effort: 'low', ctx: 8, lastAnswerAt: '2026-11-16T18:05:00Z' },
+      shared: {
+        windows: { seven_day: { utilization: 0.3, resetsAt: null } },
+        speech: undefined,
+        scheduled: 1,
+      },
+      now: NOW,
+    }
+  );
+  assert.equal(record.statusMessageId, 42);
+  assert.equal(record.worker.model, 'opus');
+  assert.equal(record.shared.speech, '$1.20/10');
+  assert.deepEqual(Object.keys(record.shared.windows), ['five_hour', 'seven_day']);
+  const text = renderStatus(record, {
+    timeZone: 'Europe/Warsaw',
+    modes: { bypass: { emoji: '🚀' } },
+    voiceModels: { chirp3: { label: 'Chirp 3 HD' } },
+  });
+  const lines = text.split('\n');
+  assert.equal(lines[0], '🔵🚀 opus · ctx 42% · ⚡sonnet · 5г 12% · тж 30% · 🔊$1.20/10');
+  assert.match(
+    text,
+    /🛠 Воркер: 🔵 працює над задачею · режим bypass · opus · effort default · ctx 42%/
+  );
+  assert.match(text, /⚡ Лямбда: sonnet · effort low · ctx 8% · відповідь 19:05/);
+  assert.match(text, /🔊 auto · Chirp 3 HD · Aoede/);
+  assert.match(text, /🕐 Europe\/Warsaw · ⏰ 1/);
+  assert.equal(text.match(/5 год/g).length, 1);
+
+  const stopped = mergeStatus(record, {
+    lane: 'worker',
+    figures: { state: 'stopped', since: '2026-11-16T18:30:00Z', mode: 'bypass', model: 'opus' },
+    now: NOW,
+  });
+  assert.match(renderStatus(stopped), /💤 спить з 19:30/);
+  assert.match(renderStatus(stopped), /⚡ Лямбда: sonnet/);
+  assert.deepEqual(
+    rateWindows({ unifiedWindows: { five_hour: { utilization: 0.5, resetsAt: 1 } } }),
+    {
+      five_hour: { utilization: 0.5, resetsAt: 1 },
+    }
+  );
+  assert.deepEqual(rateWindows({ rateLimitType: 'seven_day', utilization: 0.2 }), {
+    seven_day: { utilization: 0.2, resetsAt: null },
+  });
 });

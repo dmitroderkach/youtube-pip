@@ -17,6 +17,8 @@ import {
   isTimeZone,
   restoreNote,
   timeZoneChoices,
+  waitingOn,
+  workerStateLine,
 } from './session-state.mjs';
 
 test('background record: command or prompt from the tool call, the purpose clipped', () => {
@@ -283,7 +285,9 @@ test('progressRecord: request, step and tasks while a turn runs, clipped', () =>
     now: NOW,
   });
   assert.equal(record.updatedAt, NOW.toISOString());
+  assert.equal(record.worker, 'running');
   assert.equal(record.turnActive, true);
+  assert.equal(record.awaitingAnswer, false);
   assert.equal(record.purpose.length, 1000);
   assert.equal(record.step, 'Bash: npm test');
   assert.equal(record.steps, 7);
@@ -309,6 +313,20 @@ test('progressRecord: between turns only the background tasks and the last answe
   assert.equal(record.lastAnswerAt, '2026-11-16T09:58:00.000Z');
 });
 
+test('progressRecord: the worker state and waiting for the owner (only within a turn)', () => {
+  const base = { backgroundTasks: [], lastAnswerAt: null };
+  assert.equal(progressRecord({ ...base, worker: 'stopped' }).worker, 'stopped');
+  assert.equal(progressRecord({ ...base, worker: 'bogus' }).worker, 'running');
+  assert.equal(
+    progressRecord({ ...base, turnActive: true, awaitingAnswer: true }).awaitingAnswer,
+    true
+  );
+  assert.equal(
+    progressRecord({ ...base, turnActive: false, awaitingAnswer: true }).awaitingAnswer,
+    false
+  );
+});
+
 test('chatLogEntry and appendChatLog: clipped texts, newest lines kept, broken lines dropped', () => {
   const NOW = new Date('2026-11-16T10:00:00Z');
   const entry = chatLogEntry('owner', 'y'.repeat(CHAT_LOG_TEXT_MAX + 50), {
@@ -328,4 +346,73 @@ test('chatLogEntry and appendChatLog: clipped texts, newest lines kept, broken l
     .map((line) => JSON.parse(line));
   assert.deepEqual(lines, [{ n: 2 }, { n: 3 }, { n: 4 }]);
   assert.ok(content.endsWith('\n'));
+});
+
+test('progressRecord: background task ids and the PRs / runs the worker waits on', () => {
+  const record = progressRecord({
+    turnActive: false,
+    backgroundTasks: [
+      {
+        id: 'b7x2k',
+        type: 'bash',
+        description: 'Wait for the checks of https://github.com/dmitroderkach/youtube-pip/pull/263',
+        command: 'gh pr checks 263 --watch',
+        since: 0,
+      },
+      { id: 'bad id!', type: 'bash', description: 'gh run watch 43913671345', since: 0 },
+      {
+        type: 'agent',
+        description: 'Review',
+        command:
+          'see https://github.com/dmitroderkach/youtube-pip/actions/runs/123 and gh pr view #262',
+        since: 0,
+      },
+    ],
+  });
+  assert.deepEqual(
+    record.backgroundTasks.map((task) => task.id),
+    ['b7x2k', undefined, undefined]
+  );
+  assert.ok(!('command' in record.backgroundTasks[0]), 'commands stay out of the record');
+  assert.deepEqual(record.waitingOn, [
+    { kind: 'pr', id: '263', url: 'https://github.com/dmitroderkach/youtube-pip/pull/263' },
+    {
+      kind: 'run',
+      id: '43913671345',
+      url: 'https://github.com/dmitroderkach/youtube-pip/actions/runs/43913671345',
+    },
+    {
+      kind: 'run',
+      id: '123',
+      url: 'https://github.com/dmitroderkach/youtube-pip/actions/runs/123',
+    },
+    { kind: 'pr', id: '262', url: 'https://github.com/dmitroderkach/youtube-pip/pull/262' },
+  ]);
+  assert.deepEqual(progressRecord({ turnActive: false }).waitingOn, []);
+});
+
+test('waitingOn: deduplicated and capped', () => {
+  const tasks = Array.from({ length: 30 }, (_, i) => ({ description: `gh pr checks ${i % 15}` }));
+  const found = waitingOn(tasks);
+  assert.equal(found.length, 10);
+  assert.equal(new Set(found.map((item) => item.id)).size, 10);
+});
+
+test('workerStateLine names the PRs / runs the worker waits on', () => {
+  const now = Date.parse('2026-11-16T18:00:30Z');
+  const line = workerStateLine(
+    {
+      updatedAt: '2026-11-16T18:00:00Z',
+      worker: 'running',
+      turnActive: false,
+      backgroundTasks: [{ type: 'bash' }],
+      waitingOn: [{ kind: 'pr', id: '263', url: 'https://github.com/o/r/pull/263' }],
+    },
+    now
+  );
+  assert.match(line, /waiting on PR https:\/\/github\.com\/o\/r\/pull\/263/);
+  assert.doesNotMatch(
+    workerStateLine({ worker: 'stopped', waitingOn: [{ kind: 'pr', url: 'u' }] }, now),
+    /waiting on/
+  );
 });

@@ -76,6 +76,14 @@ jobs:
           set -o pipefail
           env -u TELEGRAM_BOT_TOKEN -u TELEGRAM_CHAT_ID bash scripts/claude-update/worker-e2e.sh | tee /tmp/worker-e2e.txt
 
+      - name: Fast lane smoke test (fake AWS, real Claude)
+        id: fastlane
+        if: steps.versions.outputs.update == 'true'
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          env -u TELEGRAM_BOT_TOKEN -u TELEGRAM_CHAT_ID node scripts/dev-worker/fast-lane-smoke.mjs | tee /tmp/fast-lane-smoke.txt
+
       - name: On-call CLI smoke test
         id: cli
         if: steps.versions.outputs.update == 'true'
@@ -90,7 +98,8 @@ jobs:
         id: pr
         if: >-
           steps.versions.outputs.update == 'true' && steps.unit.outcome == 'success' &&
-          steps.sdk.outcome == 'success' && steps.worker.outcome == 'success' && steps.cli.outcome == 'success'
+          steps.sdk.outcome == 'success' && steps.worker.outcome == 'success' &&
+          steps.fastlane.outcome == 'success' && steps.cli.outcome == 'success'
         env:
           SDK: ${{ steps.versions.outputs.sdk }}
           CLI: ${{ steps.versions.outputs.cli }}
@@ -109,6 +118,7 @@ jobs:
           UNIT: ${{ steps.unit.outcome }}
           SMOKE: ${{ steps.sdk.outcome }}
           WORKER: ${{ steps.worker.outcome }}
+          FAST_LANE: ${{ steps.fastlane.outcome }}
           CLI_SMOKE: ${{ steps.cli.outcome }}
           PR_URL: ${{ steps.pr.outputs.url }}
           PR_OUTCOME: ${{ steps.pr.outcome }}

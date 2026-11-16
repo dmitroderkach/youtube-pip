@@ -31,16 +31,10 @@ import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { createSdkMcpServer, query, tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
-import {
-  DeleteObjectCommand,
-  GetObjectCommand,
-  ListObjectsV2Command,
-  PutObjectCommand,
-  S3Client,
-} from '@aws-sdk/client-s3';
 import { DeleteMessageCommand, ReceiveMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
+import { S3Client } from '@aws-sdk/client-s3';
 import { startAnthropicProxy } from './anthropic-proxy.mjs';
 import { createTools, STATE_KEYS } from './assistant-tools.mjs';
 import {
@@ -54,11 +48,30 @@ import {
   taskTitle,
   tooBigToResume,
 } from './fast-lane-core.mjs';
+import { createFastLaneCommands, META_KEY, PROGRESS_KEY } from './fast-lane-commands.mjs';
+import { resolveSettings, SETTINGS_KEY } from './settings.mjs';
 import { createIncoming } from './incoming.mjs';
 import { createInteractions } from './interactions.mjs';
-import { appendChatLog, chatLogEntry, voiceReplyWanted } from './session-state.mjs';
+import { createS3Objects } from './s3-objects.mjs';
+import { SCHEDULED_PREFIX } from './scheduled-tasks.mjs';
+import {
+  createPinnedStatus,
+  mergeStatus,
+  rateWindows,
+  renderStatus,
+  STATUS_KEY,
+} from './status.mjs';
+import {
+  appendChatLog,
+  chatLogEntry,
+  laneDelta,
+  lastEntryAt,
+  syncNote,
+  voiceReplyWanted,
+} from './session-state.mjs';
+import { searchPlaces } from './timezone-search.mjs';
 import { createTelegram } from './telegram.mjs';
-import { parseCallback } from './telegram-format.mjs';
+import { MODES, parseCallback, VOICE_MODELS } from './telegram-format.mjs';
 import { createVoice } from './voice.mjs';
 
 const execFileAsync = promisify(execFile);
@@ -86,81 +99,35 @@ const INBOX_DIR = join(HOME, 'inbox');
 /** The fast lane's own session in the state bucket (fast-lane/), resumed across invocations. */
 const SESSION_KEY = 'fast-lane/session.json';
 const TRANSCRIPT_KEY = 'fast-lane/transcript.jsonl';
-const SETTINGS_KEY = 'state/settings.json';
-const DEFAULTS = { model: 'sonnet', effort: 'low' };
 const MCP_NAME = 'fast_lane';
 /** Built-in tools Claude Code may use: none but asking the owner. */
 const BUILTIN_TOOLS = ['AskUserQuestion'];
 const PROMPT = readFileSync(new URL('./fast-lane-prompt.md', import.meta.url), 'utf8');
 
-const s3 = new S3Client({ region: REGION });
 const sqs = new SQSClient({ region: REGION });
 const lambda = new LambdaClient({ region: REGION });
 
 // ---------------------------------------------------------------------------------------------- S3
 
-const isMissing = (error) =>
-  error?.name === 'NoSuchKey' || error?.$metadata?.httpStatusCode === 404;
-
-/** { text, etag } of an object, or null when it does not exist. */
-async function getObject(key) {
-  try {
-    const out = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
-    return { text: await out.Body.transformToString(), etag: out.ETag };
-  } catch (error) {
-    if (isMissing(error)) return null;
-    throw error;
-  }
-}
-
-async function putObject(key, body, { ifMatch, ifNoneMatch } = {}) {
-  await s3.send(
-    new PutObjectCommand({
-      Bucket: BUCKET,
-      Key: key,
-      Body: body,
-      ...(ifMatch ? { IfMatch: ifMatch } : {}),
-      ...(ifNoneMatch ? { IfNoneMatch: ifNoneMatch } : {}),
-    })
-  );
-}
-
-/**
- * Read-modify-write with a conditional write (ETag), retried on a conflict: the worker and the fast lane write the
- * same object (the chat log) at any time and neither may drop the other's lines.
- */
-async function updateObject(key, change, attempts = 4) {
-  for (let attempt = 1; ; attempt++) {
-    const current = await getObject(key);
-    const next = change(current?.text ?? null);
-    try {
-      await putObject(key, next, current ? { ifMatch: current.etag } : { ifNoneMatch: '*' });
-      return;
-    } catch (error) {
-      const conflict = [409, 412].includes(error?.$metadata?.httpStatusCode);
-      if (!conflict || attempt >= attempts) throw error;
-    }
-  }
-}
-
-const s3Client = {
-  get: async (key) => (await getObject(key))?.text ?? null,
-  async list(prefix) {
-    const out = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: prefix }));
-    return (out.Contents ?? []).map((item) => item.Key);
+/** The state bucket (s3-objects.mjs): conditional writes of the stores the worker writes too. */
+// Through a transport the smoke test can swap for an in-memory bucket (useClientsForTest)
+let realS3 = null;
+let testS3 = null;
+const objects = createS3Objects({
+  region: REGION,
+  bucket: BUCKET,
+  client: {
+    send: (command) => (testS3 ?? (realS3 ??= new S3Client({ region: REGION }))).send(command),
   },
-  put: (key, text) => putObject(key, text),
-  delete: (key) => s3.send(new DeleteObjectCommand({ Bucket: BUCKET, Key: key })),
-};
-
+});
+const { getObject, putObject, updateObject } = objects;
+/** get / list / put / delete for the agent's tools (assistant-tools.mjs). */
+const s3Client = objects;
 /** getJson / putJson for the shared modules (voice budget, voice transcripts). */
-const stateStore = {
-  async getJson(key) {
-    const object = await getObject(key);
-    return object ? JSON.parse(object.text) : null;
-  },
-  putJson: (key, value) => putObject(key, JSON.stringify(value)),
-};
+const stateStore = objects;
+
+/** One JSON line per measured step (CloudWatch Logs Insights: filter timing), so it shows where seconds go. */
+const timing = (name, fields) => console.log(JSON.stringify({ timing: name, ...fields }));
 
 /** The AWS CLI (in the image): AWS Transcribe of voice messages when Gemini is not configured. */
 const aws = async (...args) =>
@@ -193,6 +160,19 @@ export function useSecretsForTest(value) {
   secrets = value;
 }
 
+/** GitHub GET for the agent's tools (path -> parsed JSON); a stub in the smoke test. */
+let testGithub = null;
+
+/**
+ * Tests only (fast-lane-smoke.mjs in claude-code-update.yml, no AWS there): the state bucket as an S3 client stub
+ * (memory-s3-client.mjs) and GitHub as a function, never inside a Lambda.
+ */
+export function useClientsForTest({ s3, github }) {
+  if (env.AWS_LAMBDA_RUNTIME_API) throw new Error('not in a Lambda');
+  testS3 = s3 ?? null;
+  testGithub = github ?? null;
+}
+
 const secretValues = () =>
   secrets
     ? [secrets.claudeToken, secrets.botToken, secrets.githubToken, secrets.googleKey].filter(
@@ -207,7 +187,16 @@ let voice = null;
 let incoming = null;
 let interactions = null;
 let proxy = null;
+let commands = null;
+let pinned = null;
+/** The pinned message's id, shared with the worker (state/status.json). */
+let pinnedIds = { statusMessageId: null };
+/** Claude's plan windows from this lane's last rate_limit_event (status.mjs rateWindows). */
+let planWindows = {};
+let lastAnswerAt = null;
 let settings = {};
+/** Writes of the shared voice settings (settings.json) the voice module starts; awaited before the invocation ends. */
+let settingWrites = Promise.resolve();
 
 /** The Telegram client with every button the fast lane sends prefixed (dev-bot routes their presses back here). */
 function fastLaneTelegram(client) {
@@ -244,9 +233,17 @@ async function initChat() {
       },
       log,
       telegram: tg,
-      // The voice settings are shared with the worker (state/meta.json today); changing them is the worker's in
-      // this version (C3 moves the commands here)
-      settings: { get: () => settings.voice ?? {}, set: () => {} },
+      // The voice settings are shared with the worker (settings.json `shared`; a running worker gets a control
+      // message: fast-lane-commands.mjs setShared)
+      settings: {
+        get: () => settings.voice ?? {},
+        set: (patch) => {
+          settings.voice = { ...(settings.voice ?? {}), ...patch };
+          settingWrites = settingWrites
+            .then(() => commands.setShared(patch))
+            .catch((error) => log('voice setting write failed', error));
+        },
+      },
       store: stateStore,
       aws,
       upload: (file, uri) => aws('s3', 'cp', file, uri, '--quiet'),
@@ -256,6 +253,39 @@ async function initChat() {
     });
     incoming = createIncoming({ log, telegram: tg, voice, store: stateStore });
     interactions = createInteractions({ telegram: tg });
+    commands = createFastLaneCommands({
+      telegram: tg,
+      store: objects,
+      voice,
+      toWorker: (message, reason) => handOverRaw(message, reason),
+      applyFastLane,
+      searchPlaces,
+      refreshStatus: () => pinned.updateStatus({ fresh: true }),
+      download: async (key, name) => {
+        const path = join(INBOX_DIR, name.replace(/[^\w.-]/g, '_'));
+        writeFileSync(path, (await objects.get(key)) ?? '');
+        return path;
+      },
+      log,
+    });
+    pinned = createPinnedStatus({
+      log,
+      telegram: tg,
+      chatId: secrets.chatId,
+      getMeta: () => pinnedIds,
+      setMeta: (value) => {
+        pinnedIds = { statusMessageId: value?.statusMessageId ?? null };
+      },
+      persistMeta: () =>
+        objects.updateJson(STATUS_KEY, { statusMessageId: pinnedIds.statusMessageId }),
+      body: () => statusBody(),
+      formatTime: (date) =>
+        date.toLocaleTimeString('uk-UA', {
+          timeZone: settings.timeZone ?? 'Europe/Warsaw',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+    });
   }
   if (!proxy) proxy = await startAnthropicProxy({ token: secrets.claudeToken, log });
 }
@@ -264,18 +294,79 @@ async function initChat() {
 async function loadSettings() {
   const [own, meta] = await Promise.all([
     stateStore.getJson(SETTINGS_KEY).catch(() => null),
-    stateStore.getJson(STATE_KEYS.META).catch(() => null),
+    stateStore.getJson(META_KEY).catch(() => null),
   ]);
+  const resolved = resolveSettings(own, meta);
   settings = {
-    model: own?.fastLane?.model ?? DEFAULTS.model,
-    effort: own?.fastLane?.effort ?? DEFAULTS.effort,
-    timeZone: own?.timeZone ?? meta?.timeZone ?? 'Europe/Warsaw',
+    ...resolved.fastLane,
+    timeZone: resolved.shared.timeZone,
     voice: {
-      voiceMode: own?.voice?.voiceMode ?? meta?.voiceMode,
-      voiceName: own?.voice?.voiceName ?? meta?.voiceName,
-      voiceModel: own?.voice?.voiceModel ?? meta?.voiceModel,
+      voiceMode: resolved.shared.voiceMode,
+      voiceName: resolved.shared.voiceName,
+      voiceModel: resolved.shared.voiceModel,
     },
   };
+}
+
+/**
+ * The pinned status (status.mjs renderStatus): this lane's figures and the shared ones go to state/status.json, the
+ * message shows the worker's last known figures too.
+ */
+async function statusBody() {
+  const contextUsage = await session?.getContextUsage({ detail: 'summary' }).catch(() => null);
+  const usage = await voice.speechUsage().catch(() => null);
+  const scheduled = (await objects.list(SCHEDULED_PREFIX).catch(() => [])).length;
+  const figures = {
+    model: settings.model,
+    effort: settings.effort ?? null,
+    ctx: contextUsage ? contextUsage.percentage : null,
+    lastAnswerAt,
+  };
+  const shared = {
+    windows: Object.keys(planWindows).length ? planWindows : undefined,
+    speech:
+      usage && typeof usage.usd === 'number' && usage.budget
+        ? `$${usage.usd.toFixed(2)}/${Number(usage.budget)}`
+        : undefined,
+    voice: {
+      mode: voice.voiceMode(),
+      model: voice.voiceModel(),
+      name: voice.voiceName(),
+    },
+    timeZone: settings.timeZone,
+    scheduled,
+  };
+  let record;
+  try {
+    record = await objects.updateJson(STATUS_KEY, (current) =>
+      mergeStatus(current, { lane: 'fastLane', figures, shared })
+    );
+  } catch (error) {
+    log('status record failed', error);
+    record = mergeStatus(null, { lane: 'fastLane', figures, shared });
+  }
+  if (record?.statusMessageId) pinnedIds.statusMessageId = record.statusMessageId;
+  else if (!pinnedIds.statusMessageId) {
+    // Before both lanes kept it in the record, the worker's meta.json held the id
+    const meta = await objects.getJson(META_KEY).catch(() => null);
+    pinnedIds.statusMessageId = meta?.statusMessageId ?? null;
+  }
+  return renderStatus(record, {
+    timeZone: settings.timeZone,
+    modes: MODES,
+    voiceModels: VOICE_MODELS,
+  });
+}
+
+/** A new model / effort of the fast lane (its /model, /effort): the live session takes it for the next answer. */
+async function applyFastLane({ model, effort }) {
+  settings = { ...settings, model, effort };
+  void pinned?.updateStatus();
+  if (!session) return;
+  await session.setModel(model).catch((error) => log('setModel failed', error));
+  await session
+    .applyFlagSettings({ effortLevel: effort ?? null })
+    .catch((error) => log('applyFlagSettings failed', error));
 }
 
 /** One line in the shared chat log (role fast-lane / owner), conditional write: the worker writes it too. */
@@ -323,7 +414,12 @@ async function handOverRaw(message, reason) {
 async function toWorker(body, date, reason) {
   const key = `${HANDOVER_PREFIX}${randomUUID()}.json`;
   try {
-    await putObject(key, JSON.stringify({ reason, since: date, message: body }), {
+    // dev-bot's hand_over reads `control` (a settings change for the running worker) and `interrupt` from the top
+    // level of the object, next to the message
+    const request = { reason, since: date, message: body };
+    if (body.control) request.control = body.control;
+    if (body.interrupt === true) request.interrupt = true;
+    await putObject(key, JSON.stringify(request), {
       ifNoneMatch: '*',
     });
     const out = await lambda.send(
@@ -341,6 +437,22 @@ async function toWorker(body, date, reason) {
   return 'Handed over: dev-bot puts the task into the worker queue and starts the worker (or it is already running).';
 }
 
+/**
+ * The owner wants the worker's running turn stopped: "/stop" with `interrupt` to its queue through dev-bot (the
+ * worker interrupts the turn as soon as it reads it). Never sent to a worker that is not running (dev-bot would start
+ * one for it).
+ */
+async function stopWorker(reason) {
+  const progress = await objects.getJson(PROGRESS_KEY).catch(() => null);
+  if (progress?.worker !== 'running' || !progress.turnActive)
+    return 'The worker is not running a turn (progress record): nothing to stop. Tell the owner so.';
+  const result = await handOverRaw(
+    { text: '/stop', interrupt: true, reason: String(reason ?? '').slice(0, 200) },
+    'зупинити поточну задачу'
+  );
+  return /failed/.test(result) ? result : 'Stop sent: the worker interrupts its turn now.';
+}
+
 // ---------------------------------------------------------------------------------------------- tools
 
 /** Files the owner sent, in the inbox: the agent opens them only through this tool (no Read tool). */
@@ -354,7 +466,7 @@ function inboxFile(path) {
 const text = (value) => ({ content: [{ type: 'text', text: String(value) }] });
 
 export function mcpServer() {
-  const github = async (path) => {
+  const githubApi = async (path) => {
     const res = await fetch(`https://api.github.com/${path}`, {
       headers: {
         Accept: 'application/vnd.github+json',
@@ -367,6 +479,7 @@ export function mcpServer() {
     if (!res.ok) throw new Error(`GitHub ${res.status}: ${json.message ?? ''}`);
     return json;
   };
+  const github = (path) => (testGithub ?? githubApi)(path);
   const tools = createTools({ s3: s3Client, github, repo: REPO, project: MEMORY_PROJECT });
   const wrap = (fn) => async (args) => {
     try {
@@ -464,6 +577,12 @@ export function mcpServer() {
         }
       ),
       tool(
+        'stop_worker',
+        "Stop the working worker's current turn at once (the owner said stop / cancel about what it is doing). Only when the worker note says it is running and busy.",
+        { reason: z.string() },
+        wrap(({ reason }) => stopWorker(reason))
+      ),
+      tool(
         'hand_over',
         'Give a task to the long-running worker (code, tests, PRs, terraform, browser, long work, merges / releases). Starts it if it sleeps.',
         { task: z.string(), context: z.string().optional() },
@@ -491,6 +610,7 @@ export const EXPECTED_TOOLS = [
     'schedule_list',
     'schedule_cancel',
     'view_attachment',
+    'stop_worker',
     'hand_over',
   ].map((name) => `mcp__${MCP_NAME}__${name}`),
 ];
@@ -522,6 +642,25 @@ let sessionId = null;
 let turnActive = false;
 let voiceTrigger = null;
 let isolationFailed = null;
+/** Timings of the turn in progress (ms from the message's receipt): one JSON line when it ends. */
+let turnTiming = null;
+/** The chat log time up to which the worker's exchanges are known to the fast lane's session. */
+let workerSeenAt = null;
+
+/**
+ * The worker note in front of every prompt (session-state.mjs syncNote): the worker's real state from its progress
+ * record and what the owner and the worker said since this lane's previous turn. Built here, never by the model.
+ */
+async function workerNote() {
+  const [content, progress] = await Promise.all([
+    objects.get(STATE_KEYS.CHAT_LOG).catch(() => null),
+    objects.getJson(PROGRESS_KEY).catch(() => null),
+  ]);
+  if (workerSeenAt === null) workerSeenAt = lastEntryAt(content, 'fast-lane') ?? '';
+  const delta = laneDelta(content, { lane: 'fast-lane', after: workerSeenAt || null });
+  if (delta.latest) workerSeenAt = delta.latest;
+  return syncNote({ lane: 'fast-lane', delta, progress });
+}
 
 /** The transcript of a session id under Claude Code's projects directory, or null. */
 function findTranscript(id) {
@@ -572,7 +711,8 @@ export function queryOptions({ environment, resumeId, model, effort, ask = canUs
   mkdirSync(WORK_DIR, { recursive: true });
   return {
     model,
-    effort,
+    // null: the model's own effort (/effort default)
+    ...(effort ? { effort } : {}),
     cwd: WORK_DIR,
     ...(resumeId ? { resume: resumeId } : {}),
     tools: BUILTIN_TOOLS,
@@ -590,7 +730,12 @@ export function queryOptions({ environment, resumeId, model, effort, ask = canUs
 
 async function startSession() {
   mkdirSync(WORK_DIR, { recursive: true });
+  const restoreStart = Date.now();
   const resumeId = await restoreSession();
+  timing('fast-lane-session-restore', {
+    ms: Date.now() - restoreStart,
+    resumed: Boolean(resumeId),
+  });
   const environment = childEnv({ home: HOME, proxyUrl: proxy.url, placeholder: proxy.placeholder });
   const problems = checkChildEnv(environment, {
     placeholder: proxy.placeholder,
@@ -618,6 +763,8 @@ async function consume() {
   for await (const message of session) {
     if (message.session_id) sessionId = message.session_id;
     if (message.type === 'system' && message.subtype === 'init') {
+      if (turnTiming && !turnTiming.sdkReadyMs)
+        turnTiming.sdkReadyMs = Date.now() - turnTiming.start;
       const { unexpected, missing } = checkToolList(message.tools, EXPECTED_TOOLS);
       if (unexpected.length || missing.length) {
         isolationFailed = `tools: unexpected ${unexpected.join(', ') || '-'}; missing ${missing.join(', ') || '-'}`;
@@ -627,9 +774,14 @@ async function consume() {
         return;
       }
     }
+    if (message.type === 'rate_limit_event') {
+      planWindows = { ...planWindows, ...rateWindows(message.rate_limit_info) };
+    }
     if (message.type === 'assistant' && !message.parent_tool_use_id) {
       const parts = (message.message?.content ?? []).filter((item) => item.type === 'text');
       if (parts.length) answer = parts.map((item) => item.text).join('\n');
+      if (parts.length && turnTiming && !turnTiming.firstTextMs)
+        turnTiming.firstTextMs = Date.now() - turnTiming.start;
     }
     if (message.type === 'result') {
       turnActive = false;
@@ -644,10 +796,17 @@ async function finishTurn(answerText, failed) {
   const { text: shown, spoken } = voice.splitVoiceBlock(answerText ?? '');
   if (shown) {
     await tg.say(shown);
+    if (turnTiming) turnTiming.answerSentMs = Date.now() - turnTiming.start;
+    lastAnswerAt = new Date().toISOString();
     await logChat('fast-lane', shown);
   } else if (failed) {
     await tg.say('⚠️ Швидка смуга не змогла відповісти (див. логи)');
   }
+  if (turnTiming) {
+    timing('fast-lane-turn', { ...turnTiming, start: undefined, failed: Boolean(failed) });
+    turnTiming = null;
+  }
+  void pinned?.updateStatus();
   const trigger = voiceTrigger;
   voiceTrigger = null;
   if (shown && !failed && secrets.googleKey && voiceReplyWanted(voice.voiceMode(), trigger)) {
@@ -664,12 +823,14 @@ async function finishTurn(answerText, failed) {
 // ---------------------------------------------------------------------------------------------- messages
 
 /** A message from the queue: a button press of ours, an answer to a waiting question, or a new prompt. */
-async function deliver(message) {
+async function deliver(message, receivedAt = Date.now()) {
   if (message.callback) {
     const data = stripCallbackPrefix(message.callback.data);
     if (data === null) return;
-    const { kind, id, value } = parseCallback(data);
-    if (kind === 'voice') return voice.onVoiceButton(message.callback.message_id, id, value);
+    const parsed = parseCallback(data);
+    const { kind, id, value } = parsed;
+    if (kind !== 'q' && (await commands.handleCallback(message.callback.message_id, parsed)))
+      return;
     const entry = interactions.getPending(id);
     if (!entry || entry.kind !== kind) {
       await tg.editButtons(message.callback.message_id);
@@ -677,6 +838,15 @@ async function deliver(message) {
       return;
     }
     if (kind === 'q') await interactions.onQuestionButton(entry, value);
+    return;
+  }
+  // Commands never reach Claude Code (its built-in commands would answer): fast-lane-commands.mjs
+  const command = message.attachments?.length ? '' : String(message.text ?? '').trim();
+  if (command.startsWith('/')) {
+    await logChat('owner', command, { kind: 'text', lane: 'fast-lane' });
+    await commands.handleCommand(command);
+    await settingWrites;
+    timing('fast-lane-command', { name: command.split(/\s/)[0], ms: Date.now() - receivedAt });
     return;
   }
   const audio = (message.attachments ?? []).some((a) => a.kind === 'voice' || a.kind === 'audio');
@@ -722,13 +892,17 @@ async function deliver(message) {
   // No Read tool here: files the owner sent are opened with view_attachment
   prompt = prompt.replaceAll('with the Read tool', 'with the view_attachment tool');
   const spoken = (message.attachments ?? []).some((a) => a.kind === 'voice');
-  await logChat('owner', prompt, { kind: spoken ? 'voice' : 'text' });
+  // The worker's real state and its exchanges since this lane's previous turn (two-way sync)
+  const note = await workerNote().catch((error) => log('worker note failed', error));
+  await logChat('owner', prompt, { kind: spoken ? 'voice' : 'text', lane: 'fast-lane' });
+  if (note) prompt = `${note}\n\n${prompt}`;
   if (voiceTrigger !== 'voice') voiceTrigger = spoken ? 'voice' : 'text';
   if (secrets.googleKey && voiceReplyWanted(voice.voiceMode(), voiceTrigger)) {
     prompt = `${prompt}\n\n${voice.VOICE_NOTE}`;
   }
   void tg.call('sendChatAction', { action: 'typing' });
   if (isolationFailed) throw new Error(`isolation self-check: ${isolationFailed}`);
+  if (!turnTiming) turnTiming = { start: receivedAt, promptReadyMs: Date.now() - receivedAt };
   if (!session) await startSession();
   if (turnActive) {
     sendToClaude(
@@ -775,8 +949,10 @@ async function failClosed(message, reason) {
 /** One invocation: receive and answer until idle (or close to the deadline), then save the session. */
 export async function handler(event, context = {}) {
   const deadline = context.deadline ?? Date.now() + 900_000;
+  const invoked = Date.now();
   await initChat();
   await loadSettings();
+  timing('fast-lane-init', { ms: Date.now() - invoked });
   let lastActivity = Date.now();
   let handled = 0;
   for (;;) {
@@ -790,11 +966,12 @@ export async function handler(event, context = {}) {
       log('receive failed', error);
       continue;
     }
+    const receivedAt = Date.now();
     for (const message of messages) {
       lastActivity = Date.now();
       handled++;
       try {
-        await deliver(message);
+        await deliver(message, receivedAt);
       } catch (error) {
         await failClosed(message, String(error?.message ?? error));
       }
@@ -802,15 +979,20 @@ export async function handler(event, context = {}) {
     if (turnActive) lastActivity = Date.now();
   }
   interactions.abortAll();
+  await settingWrites;
   if (session) {
     session.close();
     await Promise.race([sessionDone, new Promise((r) => setTimeout(r, 10_000))]);
+    const saveStart = Date.now();
     await saveSession().catch((error) => log('session save failed', error));
+    timing('fast-lane-save', { ms: Date.now() - saveStart });
   }
   session = null;
   sessionDone = null;
   turnActive = false;
   isolationFailed = null;
+  turnTiming = null;
+  workerSeenAt = null;
   rmSync(INBOX_DIR, { recursive: true, force: true });
   log(`invocation done: ${handled} message(s)`);
   return { handled, wake: Boolean(event?.wake) };
