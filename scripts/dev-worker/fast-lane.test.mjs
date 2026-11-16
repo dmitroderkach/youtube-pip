@@ -302,10 +302,7 @@ test("laneDelta and syncNote: each lane gets the other lane's exchanges since it
   assert.equal(entryLane({ role: 'owner' }), 'worker');
 
   const forFast = laneDelta(log, { lane: 'fast-lane', after: '2026-11-16T18:00:30.000Z' });
-  assert.deepEqual(forFast.lines, [
-    '18:01 UTC worker: Перенесено на 20:05',
-    '18:03 UTC owner: /down',
-  ]);
+  assert.deepEqual(forFast.lines, ['19:01 worker: Перенесено на 20:05', '19:03 owner: /down']);
   const note = syncNote({
     lane: 'fast-lane',
     delta: forFast,
@@ -318,12 +315,13 @@ test("laneDelta and syncNote: each lane gets the other lane's exchanges since it
   );
   assert.match(note, /Working worker: stopped \(record updated 30 s ago\)\./);
   assert.doesNotMatch(note, /busy/);
-  assert.match(note, /- 18:03 UTC owner: \/down/);
+  assert.match(note, /- 19:03 owner: \/down/);
+  assert.match(note, /times in the owner's time zone Europe\/Warsaw/);
 
   const forWorker = laneDelta(log, { lane: 'worker', after: '2026-11-16T18:01:00.000Z' });
   assert.deepEqual(forWorker.lines, [
-    '18:02 UTC owner (voice): які PR?',
-    '18:02 UTC fast-lane: Відкритих PR немає.',
+    '19:02 owner (voice): які PR?',
+    '19:02 fast-lane: Відкритих PR немає.',
   ]);
   assert.match(syncNote({ lane: 'worker', delta: forWorker }), /the owner talked to the fast lane/);
   assert.equal(
@@ -366,7 +364,7 @@ test('laneDelta clips to the newest lines and characters', () => {
   assert.equal(delta.total, 30);
   assert.ok(delta.lines.length <= SYNC_NOTE_LINES);
   assert.ok(delta.lines.join('\n').length <= SYNC_NOTE_CHARS);
-  assert.match(delta.lines.at(-1), /^18:29/);
+  assert.match(delta.lines.at(-1), /^19:29/);
   assert.match(
     syncNote({ lane: 'fast-lane', delta, progress: null }),
     new RegExp(`the last ${delta.lines.length} of 30`)
