@@ -128,6 +128,29 @@ export function mergeStatus(current, { lane, figures, shared = {}, now = new Dat
 /** After the fast lane handed a task to a sleeping worker, it shows it as starting this long without a record. */
 const HANDOVER_STARTING_MS = 3 * 60 * 1000;
 
+/** Characters of the worker's task shown in the pinned status. */
+export const TASK_LABEL_CHARS = 40;
+
+/**
+ * What the busy worker is doing, for the pinned status: the first line of its turn's purpose without the bracketed
+ * notes the chat layer puts in front ("[Handed over …]", "[Worker note …]"), clipped. Null when there is nothing.
+ */
+export function taskLabel(purpose, max = TASK_LABEL_CHARS) {
+  let text = String(purpose ?? '');
+  // Drop leading bracketed notes (they can span lines); what follows is the owner's (or the task's) own words
+  for (;;) {
+    const trimmed = text.trimStart();
+    if (!trimmed.startsWith('[')) break;
+    const end = trimmed.indexOf(']');
+    if (end < 0) break;
+    text = trimmed.slice(end + 1);
+  }
+  const task = /^\s*Task:\s*(.+)$/m.exec(text)?.[1];
+  const line = (task ?? text.trim().split('\n')[0] ?? '').trim();
+  if (!line) return null;
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
+
 /**
  * The worker's section as another lane shows it (the fast lane): the state from the worker's progress record (the
  * worker writes it on every step and as its last step before exiting), not from its last status section, which a
@@ -159,7 +182,13 @@ export function workerView(
     state = 'starting';
     since = handoverAt;
   }
-  if (state === 'running' || state === 'busy') return { ...stored, ...live, state };
+  if (state === 'running' || state === 'busy')
+    return {
+      ...stored,
+      ...live,
+      state,
+      task: state === 'busy' ? (taskLabel(progress?.purpose) ?? live.task ?? null) : null,
+    };
   return { ...live, ...stored, state, since, ctx: live.ctx };
 }
 
@@ -203,7 +232,7 @@ export function renderStatus(
     `${shared.speech ? ` · 🔊${shared.speech}` : ''}`;
   const workerState =
     {
-      busy: '🔵 працює над задачею',
+      busy: worker.task ? `🔵 працює над «${worker.task}»` : '🔵 працює над задачею',
       running: '🟢 запущений, вільний',
       starting: `⏳ піднімається з ${time(worker.since ?? worker.updatedAt)}`,
       stopped: `💤 спить з ${time(worker.since ?? worker.updatedAt)}`,

@@ -344,6 +344,14 @@ export function workerLiveness(progress, now = Date.now()) {
   return age > LEGACY_STALE_MS ? 'stopped' : 'unknown';
 }
 
+/**
+ * The worker certainly does not run: its record says stopped (written as the last step of its stop, after the final
+ * save), or nobody refreshed a running / starting record in time (a crash or a failed start: no process saves over S3
+ * any more, and the next start restores from it). The fast lane may then write the worker's memory and plans itself.
+ */
+export const workerAsleepNow = (progress, now = Date.now()) =>
+  ['stopped', 'stale'].includes(workerLiveness(progress, now));
+
 /** The worker can take a message or a control message now (running, busy or starting: it queues them). */
 export const workerReachable = (progress, now = Date.now()) =>
   ['running', 'busy', 'starting'].includes(workerLiveness(progress, now));
@@ -601,12 +609,22 @@ export function localNow(now, timeZone) {
   return `${text} (${timeZone})`;
 }
 
+/** Size of each part of the lazy context in the fast lane's first note of a session (characters). */
+export const LAZY_CONTEXT_CHARS = 3000;
+
 /**
  * The note put in front of a prompt so each lane knows what the other did (built in code; data, not instructions):
  * for the fast lane the worker's state and the worker's exchanges since its previous turn; for the worker the fast
  * lane's exchanges since the worker's previous turn. Null when there is nothing to say (the worker, no delta).
  */
-export function syncNote({ lane, delta, progress, now = Date.now(), timeZone = null }) {
+export function syncNote({
+  lane,
+  delta,
+  progress,
+  now = Date.now(),
+  timeZone = null,
+  context = null,
+}) {
   const lines = delta?.lines ?? [];
   const head =
     lane === 'fast-lane'
@@ -617,6 +635,17 @@ export function syncNote({ lane, delta, progress, now = Date.now(), timeZone = n
   if (lane === 'fast-lane' && timeZone)
     parts.push(`Now for the owner: ${localNow(now, timeZone)}.`);
   if (lane === 'fast-lane') parts.push(workerStateLine(progress, now));
+  // The plan's lazy context, once per fast lane session: the memory index and the plan titles (files on demand)
+  if (lane === 'fast-lane' && context) {
+    if (context.memoryIndex)
+      parts.push(
+        `Memory index (MEMORY.md, read a file with memory_read):\n${clip(context.memoryIndex, LAZY_CONTEXT_CHARS)}`
+      );
+    if (context.planTitles?.length)
+      parts.push(
+        `Saved plans (read one with plan_read): ${clip(context.planTitles.join('; '), LAZY_CONTEXT_CHARS)}`
+      );
+  }
   if (lines.length) {
     const more = delta.total > lines.length ? ` (the last ${lines.length} of ${delta.total})` : '';
     const zone = delta.timeZone ? `, times in the owner's time zone ${delta.timeZone}` : '';

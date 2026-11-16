@@ -2,7 +2,7 @@
 # Scheduled tasks of the owner (docs/DEV_WORKER.md, "Scheduled tasks"): the dev-bot Lambda checks state/scheduled/
 # every minute and sends a due task to the worker as the owner's message (starting the worker when it sleeps).
 #
-#   schedule add "<YYYY-MM-DD HH:MM>" "<task>" [time zone]   time in the owner's working time zone (state/meta.json)
+#   schedule add "<YYYY-MM-DD HH:MM>" "<task>" [time zone]   time in the owner's working time zone (state/settings.json)
 #                                                             unless a zone is given; one-off, in the future
 #   schedule list                                             id, due time (UTC and local), task
 #   schedule cancel <id>
@@ -10,8 +10,13 @@ set -euo pipefail
 
 PREFIX="s3://${STATE_BUCKET:?}/state/scheduled"
 
+# The owner's working time zone: state/settings.json (shared.timeZone, written by both lanes' /timezone), the old
+# state/meta.json as a fallback
 owner_zone() {
-  aws s3 cp "s3://${STATE_BUCKET}/state/meta.json" - 2>/dev/null | jq -r '.timeZone // empty' 2>/dev/null || true
+  local zone
+  zone="$(aws s3 cp "s3://${STATE_BUCKET}/state/settings.json" - 2>/dev/null | jq -r '.shared.timeZone // empty' 2>/dev/null || true)"
+  [[ -n "${zone}" ]] || zone="$(aws s3 cp "s3://${STATE_BUCKET}/state/meta.json" - 2>/dev/null | jq -r '.timeZone // empty' 2>/dev/null || true)"
+  echo "${zone}"
 }
 
 case "${1:-}" in

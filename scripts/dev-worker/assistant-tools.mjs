@@ -79,8 +79,8 @@ export function withIndexLine(index, file, line) {
 }
 
 /**
- * `workerAsleep()`: true only when the worker's progress record is fresh and says it is stopped (session-state.mjs
- * workerLiveness); `toWorker(task)`: a change handed over to the worker as a message (memory_write / plan_write
+ * `workerAsleep()`: true only when the worker certainly does not run: its progress record says stopped, or a running /
+ * starting record went stale (session-state.mjs workerAsleepNow); `toWorker(task)`: a change handed over to the worker as a message (memory_write / plan_write
  * while it runs or starts: it is then the only writer of its memory and plans, plan "Synchronisation" rule 2).
  */
 export function createTools({

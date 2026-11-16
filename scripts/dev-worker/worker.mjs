@@ -76,7 +76,7 @@ import { createTelegram } from './telegram.mjs';
 import { createVoice } from './voice.mjs';
 import { createIncoming } from './incoming.mjs';
 import { createInteractions } from './interactions.mjs';
-import { createPinnedStatus, mergeStatus, renderStatus, STATUS_KEY } from './status.mjs';
+import { createPinnedStatus, mergeStatus, renderStatus, STATUS_KEY, taskLabel } from './status.mjs';
 import {
   chmodSync,
   existsSync,
@@ -183,7 +183,7 @@ const ONCALL_MESSAGE_MAX_CHARS = 6000;
 const ONCALL_REPORTS_MAX = 3;
 const ONCALL_DIR = join(CLAUDE_HOME, 'oncall');
 /**
- * The owner's working time zone (`/timezone`, kept in meta.json): times shown in the chat (session save time, limit
+ * The owner's working time zone (`/timezone`, state/settings.json shared.timeZone, mirrored into meta on load and on change): times shown in the chat (session save time, limit
  * resets, background tasks, plans), and Claude is told when it changes.
  */
 const DEFAULT_TIME_ZONE = 'Europe/Warsaw';
@@ -1448,6 +1448,7 @@ async function statusBody({ sleeping }) {
     : {
         state: sleeping ? 'stopped' : turn ? 'busy' : 'running',
         ...(sleeping ? { since: sleepingSince } : {}),
+        task: turn && !sleeping ? taskLabel(turnPurpose) : null,
         mode: currentMode(),
         model: modelName(),
         effort: meta?.effort ?? null,
@@ -2869,8 +2870,13 @@ function checkLimits() {
 }
 
 async function main() {
-  // Being started: the progress record and the pinned status say so at once (the restore takes a while)
-  void writeProgressNow();
+  // Being started: the progress record and the pinned status say so at once (the restore takes a while). The record is
+  // written before the restore reads memory and plans: from then on the fast lane hands their changes over instead of
+  // writing them (a write that landed between the restore's read and this record would be lost). Bounded wait.
+  await Promise.race([
+    writeProgressNow().catch((error) => log('starting record failed', error)),
+    new Promise((resolveWait) => setTimeout(resolveWait, 10_000)),
+  ]);
   void updateStatus();
   let restored;
   try {

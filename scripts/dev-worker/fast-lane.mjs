@@ -49,6 +49,7 @@ import {
   runtimeLoop,
   stripCallbackPrefix,
   taskTitle,
+  tokenExpiryWarning,
   tooBigToResume,
 } from './fast-lane-core.mjs';
 import { createFastLaneCommands, META_KEY, PROGRESS_KEY } from './fast-lane-commands.mjs';
@@ -72,6 +73,7 @@ import {
   lastEntryAt,
   syncNote,
   voiceReplyWanted,
+  workerAsleepNow,
   workerLiveness,
 } from './session-state.mjs';
 import { searchPlaces } from './timezone-search.mjs';
@@ -571,6 +573,35 @@ function inboxFile(path) {
 
 const text = (value) => ({ content: [{ type: 'text', text: String(value) }] });
 
+/** Where the last warning about the read-only GitHub token was recorded (one a day). */
+const TOKEN_WARNING_KEY = 'fast-lane/token-warning.json';
+
+/**
+ * Tell the owner (once a day, logged every time) that the fast lane's read-only GitHub token expires soon or no longer
+ * works (plan: "Watch the token's expiry"). Never throws: a GitHub answer is not delayed by it.
+ */
+async function noteTokenExpiry(warning) {
+  if (!warning) return;
+  log(`github_read_token ${warning.reason}: ${warning.expiresAt ?? 'HTTP 401'}`);
+  try {
+    const zone = settings.timeZone ?? 'Europe/Warsaw';
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: zone });
+    const last = await objects.getJson(TOKEN_WARNING_KEY).catch(() => null);
+    if (last?.date === today && last?.reason === warning.reason) return;
+    await objects.putJson(TOKEN_WARNING_KEY, { date: today, ...warning });
+    const when = warning.expiresAt
+      ? new Date(warning.expiresAt).toLocaleString('uk-UA', { timeZone: zone })
+      : null;
+    await tg?.say(
+      warning.reason === 'expired'
+        ? '🔑 Токен GitHub швидкої смуги (github_read_token у секреті on-call) більше не працює: онови його, інакше вона не читає PR, код і логи CI.'
+        : `🔑 Токен GitHub швидкої смуги (github_read_token у секреті on-call) спливає ${when} (за ${warning.daysLeft} дн.): онови його заздалегідь.`
+    );
+  } catch (error) {
+    log('token warning failed', error);
+  }
+}
+
 export function mcpServer() {
   const githubApi = async (path) => {
     const res = await fetch(`https://api.github.com/${path}`, {
@@ -581,6 +612,14 @@ export function mcpServer() {
         ...(secrets.githubToken ? { Authorization: `Bearer ${secrets.githubToken}` } : {}),
       },
     });
+    if (secrets.githubToken) {
+      void noteTokenExpiry(
+        tokenExpiryWarning({
+          status: res.status,
+          expiration: res.headers.get('github-authentication-token-expiration'),
+        })
+      );
+    }
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(`GitHub ${res.status}: ${json.message ?? ''}`);
     return json;
@@ -594,7 +633,7 @@ export function mcpServer() {
     // The worker's memory and plans are written here only while it sleeps (its stop wrote `stopped` as its last
     // step); a stopping, starting or running worker is their only writer and gets the change as a message
     workerAsleep: async () =>
-      (await objects.getJson(PROGRESS_KEY).catch(() => null))?.worker === 'stopped',
+      workerAsleepNow(await objects.getJson(PROGRESS_KEY).catch(() => null)),
     toWorker: (task) =>
       handOver(task, "A change of the worker's own files asked in the fast lane."),
   });
@@ -820,10 +859,24 @@ async function syncBusy(busy) {
  * record and what the owner and the worker said since this lane's previous turn. Built here, never by the model.
  */
 async function workerNote() {
-  const [content, progress] = await Promise.all([
+  // A new session (none yet in this sandbox, or its process ended) gets the plan's lazy context once
+  const fresh = !session;
+  const [content, progress, memoryIndex, planKeys] = await Promise.all([
     objects.get(STATE_KEYS.CHAT_LOG).catch(() => null),
     objects.getJson(PROGRESS_KEY).catch(() => null),
+    fresh
+      ? objects.get(`${STATE_KEYS.MEMORY_PREFIX}${MEMORY_PROJECT}/MEMORY.md`).catch(() => null)
+      : null,
+    fresh ? objects.list(STATE_KEYS.PLANS_PREFIX).catch(() => []) : [],
   ]);
+  const context = fresh
+    ? {
+        memoryIndex,
+        planTitles: planKeys
+          .map((key) => key.slice(STATE_KEYS.PLANS_PREFIX.length))
+          .filter((name) => name.endsWith('.md')),
+      }
+    : null;
   if (workerSeenAt === null) workerSeenAt = lastEntryAt(content, 'fast-lane') ?? '';
   const delta = laneDelta(content, {
     lane: 'fast-lane',
@@ -836,6 +889,7 @@ async function workerNote() {
     delta,
     progress,
     timeZone: settings.timeZone ?? 'Europe/Warsaw',
+    context,
   });
 }
 
@@ -1138,6 +1192,15 @@ async function failClosed(message, reason) {
 export async function handler(event, context = {}) {
   const deadline = context.deadline ?? Date.now() + 900_000;
   const invoked = Date.now();
+  if (event?.action === 'refresh_status') {
+    // dev-bot started or saw a stopped worker: redraw the pinned status (both lanes, from S3) and nothing else; the
+    // queue is left for the next message's invocation
+    await initChat();
+    await loadSettings();
+    await pinned?.updateStatus().catch((error) => log('status refresh failed', error));
+    timing('fast-lane-refresh-status', { ms: Date.now() - invoked });
+    return { refreshed: true };
+  }
   if (session && !sessionAlive) {
     // Its Claude Code process ended (while frozen or before): the next message starts a new one
     session = null;
