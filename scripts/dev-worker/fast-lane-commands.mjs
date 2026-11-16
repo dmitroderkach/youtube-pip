@@ -9,10 +9,14 @@
  * - from S3: /scheduled (cancel buttons), /plans (the plan file), /status (the pinned status of both lanes),
  *   /background (the worker's task records; a stop button per task of a running worker), /context (the plan windows and both lanes' context from
  *   state/status.json), /agents (the worker's running subagents from its progress record);
- * - the worker's: /stop (interrupts its running turn), /compact (asks to start the worker and compact).
+ * - /stop (interrupts the worker's running turn);
+ * - /compact (compact-command.mjs, the same lane switch as in the worker): the fast lane compacts its own live
+ *   session (compactOwn), or the worker's is compacted (passed to a running worker; a sleeping one is started only
+ *   after the owner's button).
  *
  * Built around injected clients so it is tested without AWS, Telegram or Claude.
  */
+import { createCompactCommand, keepPending } from './compact-command.mjs';
 import { SCHEDULED_PREFIX, validTaskId } from './scheduled-tasks.mjs';
 import {
   isTimeZone,
@@ -65,6 +69,7 @@ const COMMAND_LIST =
  *   applyFastLane({ model, effort }): the fast lane's live session takes a new setting
  *   searchPlaces(query): geocoding (timezone-search.mjs); download(key, name): a local copy of an S3 object
  *   refreshStatus(): the pinned status sent again and pinned (/status)
+ *   compactOwn(instructions): the fast lane compacts its own live session (/compact, ⚡ Лямбда)
  */
 export function createFastLaneCommands({
   telegram,
@@ -75,6 +80,7 @@ export function createFastLaneCommands({
   searchPlaces,
   download,
   refreshStatus = async () => {},
+  compactOwn = async () => {},
   log = () => {},
 }) {
   const progress = () => store.getJson(PROGRESS_KEY).catch(() => null);
@@ -339,23 +345,40 @@ export function createFastLaneCommands({
     return telegram.say('⏹ Передав робочому воркеру: зупинити поточну задачу');
   }
 
-  /** `/compact`: needs the worker's session; a sleeping worker is started only after the owner's button. */
-  async function compactCommand(argument) {
-    const text = `/compact${argument ? ` ${argument}` : ''}`;
+  /** Instructions of "start the worker and compact?" questions (token -> text), kept for the owner's button. */
+  const pendingWorkerCompact = new Map();
+
+  /**
+   * The worker's `/compact` (the lane switch's `🛠`): needs the worker's session; a sleeping worker is started only
+   * after the owner's button.
+   */
+  async function compactWorker(instructions) {
+    const text = `/compact${instructions ? ` ${instructions}` : ''}`;
     if (await workerRunning()) {
       // Only for the running worker: dev-bot does not start one for it (start: false)
       await toWorker({ text, start: false }, 'стиснути контекст');
       return telegram.say('🗜 Передав робочому воркеру: стиснути контекст');
     }
+    const yes = instructions
+      ? `compact:yes:${keepPending(pendingWorkerCompact, instructions)}`
+      : 'compact:yes';
     return telegram.sayHtml('🗜 Робочий воркер спить. Підняти воркер і стиснути контекст?', {
       inline_keyboard: [
         [
-          { text: '✅ Підняти і стиснути', callback_data: 'compact:yes' },
+          { text: '✅ Підняти і стиснути', callback_data: yes },
           { text: '✖️ Ні', callback_data: 'compact:no' },
         ],
       ],
     });
   }
+
+  /** `/compact` [instructions]: whose context, with the lane switch (compact-command.mjs). */
+  const compact = createCompactCommand({
+    telegram,
+    log,
+    compactLane: (lane, instructions) =>
+      lane === 'f' ? compactOwn(instructions) : compactWorker(instructions),
+  });
 
   /** Handle a command message; true when it was one (it never goes to Claude Code). */
   async function handleCommand(text) {
@@ -374,7 +397,7 @@ export function createFastLaneCommands({
       context: () => reportContext(),
       agents: () => reportAgents(),
       stop: () => stopCommand(),
-      compact: () => compactCommand(argument),
+      compact: () => compact.handleCommand(argument),
     };
     if (handlers[name]) await handlers[name]();
     else await telegram.say(`ℹ️ Такої команди не знаю. Є: ${COMMAND_LIST}`);
@@ -384,6 +407,7 @@ export function createFastLaneCommands({
   /** A button of these commands (callback data without the f| prefix, parsed); true when it was one. */
   async function handleCallback(messageId, parsed) {
     if (await settingsCommands.handleCallback(messageId, parsed)) return true;
+    if (await compact.handleCallback(messageId, parsed)) return true;
     const { kind, id, value } = parsed;
     if (kind === 'voice') {
       await voice.onVoiceButton(messageId, id, value);
@@ -417,8 +441,18 @@ export function createFastLaneCommands({
     if (kind === 'compact') {
       await telegram.editButtons(messageId);
       if (id === 'yes') {
+        // Its instructions were kept for the button; gone (another sandbox): asked again rather than dropped
+        if (value && !pendingWorkerCompact.has(value)) {
+          await telegram.say('ℹ️ Це питання вже неактуальне: надішли /compact ще раз');
+          return true;
+        }
+        const instructions = value ? pendingWorkerCompact.get(value) : '';
+        pendingWorkerCompact.delete(value);
         // The owner confirmed starting the worker for it (the default start of a hand-over)
-        await toWorker({ text: '/compact' }, 'стиснути контекст');
+        await toWorker(
+          { text: `/compact${instructions ? ` ${instructions}` : ''}` },
+          'стиснути контекст'
+        );
         await telegram.say('🗜 Піднімаю робочий воркер: він стисне контекст');
       }
       return true;
