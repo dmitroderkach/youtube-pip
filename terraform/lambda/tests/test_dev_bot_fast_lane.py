@@ -168,5 +168,257 @@ class FastLaneRouting(unittest.TestCase):
         bot.hand_over.assert_not_called()
 
 
+RUNNING = [{"lastStatus": "RUNNING", "arn": "t"}]
+
+
+def iso_ago(seconds):
+    return datetime.fromtimestamp(time.time() - seconds, timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+class BusyWorkerRouting(unittest.TestCase):
+    """While the running worker is in a turn, messages go to the fast lane (docs/DEV_WORKER.md, "Fast lane")."""
+
+    def route(self, progress=None, error=None):
+        bot, clients = load_dev_bot()
+        bot.worker_tasks = mock.MagicMock(return_value=RUNNING)
+        if error:
+            clients["s3"].get_object.side_effect = error
+        else:
+            clients["s3"].get_object.return_value = {"Body": io.BytesIO(json.dumps(progress).encode())}
+        bot.forward(MESSAGE, "привіт", [])
+        return clients
+
+    def test_a_busy_worker_sends_the_message_to_the_fast_lane(self):
+        clients = self.route({"turnActive": True, "updatedAt": iso_ago(30)})
+        self.assertEqual(clients["s3"].get_object.call_args.kwargs["Key"], "state/progress.json")
+        sent = clients["sqs"].send_message.call_args.kwargs
+        self.assertEqual(sent["QueueUrl"], "fast-lane-queue")
+        body = json.loads(sent["MessageBody"])
+        self.assertIs(body["workerBusy"], True)
+        self.assertEqual(body["text"], "привіт")
+        clients["lambda"].invoke.assert_called_once()
+
+    def test_an_idle_running_worker_gets_the_message(self):
+        clients = self.route({"turnActive": False, "updatedAt": iso_ago(30)})
+        self.assertEqual(clients["sqs"].send_message.call_args.kwargs["QueueUrl"], "worker-queue")
+        clients["lambda"].invoke.assert_not_called()
+
+    def test_a_worker_waiting_for_the_owners_answer_gets_the_message(self):
+        clients = self.route({"turnActive": True, "awaitingAnswer": True, "updatedAt": iso_ago(30)})
+        self.assertEqual(clients["sqs"].send_message.call_args.kwargs["QueueUrl"], "worker-queue")
+
+    def test_a_stale_progress_record_means_the_worker(self):
+        clients = self.route({"turnActive": True, "updatedAt": iso_ago(16 * 60)})
+        self.assertEqual(clients["sqs"].send_message.call_args.kwargs["QueueUrl"], "worker-queue")
+
+    def test_an_unreadable_progress_record_means_the_worker(self):
+        for progress, error in (
+            (None, Exception("NoSuchKey")),
+            ({"turnActive": True}, None),
+            ({"turnActive": True, "updatedAt": "yesterday"}, None),
+            (["turnActive"], None),
+        ):
+            with self.subTest(progress=progress, error=error):
+                clients = self.route(progress, error)
+                self.assertEqual(clients["sqs"].send_message.call_args.kwargs["QueueUrl"], "worker-queue")
+
+    def stored_hand_over(self, clients, request):
+        clients["s3"].get_object.return_value = {
+            "Body": io.BytesIO(json.dumps(request).encode()),
+            "LastModified": datetime.fromtimestamp(time.time(), timezone.utc),
+        }
+
+    def test_hand_over_passes_interrupt_to_the_running_worker(self):
+        for flag, expected in ((True, True), ("yes", None), (None, None)):
+            with self.subTest(flag=flag):
+                bot, clients = load_dev_bot()
+                bot.config = mock.MagicMock(return_value={"chat_id": "42"})
+                bot.worker_tasks = mock.MagicMock(return_value=RUNNING)
+                request = {"reason": "stop", "message": {"text": "стоп"}}
+                if flag is not None:
+                    request["interrupt"] = flag
+                self.stored_hand_over(clients, request)
+                result = bot.handler({"action": "hand_over", "key": KEY}, None)
+                self.assertEqual(result, {"handed_over": True, "running": True})
+                body = json.loads(clients["sqs"].send_message.call_args.kwargs["MessageBody"])
+                self.assertEqual(body.get("interrupt"), expected)
+                self.assertEqual(clients["sqs"].send_message.call_args.kwargs["QueueUrl"], "worker-queue")
+                clients["ecs"].run_task.assert_not_called()
+
+
+def command_update(text):
+    return {"message_id": 9, "date": 1000, "chat": {"id": 42}, "text": text}
+
+
+class FastLaneBusyOrder(unittest.TestCase):
+    """While the fast lane still handles earlier messages (its marker fast-lane/busy.json), later ones follow them there,
+    so a message it hands over is never overtaken by a newer one sent straight to the worker."""
+
+    def route(self, progress, marker, tasks=RUNNING):
+        bot, clients = load_dev_bot()
+        bot.worker_tasks = mock.MagicMock(return_value=tasks)
+        objects = {"state/progress.json": progress, "fast-lane/busy.json": marker}
+
+        def get_object(Bucket, Key):
+            value = objects.get(Key)
+            if value is None:
+                raise Exception("An error occurred (NoSuchKey) when calling the GetObject operation")
+            return {"Body": io.BytesIO(json.dumps(value).encode())}
+
+        clients["s3"].get_object.side_effect = get_object
+        bot.forward(MESSAGE, "привіт", [])
+        return clients
+
+    def sent(self, clients):
+        sent = clients["sqs"].send_message.call_args.kwargs
+        return sent["QueueUrl"], json.loads(sent["MessageBody"])
+
+    def test_a_fresh_marker_sends_the_message_to_the_fast_lane_even_to_an_idle_worker(self):
+        clients = self.route({"turnActive": False, "updatedAt": iso_ago(5)}, {"since": iso_ago(20), "updatedAt": iso_ago(10)})
+        queue, body = self.sent(clients)
+        self.assertEqual(queue, "fast-lane-queue")
+        self.assertIs(body["workerBusy"], False)
+        clients["lambda"].invoke.assert_called_once()
+
+    def test_a_stale_marker_is_ignored(self):
+        clients = self.route({"turnActive": False, "updatedAt": iso_ago(5)}, {"since": iso_ago(400), "updatedAt": iso_ago(121)})
+        self.assertEqual(self.sent(clients)[0], "worker-queue")
+
+    def test_no_marker_means_the_worker(self):
+        clients = self.route({"turnActive": False, "updatedAt": iso_ago(5)}, None)
+        self.assertEqual(self.sent(clients)[0], "worker-queue")
+
+    def test_a_broken_marker_means_the_worker(self):
+        for marker in ({"since": iso_ago(5)}, {"updatedAt": "now"}, ["x"]):
+            with self.subTest(marker=marker):
+                clients = self.route({"turnActive": False, "updatedAt": iso_ago(5)}, marker)
+                self.assertEqual(self.sent(clients)[0], "worker-queue")
+
+    def test_a_busy_worker_and_a_busy_fast_lane_say_the_worker_is_busy(self):
+        clients = self.route({"turnActive": True, "updatedAt": iso_ago(5)}, {"since": iso_ago(5), "updatedAt": iso_ago(5)})
+        queue, body = self.sent(clients)
+        self.assertEqual(queue, "fast-lane-queue")
+        self.assertIs(body["workerBusy"], True)
+
+    def test_a_sleeping_worker_goes_to_the_fast_lane_without_reading_the_marker(self):
+        clients = self.route(None, None, tasks=[])
+        self.assertEqual(self.sent(clients)[0], "fast-lane-queue")
+        clients["s3"].get_object.assert_not_called()
+
+
+class VoiceDuration(unittest.TestCase):
+    def test_voice_and_audio_carry_their_duration(self):
+        bot, _clients = load_dev_bot()
+        found = bot.attachments_of({"voice": {"file_id": "v", "mime_type": "audio/ogg", "duration": 61}})
+        self.assertEqual(found[0]["duration"], 61)
+        found = bot.attachments_of({"document": {"file_id": "d", "file_name": "a.txt"}})
+        self.assertNotIn("duration", found[0])
+
+
+class FastLaneCommands(unittest.TestCase):
+    def routed(self, text, tasks, fast_lane=True, busy=False):
+        bot, clients = load_dev_bot(fast_lane=fast_lane)
+        bot.config = mock.MagicMock(return_value={"chat_id": "42", "webhook_secret": "s"})
+        bot.worker_tasks = mock.MagicMock(return_value=tasks)
+        bot.worker_stopping = mock.MagicMock(return_value=False)
+        bot.worker_busy = mock.MagicMock(return_value=busy)
+        bot.start_worker = mock.MagicMock(return_value=True)
+        event = {
+            "headers": {"X-Telegram-Bot-Api-Secret-Token": "s"},
+            "body": json.dumps({"message": command_update(text)}),
+        }
+        self.assertEqual(bot.handler(event, None)["statusCode"], 200)
+        call = clients["sqs"].send_message.call_args
+        return (call.kwargs["QueueUrl"] if call else None), bot, clients
+
+    def test_settings_and_state_commands_go_to_the_fast_lane_while_the_worker_runs(self):
+        for text in ("/model", "/effort high", "/mode@ytpip_dev_bot", "/timezone Europe/Kyiv", "/voice on",
+                     "/scheduled", "/plans", "/status", "/background", "/context", "/MODEL opus"):
+            with self.subTest(text=text):
+                queue, bot, clients = self.routed(text, RUNNING)
+                self.assertEqual(queue, "fast-lane-queue")
+                clients["lambda"].invoke.assert_called_once()
+                bot.worker_busy.assert_not_called()
+
+    def test_agents_and_compact_keep_the_message_routing(self):
+        for text in ("/agents", "/compact keep the plan"):
+            with self.subTest(text=text):
+                self.assertEqual(self.routed(text, RUNNING)[0], "worker-queue")
+                self.assertEqual(self.routed(text, [])[0], "fast-lane-queue")
+                self.assertEqual(self.routed(text, RUNNING, busy=True)[0], "fast-lane-queue")
+
+    def test_without_the_fast_lane_commands_go_to_the_worker(self):
+        queue, _bot, clients = self.routed("/model", RUNNING, fast_lane=False)
+        self.assertEqual(queue, "worker-queue")
+        clients["lambda"].invoke.assert_not_called()
+
+    def test_a_command_word_inside_text_is_an_ordinary_message(self):
+        self.assertEqual(self.routed("what does /model do?", RUNNING)[0], "worker-queue")
+
+
+class ControlHandOver(unittest.TestCase):
+    def stored_hand_over(self, clients, request):
+        clients["s3"].get_object.return_value = {
+            "Body": io.BytesIO(json.dumps(request).encode()),
+            "LastModified": datetime.fromtimestamp(time.time(), timezone.utc),
+        }
+
+    def hand_over(self, request, tasks):
+        bot, clients = load_dev_bot()
+        bot.config = mock.MagicMock(return_value={"chat_id": "42"})
+        bot.worker_tasks = mock.MagicMock(return_value=tasks)
+        bot.worker_stopping = mock.MagicMock(return_value=False)
+        bot.start_worker = mock.MagicMock(return_value=True)
+        self.stored_hand_over(clients, request)
+        return bot.handler({"action": "hand_over", "key": KEY}, None), bot, clients
+
+    def test_control_is_queued_for_a_running_worker(self):
+        control = {"model": "opus", "effort": "high", "mode": "auto", "timeZone": "Europe/Kyiv", "voiceMode": "on"}
+        result, bot, clients = self.hand_over({"control": control}, RUNNING)
+        self.assertEqual(result, {"handed_over": True, "control": True, "running": True})
+        sent = clients["sqs"].send_message.call_args.kwargs
+        self.assertEqual(sent["QueueUrl"], "worker-queue")
+        body = json.loads(sent["MessageBody"])
+        self.assertEqual(body["control"], control)
+        self.assertEqual(body["text"], "")
+        bot.say.assert_not_called()
+        bot.start_worker.assert_not_called()
+
+    def test_control_stop_task(self):
+        result, bot, clients = self.hand_over({"control": {"stopTask": "bash_1a2b"}}, RUNNING)
+        self.assertEqual(result, {"handed_over": True, "control": True, "running": True})
+
+    def test_control_effort_default_is_null(self):
+        result, bot, clients = self.hand_over({"control": {"effort": None}}, RUNNING)
+        self.assertEqual(result, {"handed_over": True, "control": True, "running": True})
+
+    def test_control_for_a_sleeping_worker_is_neither_queued_nor_starts_it(self):
+        result, bot, clients = self.hand_over({"control": {"model": "opus"}, "message": {"text": "x"}}, [])
+        self.assertEqual(result, {"handed_over": False, "control": True, "running": False})
+        clients["sqs"].send_message.assert_not_called()
+        clients["ecs"].run_task.assert_not_called()
+        bot.start_worker.assert_not_called()
+
+    def test_invalid_control_is_rejected(self):
+        for control in (
+            {},
+            {"model": "opus", "permissionMode": "bypassPermissions"},
+            {"model": 1},
+            {"model": ""},
+            {"model": "x" * 101},
+            {"voice": "on"},
+            {"mode": None},
+            {"stopTask": "../x"},
+            ["model", "opus"],
+            "opus",
+            None,
+        ):
+            with self.subTest(control=control):
+                result, bot, clients = self.hand_over({"control": control, "message": {"text": "x"}}, RUNNING)
+                self.assertEqual(result, {"handed_over": False, "error": "bad control"})
+                clients["sqs"].send_message.assert_not_called()
+                bot.start_worker.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -70,6 +70,36 @@ PENDING_START_KEY = "state/pending-start.json"
 # Hand-overs of the fast lane (hand_over): one object per task, written by the fast lane, read once by dev-bot
 HANDOVER_KEY = re.compile(r"fast-lane/handover/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.json")
 HANDOVER_MAX_AGE_SECONDS = 600
+# The worker's progress record (session-state.mjs progressRecord): while it is in a turn, the fast lane answers
+PROGRESS_KEY = "state/progress.json"
+# An older record is no evidence of a running turn: the message goes to the worker
+PROGRESS_FRESH_SECONDS = 15 * 60
+# The fast lane's marker while it handles a message (written when it takes one, deleted when its answer is sent): later
+# messages go to it too, so it hands them over in order (a message it holds is never overtaken by a newer one sent
+# straight to the worker)
+FAST_LANE_BUSY_KEY = "fast-lane/busy.json"
+# An older marker is left over (the fast lane died or timed out): not busy
+FAST_LANE_BUSY_FRESH_SECONDS = 120
+# Settings and state commands: the fast lane always handles them (both lanes, a lane switch in the buttons), whether
+# the worker runs or not. /agents and /compact need the worker's live session, so they keep the message routing.
+FAST_LANE_COMMANDS = {
+    "/model",
+    "/effort",
+    "/mode",
+    "/timezone",
+    "/voice",
+    "/scheduled",
+    "/plans",
+    "/status",
+    "/background",
+    "/context",
+}
+# A settings change for a running worker (hand_over "control"; scripts/dev-worker/settings.mjs validControl, which the
+# worker applies after its own check): these keys only, short string values; effort may be null (the default)
+CONTROL_KEYS = {"model", "effort", "mode", "timeZone", "voiceMode", "voiceName", "voiceModel", "stopTask"}
+# stopTask: the id of the worker's background task to stop (/background in the fast lane)
+CONTROL_TASK_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
+CONTROL_VALUE_MAX = 100
 # Tasks the owner scheduled (scripts/dev-worker/schedule.sh): {id, dueAt (UTC ISO), timeZone, text, createdAt}
 SCHEDULED_PREFIX = "state/scheduled/"
 # Gate (terraform/dev_worker_ops.tf)
@@ -259,6 +289,8 @@ def attachments_of(message):
                     "file_id": item["file_id"],
                     "file_name": item.get("file_name"),
                     "mime_type": item.get("mime_type"),
+                    # Seconds of a voice / audio message: bounds the transcript's length (transcript-guard.mjs)
+                    **({"duration": item["duration"]} if isinstance(item.get("duration"), int) else {}),
                 }
             )
     return found
@@ -318,12 +350,55 @@ def message_body(message, text, attachments):
     }
 
 
+def worker_busy():
+    """True only when the worker's progress record says it is in a turn, is fresh, and the worker does not wait for the
+    owner's answer (a question, a permission prompt, a plan review: those answers must reach the worker). Anything
+    unreadable or unexpected is False, so the message goes to the worker as before."""
+    try:
+        progress = json.loads(s3.get_object(Bucket=STATE_BUCKET, Key=PROGRESS_KEY)["Body"].read())
+        if not isinstance(progress, dict) or progress.get("turnActive") is not True:
+            return False
+        if progress.get("awaitingAnswer") is True:
+            return False
+        updated = datetime.fromisoformat(str(progress["updatedAt"]).replace("Z", "+00:00"))
+        return 0 <= time.time() - updated.timestamp() <= PROGRESS_FRESH_SECONDS
+    except Exception as error:
+        print(f"progress record: {error}")
+        return False
+
+
+def fast_lane_busy():
+    """True only when the fast lane's marker exists and is fresh: it still handles earlier messages. A missing marker,
+    a stale one or any read error is False (the message is routed as if the fast lane were idle)."""
+    try:
+        marker = json.loads(s3.get_object(Bucket=STATE_BUCKET, Key=FAST_LANE_BUSY_KEY)["Body"].read())
+        updated = datetime.fromisoformat(str(marker["updatedAt"]).replace("Z", "+00:00"))
+        return 0 <= time.time() - updated.timestamp() <= FAST_LANE_BUSY_FRESH_SECONDS
+    except Exception as error:
+        # No marker is the usual case; without s3:ListBucket S3 reports a missing key as AccessDenied (403)
+        if not any(code in str(error) for code in ("NoSuchKey", "Not Found", "AccessDenied", "403")):
+            print(f"fast lane busy marker: {error}")
+        return False
+
+
 def forward(message, text, attachments):
     tasks = worker_tasks()
-    if FAST_LANE_FUNCTION and not any(t["lastStatus"] == "RUNNING" for t in tasks):
+    running = any(t["lastStatus"] == "RUNNING" for t in tasks)
+    if FAST_LANE_FUNCTION and not running:
         # The working worker is not running: the fast lane answers, and hands long tasks over (hand_over)
         to_fast_lane(
             message_body(message, text, attachments),
+            str(message["chat"]["id"]),
+            str(message["message_id"]),
+        )
+        return
+    busy = bool(FAST_LANE_FUNCTION) and worker_busy()
+    if FAST_LANE_FUNCTION and (busy or fast_lane_busy()):
+        # The worker is in a turn: the fast lane answers at once (status, scheduled tasks, settings) and hands the
+        # message over (or interrupts the worker) when it is for the worker, instead of it waiting for the next step.
+        # The fast lane still handles earlier messages: this one follows them, so a hand-over is never overtaken.
+        to_fast_lane(
+            {**message_body(message, text, attachments), "workerBusy": busy},
             str(message["chat"]["id"]),
             str(message["message_id"]),
         )
@@ -538,6 +613,13 @@ def telegram_update(event):
             "/compact — стиснути контекст, /context — ліміти, /background — фонові задачі, /voice — голос, "
             "/timezone — таймзона, /scheduled — заплановані задачі, /status — закріпити статус."
         )
+    elif command in FAST_LANE_COMMANDS and FAST_LANE_FUNCTION:
+        # Settings and state commands: the fast lane, even while the worker runs (it changes either lane's settings)
+        to_fast_lane(
+            message_body(message, text, attachments),
+            str(message["chat"]["id"]),
+            str(message["message_id"]),
+        )
     else:
         forward(message, text, attachments)
     return {"statusCode": 200, "body": "ok"}
@@ -689,6 +771,8 @@ def hand_over(event):
     now = int(time.time())
     if now - stored["LastModified"].timestamp() > HANDOVER_MAX_AGE_SECONDS:
         return {"handed_over": False, "error": "stale"}
+    if "control" in request:
+        return hand_over_control(request)
     message = request.get("message") or {}
     text = str(message.get("text") or "")[:20000]
     attachments = [a for a in (message.get("attachments") or []) if isinstance(a, dict) and a.get("file_id")]
@@ -702,6 +786,9 @@ def hand_over(event):
         "message_id": message.get("message_id"),
         "handover": True,
     }
+    if request.get("interrupt") is True:
+        # The owner asked the busy worker to stop its current turn (the worker interrupts it on delivery)
+        body["interrupt"] = True
     for name in ("reply_to", "forwarded_from"):
         if message.get(name):
             body[name] = message[name]
@@ -723,6 +810,42 @@ def hand_over(event):
         return {"handed_over": True, "pending": True}
     say(f"🛠 Довга задача ({reason}): піднімаю робочий воркер…")
     return {"handed_over": True, "started": start_worker(since)}
+
+
+def valid_control(control):
+    """A settings change for the worker (CONTROL_KEYS: short strings; stopTask a task id), or None."""
+    if not isinstance(control, dict) or not control:
+        return None
+    for key, value in control.items():
+        if key == "effort" and value is None:
+            continue
+        if key not in CONTROL_KEYS or not isinstance(value, str) or not value or len(value) > CONTROL_VALUE_MAX:
+            return None
+        if key == "stopTask" and not CONTROL_TASK_ID.match(value):
+            return None
+    return dict(control)
+
+
+def hand_over_control(request):
+    """A settings change the owner made in the fast lane for the worker (/model, /effort, /mode with the lane switch,
+    /timezone, /voice): the fast lane already wrote it to state/settings.json, which a worker reads at start, so it is
+    queued only for a worker that runs now (applied to its live session) and never starts one. Nothing is said in the
+    chat: the fast lane confirms the change itself."""
+    control = valid_control(request.get("control"))
+    if not control:
+        print(f"hand-over control rejected: {str(request.get('control'))[:300]}")
+        return {"handed_over": False, "error": "bad control"}
+    if not worker_tasks():
+        return {"handed_over": False, "control": True, "running": False}
+    now = int(time.time())
+    body = {"text": "", "attachments": [], "date": now, "handover": True, "control": control}
+    sqs.send_message(
+        QueueUrl=QUEUE_URL,
+        MessageBody=json.dumps(body),
+        MessageGroupId=config()["chat_id"],
+        MessageDeduplicationId=f"control-{now}-{hashlib.sha256(json.dumps(control, sort_keys=True).encode()).hexdigest()[:16]}",
+    )
+    return {"handed_over": True, "control": True, "running": True}
 
 
 def handler(event, _context):
