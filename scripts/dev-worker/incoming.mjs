@@ -101,7 +101,9 @@ export function createIncoming({ log, telegram, voice, store }) {
       }
       if (attachment.kind === 'voice' || attachment.kind === 'audio') {
         await setStatus('🎙 Розпізнаю аудіо…');
-        const text = await transcribe(path, attachment.mime_type);
+        const text = await transcribe(path, attachment.mime_type, {
+          seconds: attachment.duration,
+        });
         await say(text ? `🎙 Розпізнав: «${text}»` : '🎙 У аудіо не знайшов мови');
         if (text) parts.push(text);
         await keepVoiceTranscript(message.message_id, text);
@@ -164,7 +166,9 @@ export function createIncoming({ log, telegram, voice, store }) {
     for (const attachment of message.attachments ?? []) {
       if (attachment.kind !== 'voice' && attachment.kind !== 'audio') continue;
       const path = await download(attachment.file_id, attachment.file_name);
-      const spoken = await transcribe(path, attachment.mime_type);
+      const spoken = await transcribe(path, attachment.mime_type, {
+        seconds: attachment.duration,
+      });
       await say(spoken ? `🎙 Розпізнав: «${spoken}»` : '🎙 У аудіо не знайшов мови');
       await keepVoiceTranscript(message.message_id, spoken);
       text = [text, spoken].filter(Boolean).join('\n');

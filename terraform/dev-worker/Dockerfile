@@ -81,7 +81,7 @@ RUN cd /opt/dev-worker && npm ci --omit=dev --no-audit --no-fund && rm -rf /root
 COPY scripts/dev-worker/worker.mjs scripts/dev-worker/telegram-format.mjs scripts/dev-worker/session-state.mjs \
      scripts/dev-worker/isolation.mjs scripts/dev-worker/subagent-history.mjs scripts/dev-worker/system-prompt.md \
      scripts/dev-worker/english-only-hook.mjs scripts/dev-worker/anthropic-proxy.mjs \
-     scripts/dev-worker/telegram.mjs scripts/dev-worker/voice.mjs scripts/dev-worker/incoming.mjs \
+     scripts/dev-worker/telegram.mjs scripts/dev-worker/voice.mjs scripts/dev-worker/transcript-guard.mjs scripts/dev-worker/incoming.mjs \
      scripts/dev-worker/interactions.mjs scripts/dev-worker/status.mjs \
      scripts/dev-worker/fast-lane.mjs scripts/dev-worker/fast-lane-core.mjs scripts/dev-worker/fast-lane-prompt.md \
      scripts/dev-worker/assistant-tools.mjs scripts/dev-worker/scheduled-tasks.mjs \
