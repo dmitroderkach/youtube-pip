@@ -468,12 +468,26 @@ export function lastEntryAt(content, role) {
 /**
  * The other lane's chat log entries written after `after` (ISO; null: all), newest SYNC_NOTE_LINES, as lines
  * "HH:MM role: text" clipped to SYNC_NOTE_CHARS in all (the newest kept). `lane` is the reader: `worker` gets the fast
- * lane's exchanges, `fast-lane` gets the worker's.
+ * lane's exchanges, `fast-lane` gets the worker's. Times in the owner's working time zone (`timeZone`): the lanes
+ * quote them to the owner, who reads local time.
  */
 export function laneDelta(
   content,
-  { lane, after = null, maxLines = SYNC_NOTE_LINES, maxChars = SYNC_NOTE_CHARS }
+  {
+    lane,
+    after = null,
+    maxLines = SYNC_NOTE_LINES,
+    maxChars = SYNC_NOTE_CHARS,
+    timeZone = 'Europe/Warsaw',
+  }
 ) {
+  const hhmm = (iso) =>
+    new Date(iso).toLocaleTimeString('en-GB', {
+      timeZone,
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+    });
   const other = lane === 'worker' ? 'fast-lane' : 'worker';
   const entries = chatLogEntries(content).filter(
     (entry) => entryLane(entry) === other && (!after || entry.at > after)
@@ -481,7 +495,7 @@ export function laneDelta(
   const lines = entries.slice(-maxLines).map((entry) => {
     const who =
       entry.role === 'owner' ? `owner${entry.kind === 'voice' ? ' (voice)' : ''}` : entry.role;
-    return `${entry.at.slice(11, 16)} UTC ${who}: ${clip(String(entry.text).replace(/\s+/g, ' '), 600)}`;
+    return `${hhmm(entry.at)} ${who}: ${clip(String(entry.text).replace(/\s+/g, ' '), 600)}`;
   });
   const kept = [];
   let size = 0;
@@ -494,6 +508,7 @@ export function laneDelta(
     lines: kept,
     latest: entries.length ? entries[entries.length - 1].at : after,
     total: entries.length,
+    timeZone,
   };
 }
 
@@ -551,10 +566,11 @@ export function syncNote({ lane, delta, progress, now = Date.now() }) {
   if (lane === 'fast-lane') parts.push(workerStateLine(progress, now));
   if (lines.length) {
     const more = delta.total > lines.length ? ` (the last ${lines.length} of ${delta.total})` : '';
+    const zone = delta.timeZone ? `, times in the owner's time zone ${delta.timeZone}` : '';
     parts.push(
       lane === 'fast-lane'
-        ? `In the chat since your previous answer, the owner and the working worker${more}:`
-        : `What the owner and the fast lane said since your previous turn${more}:`
+        ? `In the chat since your previous answer, the owner and the working worker${more}${zone}:`
+        : `What the owner and the fast lane said since your previous turn${more}${zone}:`
     );
     parts.push(...lines.map((line) => `- ${line}`));
   } else if (lane === 'worker') {

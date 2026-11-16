@@ -753,7 +753,11 @@ async function workerNote() {
     objects.getJson(PROGRESS_KEY).catch(() => null),
   ]);
   if (workerSeenAt === null) workerSeenAt = lastEntryAt(content, 'fast-lane') ?? '';
-  const delta = laneDelta(content, { lane: 'fast-lane', after: workerSeenAt || null });
+  const delta = laneDelta(content, {
+    lane: 'fast-lane',
+    after: workerSeenAt || null,
+    timeZone: settings.timeZone ?? 'Europe/Warsaw',
+  });
   if (delta.latest) workerSeenAt = delta.latest;
   return syncNote({ lane: 'fast-lane', delta, progress });
 }
