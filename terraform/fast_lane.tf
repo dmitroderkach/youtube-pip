@@ -163,7 +163,8 @@ resource "aws_iam_role_policy" "fast_lane" {
         Resource = data.aws_secretsmanager_secret.oncall.arn
       },
       {
-        # Hand-over: {"action": "start_worker", "reason": …, "since": …} (same account: this policy is enough)
+        # Hand-over: the task in fast-lane/handover/<uuid>.json, then {"action": "hand_over", "key": …} (same account:
+        # this policy is enough)
         Effect   = "Allow"
         Action   = "lambda:InvokeFunction"
         Resource = aws_lambda_function.dev_bot.arn

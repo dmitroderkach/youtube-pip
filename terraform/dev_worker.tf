@@ -342,6 +342,17 @@ resource "aws_iam_role_policy" "dev_bot" {
         Resource = aws_sqs_queue.dev_worker_inbox.arn
       },
       {
+        # The fast lane (fast_lane.tf): the owner's messages while the working worker is not running, and waking it
+        Effect   = "Allow"
+        Action   = ["sqs:SendMessage"]
+        Resource = aws_sqs_queue.fast_lane_inbox.arn
+      },
+      {
+        Effect   = "Allow"
+        Action   = ["lambda:InvokeFunction"]
+        Resource = aws_lambda_function.fast_lane.arn
+      },
+      {
         Effect   = "Allow"
         Action   = ["secretsmanager:GetSecretValue"]
         Resource = [data.aws_secretsmanager_secret.oncall.arn, data.aws_secretsmanager_secret.dev_worker.arn]
@@ -367,6 +378,12 @@ resource "aws_iam_role_policy" "dev_bot" {
         Effect   = "Allow"
         Action   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
         Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/pending-start.json"
+      },
+      {
+        # Hand-overs of the fast lane (dev_bot.py hand_over): the task is read from here, never from the invocation
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:DeleteObject"]
+        Resource = "${aws_s3_bucket.dev_worker_state.arn}/fast-lane/handover/*"
       },
       {
         # Scheduled tasks of the owner (written by the worker): due ones are read, sent and removed
@@ -421,16 +438,19 @@ resource "aws_lambda_function" "dev_bot" {
 
   environment {
     variables = {
-      CLUSTER_ARN            = aws_ecs_cluster.dev_worker.arn
-      TASK_DEFINITION_ARN    = aws_ecs_task_definition.dev_worker.arn_without_revision
-      CONTAINER_NAME         = local.dev_worker_container
-      SUBNET_IDS             = aws_subnet.public.id
-      SECURITY_GROUP_IDS     = aws_security_group.runner.id
-      QUEUE_URL              = aws_sqs_queue.dev_worker_inbox.id
-      STATE_BUCKET           = aws_s3_bucket.dev_worker_state.bucket
-      ONCALL_SECRET_ARN      = data.aws_secretsmanager_secret.oncall.arn
-      DEV_SECRET_ARN         = data.aws_secretsmanager_secret.dev_worker.arn
-      IDLE_ALERT_MINUTES     = tostring(var.dev_worker_idle_alert_minutes)
+      CLUSTER_ARN         = aws_ecs_cluster.dev_worker.arn
+      TASK_DEFINITION_ARN = aws_ecs_task_definition.dev_worker.arn_without_revision
+      CONTAINER_NAME      = local.dev_worker_container
+      SUBNET_IDS          = aws_subnet.public.id
+      SECURITY_GROUP_IDS  = aws_security_group.runner.id
+      QUEUE_URL           = aws_sqs_queue.dev_worker_inbox.id
+      STATE_BUCKET        = aws_s3_bucket.dev_worker_state.bucket
+      ONCALL_SECRET_ARN   = data.aws_secretsmanager_secret.oncall.arn
+      DEV_SECRET_ARN      = data.aws_secretsmanager_secret.dev_worker.arn
+      IDLE_ALERT_MINUTES  = tostring(var.dev_worker_idle_alert_minutes)
+      # A name, not the resource: the fast lane's environment names dev-bot (no cycle)
+      FAST_LANE_FUNCTION     = local.fast_lane_function
+      FAST_LANE_QUEUE_URL    = aws_sqs_queue.fast_lane_inbox.id
       OPS_BUCKET             = aws_s3_bucket.dev_ops.bucket
       TF_APPLY_PROJECT       = aws_codebuild_project.tf_apply.name
       IMAGE_PUBLISH_PROJECT  = aws_codebuild_project.image_publish.name

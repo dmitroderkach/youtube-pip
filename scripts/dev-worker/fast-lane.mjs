@@ -17,6 +17,7 @@
  * Chat features come from the shared modules (telegram, voice, incoming, interactions), like the worker's.
  */
 import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import {
   existsSync,
   lstatSync,
@@ -68,6 +69,8 @@ const REGION = env.AWS_REGION ?? 'eu-central-1';
 const BUCKET = env.STATE_BUCKET;
 const QUEUE_URL = env.QUEUE_URL;
 const DEV_BOT_FUNCTION = env.DEV_BOT_FUNCTION;
+/** Hand-overs for dev-bot (toWorker): one object per task, read once by dev-bot's hand_over. */
+const HANDOVER_PREFIX = 'fast-lane/handover/';
 const REPO = env.GITHUB_REPO ?? 'dmitroderkach/youtube-pip';
 /** Claude Code's memory project of the worker (memory/<project>/ in the state bucket). */
 const MEMORY_PROJECT = env.MEMORY_PROJECT ?? '-home-worker-youtube-pip';
@@ -313,17 +316,21 @@ async function handOverRaw(message, reason) {
 /**
  * Through dev-bot ({ action: hand_over }): the project's permissions boundary lets no role but the gate's dev-bot
  * write the worker's queue (a message there is the owner's word), so dev-bot puts the task there, marked as handed
- * over, and starts the worker (UP_AT = min(now, since), so it takes this message).
+ * over, and starts the worker (UP_AT = min(now, since), so it takes this message). The task goes into an S3 object
+ * that only this role and the worker task's can write; the invocation names only its key (anyone can invoke dev-bot
+ * directly, so dev-bot trusts the object, not the event).
  */
 async function toWorker(body, date, reason) {
+  const key = `${HANDOVER_PREFIX}${randomUUID()}.json`;
   try {
+    await putObject(key, JSON.stringify({ reason, since: date, message: body }), {
+      ifNoneMatch: '*',
+    });
     const out = await lambda.send(
       new InvokeCommand({
         FunctionName: DEV_BOT_FUNCTION,
         InvocationType: 'Event',
-        Payload: Buffer.from(
-          JSON.stringify({ action: 'hand_over', reason, since: date, message: body })
-        ),
+        Payload: Buffer.from(JSON.stringify({ action: 'hand_over', key })),
       })
     );
     if (out.StatusCode !== 202) throw new Error(`invoke status ${out.StatusCode}`);
