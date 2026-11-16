@@ -153,6 +153,20 @@ resource "aws_iam_role_policy" "fast_lane" {
         ]
       },
       {
+        # Voice messages: AWS Transcribe when Gemini fails (voice.mjs transcribeAws): the audio in inbox/ for the job,
+        # deleted after it
+        Effect   = "Allow"
+        Action   = ["s3:PutObject", "s3:GetObject", "s3:DeleteObject"]
+        Resource = "${aws_s3_bucket.dev_worker_state.arn}/inbox/*"
+      },
+      {
+        # Only jobs with the project's prefix (voice.mjs names them youtube-pip-voice-<time>); the permissions boundary
+        # allows the same ARNs (dev_worker_ops.tf, a gate change applied first)
+        Effect   = "Allow"
+        Action   = ["transcribe:StartTranscriptionJob", "transcribe:GetTranscriptionJob", "transcribe:DeleteTranscriptionJob"]
+        Resource = "arn:aws:transcribe:${var.aws_region}:${data.aws_caller_identity.current.account_id}:transcription-job/${local.project_glob}"
+      },
+      {
         Effect   = "Allow"
         Action   = "s3:ListBucket"
         Resource = aws_s3_bucket.dev_worker_state.arn

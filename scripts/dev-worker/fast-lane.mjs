@@ -59,6 +59,7 @@ import { SCHEDULED_PREFIX } from './scheduled-tasks.mjs';
 import {
   createPinnedStatus,
   mergeStatus,
+  workerView,
   rateWindows,
   renderStatus,
   STATUS_KEY,
@@ -131,7 +132,7 @@ const stateStore = objects;
 /** One JSON line per measured step (CloudWatch Logs Insights: filter timing), so it shows where seconds go. */
 const timing = (name, fields) => console.log(JSON.stringify({ timing: name, ...fields }));
 
-/** The AWS CLI (in the image): AWS Transcribe of voice messages when Gemini is not configured. */
+/** The AWS CLI (in the image): AWS Transcribe of voice messages when Gemini is not configured or fails. */
 const aws = async (...args) =>
   (await execFileAsync('aws', [...args, '--region', REGION], { maxBuffer: 16 * 1024 * 1024 }))
     .stdout;
@@ -353,6 +354,14 @@ async function statusBody() {
     const meta = await objects.getJson(META_KEY).catch(() => null);
     pinnedIds.statusMessageId = meta?.statusMessageId ?? null;
   }
+  // The worker's state from its progress record, its settings from state/settings.json while it sleeps
+  const [progress, own, meta] = await Promise.all([
+    objects.getJson(PROGRESS_KEY).catch(() => null),
+    stateStore.getJson(SETTINGS_KEY).catch(() => null),
+    objects.getJson(META_KEY).catch(() => null),
+  ]);
+  const stored = resolveSettings(own, meta).worker;
+  record = { ...record, worker: workerView(record?.worker, { progress, stored }) };
   return renderStatus(record, {
     timeZone: settings.timeZone,
     modes: MODES,
@@ -396,8 +405,8 @@ async function handOver(task, context) {
 
 /**
  * The owner's message as it came (attachments too), passed on to the worker unchanged but dated now and marked as a
- * hand-over: voice messages the fast lane cannot transcribe (no Google key, or Gemini failed: AWS Transcribe is outside
- * the project's permissions boundary) and messages the fast lane cannot take (fail closed).
+ * hand-over: voice messages the fast lane could not transcribe (Gemini and AWS Transcribe both failed) and messages
+ * the fast lane cannot take (fail closed).
  */
 async function handOverRaw(message, reason) {
   const date = Math.floor(Date.now() / 1000);
@@ -880,14 +889,8 @@ async function deliver(message, receivedAt = Date.now()) {
     return;
   }
   const audio = (message.attachments ?? []).some((a) => a.kind === 'voice' || a.kind === 'audio');
-  // Speech to text here only with Gemini (the Google key in the on-call secret): AWS Transcribe, the voice module's
-  // fallback, is outside the project's permissions boundary
-  const canTranscribe = Boolean(secrets.googleKey);
+  // Speech to text as in the worker (voice.mjs): Gemini when the Google key is there, AWS Transcribe as the fallback
   if (interactions.answersPending(message)) {
-    if (audio && !canTranscribe) {
-      await tg.say('🎙 Тут аудіо не розпізнаю: відповідай на питання текстом або кнопкою');
-      return;
-    }
     interactions.answerText(await incoming.spokenText(message));
     return;
   }
@@ -896,22 +899,12 @@ async function deliver(message, receivedAt = Date.now()) {
     if (status) await tg.edit(status.message_id, line);
     else status = await tg.call('sendMessage', { text: line });
   };
-  if (audio && !canTranscribe) {
-    await tg.say('🎙 Аудіо розпізнає робочий воркер: передаю йому повідомлення');
-    await logChat(
-      'fast-lane',
-      'Voice / audio message handed over to the worker (not transcribed here).'
-    );
-    const result = await handOverRaw(message, 'голосове повідомлення');
-    if (/failed/.test(result)) await tg.say('⚠️ Не вдалося підняти воркер: надішли /up');
-    return;
-  }
   let prompt;
   try {
     prompt = await incoming.buildPrompt(message, setStatus);
   } catch (error) {
     if (!audio) throw error;
-    // Gemini could not transcribe it (and Transcribe is out of reach here): the worker takes the message as it came
+    // Neither Gemini nor AWS Transcribe could transcribe it: the worker takes the message as it came
     log('fast lane transcription failed, handing the audio over', error);
     await tg.say('🎙 Не вдалося розпізнати тут: передаю повідомлення робочому воркеру');
     const result = await handOverRaw(message, 'голосове повідомлення');
@@ -936,7 +929,9 @@ async function deliver(message, receivedAt = Date.now()) {
   if (!session) await startSession();
   if (turnActive) {
     sendToClaude(
-      `[New message from the owner while you were answering. Read it first.]\n\n${prompt}`,
+      // Not "read it first": the earlier message still needs its answer (fast-lane-prompt.md, SEVERAL MESSAGES)
+      `[New message from the owner while you were answering. Answer it too, together with the earlier one(s): ` +
+        `none goes unanswered.]\n\n${prompt}`,
       'next'
     );
   } else {
