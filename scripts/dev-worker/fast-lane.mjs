@@ -391,7 +391,12 @@ async function handOverRaw(message, reason) {
 async function toWorker(body, date, reason) {
   const key = `${HANDOVER_PREFIX}${randomUUID()}.json`;
   try {
-    await putObject(key, JSON.stringify({ reason, since: date, message: body }), {
+    // dev-bot's hand_over reads `control` (a settings change for the running worker) and `interrupt` from the top
+    // level of the object, next to the message
+    const request = { reason, since: date, message: body };
+    if (body.control) request.control = body.control;
+    if (body.interrupt === true) request.interrupt = true;
+    await putObject(key, JSON.stringify(request), {
       ifNoneMatch: '*',
     });
     const out = await lambda.send(
