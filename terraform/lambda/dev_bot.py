@@ -418,21 +418,23 @@ def message_body(message, text, attachments):
     }
 
 
-def worker_busy():
-    """True only when the worker's progress record says it is in a turn, is fresh, and the worker does not wait for the
-    owner's answer (a question, a permission prompt, a plan review: those answers must reach the worker). Anything
-    unreadable or unexpected is False, so the message goes to the worker as before."""
+def worker_routing_state():
+    """The running worker's progress record, read once for routing: {"waits": the worker waits for the owner's answer
+    (a question, a permission prompt, a plan review: that answer must reach the worker), "busy": it is in a turn}, both
+    only from a fresh record; None when the record cannot be read (route as before: to the worker)."""
     try:
         progress = json.loads(s3.get_object(Bucket=STATE_BUCKET, Key=PROGRESS_KEY)["Body"].read())
-        if not isinstance(progress, dict) or progress.get("turnActive") is not True:
-            return False
-        if progress.get("awaitingAnswer") is True:
-            return False
+        if not isinstance(progress, dict):
+            return None
         updated = datetime.fromisoformat(str(progress["updatedAt"]).replace("Z", "+00:00"))
-        return 0 <= time.time() - updated.timestamp() <= PROGRESS_FRESH_SECONDS
+        fresh = 0 <= time.time() - updated.timestamp() <= PROGRESS_FRESH_SECONDS
+        return {
+            "waits": fresh and progress.get("awaitingAnswer") is True,
+            "busy": fresh and progress.get("turnActive") is True and progress.get("awaitingAnswer") is not True,
+        }
     except Exception as error:
         print(f"progress record: {error}")
-        return False
+        return None
 
 
 def fast_lane_busy():
@@ -460,13 +462,15 @@ def forward(message, text, attachments):
             str(message["message_id"]),
         )
         return
-    busy = bool(FAST_LANE_FUNCTION) and worker_busy()
-    if FAST_LANE_FUNCTION and (busy or fast_lane_busy()):
-        # The worker is in a turn: the fast lane answers at once (status, scheduled tasks, settings) and hands the
-        # message over (or interrupts the worker) when it is for the worker, instead of it waiting for the next step.
-        # The fast lane still handles earlier messages: this one follows them, so a hand-over is never overtaken.
+    # The worker runs. The owner's decision (2026-11-16): every message goes to the fast lane, also while the worker
+    # is free, and the fast lane hands over only what concerns the worker's work, so a free worker goes idle and stops
+    # instead of staying up for the chat. Only an answer the worker waits for (a question, a permission prompt, a plan
+    # review) goes straight to it; an unreadable record routes as before (to the worker).
+    state = worker_routing_state() if FAST_LANE_FUNCTION else None
+    to_fast = (state is not None and not state["waits"]) or (state is None and fast_lane_busy())
+    if FAST_LANE_FUNCTION and to_fast:
         to_fast_lane(
-            {**message_body(message, text, attachments), "workerBusy": busy},
+            {**message_body(message, text, attachments), "workerBusy": bool(state and state["busy"])},
             str(message["chat"]["id"]),
             str(message["message_id"]),
         )
