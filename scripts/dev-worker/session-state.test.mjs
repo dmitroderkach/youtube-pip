@@ -2,6 +2,10 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import {
+  appendChatLog,
+  chatLogEntry,
+  CHAT_LOG_TEXT_MAX,
+  progressRecord,
   classifierDenial,
   voiceReplyWanted,
   withoutRepeated,
@@ -264,4 +268,64 @@ test('classifierDenial: the auto mode classifier refusal and its reason, nothing
   assert.equal(classifierDenial('Exit code 1\nPermission denied'), undefined);
   assert.equal(classifierDenial('The owner declined this action.'), undefined);
   assert.equal(classifierDenial(undefined), undefined);
+});
+
+test('progressRecord: request, step and tasks while a turn runs, clipped', () => {
+  const NOW = new Date('2026-11-16T10:00:00Z');
+  const SINCE = Date.parse('2026-11-16T09:59:00Z');
+  const record = progressRecord({
+    purpose: 'x'.repeat(5000),
+    step: 'Bash: npm test',
+    steps: 7,
+    backgroundTasks: [{ type: 'bash', description: 'Wait for CI', since: SINCE }],
+    lastAnswerAt: '2026-11-16T09:58:00.000Z',
+    turnActive: true,
+    now: NOW,
+  });
+  assert.equal(record.updatedAt, NOW.toISOString());
+  assert.equal(record.turnActive, true);
+  assert.equal(record.purpose.length, 1000);
+  assert.equal(record.step, 'Bash: npm test');
+  assert.equal(record.steps, 7);
+  assert.deepEqual(record.backgroundTasks, [
+    { type: 'bash', description: 'Wait for CI', since: new Date(SINCE).toISOString() },
+  ]);
+  assert.ok(JSON.stringify(record).length < 4096);
+});
+
+test('progressRecord: between turns only the background tasks and the last answer', () => {
+  const record = progressRecord({
+    purpose: 'old request',
+    step: 'old step',
+    steps: 3,
+    backgroundTasks: [],
+    lastAnswerAt: '2026-11-16T09:58:00.000Z',
+    turnActive: false,
+  });
+  assert.equal(record.purpose, null);
+  assert.equal(record.step, null);
+  assert.equal(record.steps, 0);
+  assert.deepEqual(record.backgroundTasks, []);
+  assert.equal(record.lastAnswerAt, '2026-11-16T09:58:00.000Z');
+});
+
+test('chatLogEntry and appendChatLog: clipped texts, newest lines kept, broken lines dropped', () => {
+  const NOW = new Date('2026-11-16T10:00:00Z');
+  const entry = chatLogEntry('owner', 'y'.repeat(CHAT_LOG_TEXT_MAX + 50), {
+    kind: 'voice',
+    now: NOW,
+  });
+  assert.deepEqual(Object.keys(entry), ['at', 'role', 'kind', 'text']);
+  assert.equal(entry.text.length, CHAT_LOG_TEXT_MAX);
+  assert.equal(chatLogEntry('worker', 'hi', { now: NOW }).kind, undefined);
+
+  const MAX = 3;
+  let content = 'not json\n';
+  for (let i = 0; i < 5; i++) content = appendChatLog(content, { n: i }, MAX);
+  const lines = content
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line));
+  assert.deepEqual(lines, [{ n: 2 }, { n: 3 }, { n: 4 }]);
+  assert.ok(content.endsWith('\n'));
 });
