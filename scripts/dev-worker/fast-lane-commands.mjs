@@ -14,7 +14,13 @@
  * Built around injected clients so it is tested without AWS, Telegram or Claude.
  */
 import { SCHEDULED_PREFIX, validTaskId } from './scheduled-tasks.mjs';
-import { isTimeZone, timeZoneChoices, validBackgroundTaskId } from './session-state.mjs';
+import {
+  isTimeZone,
+  timeZoneChoices,
+  validBackgroundTaskId,
+  workerLiveness,
+  workerReachable,
+} from './session-state.mjs';
 import { createSettingsCommands } from './settings-commands.mjs';
 import {
   SETTINGS_KEY,
@@ -73,7 +79,8 @@ export function createFastLaneCommands({
 }) {
   const progress = () => store.getJson(PROGRESS_KEY).catch(() => null);
   const meta = () => store.getJson(META_KEY).catch(() => null);
-  const workerRunning = async () => (await progress())?.worker === 'running';
+  // Running, busy or starting (it queues what comes before it is ready); a stale record is a worker that is gone
+  const workerRunning = async () => workerReachable(await progress());
   const settings = async () =>
     resolveSettings(await store.getJson(SETTINGS_KEY).catch(() => null), await meta());
 
@@ -227,7 +234,7 @@ export function createFastLaneCommands({
    */
   async function reportBackground() {
     const record = await progress();
-    if (record?.worker === 'running') {
+    if (['running', 'busy'].includes(workerLiveness(record))) {
       const tasks = record.backgroundTasks ?? [];
       if (!tasks.length) return telegram.say('🧵 Фонових задач у робочого воркера немає');
       const lines = [
@@ -294,7 +301,7 @@ export function createFastLaneCommands({
   /** `/agents`: the running worker's subagents (its progress record); viewing their messages is the worker's. */
   async function reportAgents() {
     const record = await progress();
-    if (record?.worker !== 'running')
+    if (!['running', 'busy'].includes(workerLiveness(record)))
       return telegram.say('🤖 Робочий воркер спить: субагентів немає');
     const agents = record.agents ?? [];
     if (!agents.length) return telegram.say('🤖 У робочого воркера зараз немає субагентів');
@@ -313,7 +320,7 @@ export function createFastLaneCommands({
     const taskId = validBackgroundTaskId(id);
     const record = await progress();
     const task = (record?.backgroundTasks ?? []).find((item) => item.id === taskId);
-    if (!taskId || record?.worker !== 'running' || !task)
+    if (!taskId || !['running', 'busy'].includes(workerLiveness(record)) || !task)
       return telegram.say('ℹ️ Цієї фонової задачі вже немає: /background');
     const control = validControl({ stopTask: taskId });
     await toWorker({ text: controlText(control), control }, 'зупинити фонову задачу');
@@ -322,10 +329,11 @@ export function createFastLaneCommands({
 
   async function stopCommand() {
     const record = await progress();
-    if (record?.worker !== 'running' || !record.turnActive)
+    // A stale record (a crashed worker) is not running anything: /stop must never start one
+    if (workerLiveness(record) !== 'busy')
       return telegram.say('ℹ️ Робочий воркер зараз нічого не виконує');
     await toWorker(
-      { text: '/stop', interrupt: true, reason: 'the owner sent /stop' },
+      { text: '/stop', interrupt: true, start: false, reason: 'the owner sent /stop' },
       'зупинити поточну задачу'
     );
     return telegram.say('⏹ Передав робочому воркеру: зупинити поточну задачу');
@@ -335,7 +343,8 @@ export function createFastLaneCommands({
   async function compactCommand(argument) {
     const text = `/compact${argument ? ` ${argument}` : ''}`;
     if (await workerRunning()) {
-      await toWorker({ text }, 'стиснути контекст');
+      // Only for the running worker: dev-bot does not start one for it (start: false)
+      await toWorker({ text, start: false }, 'стиснути контекст');
       return telegram.say('🗜 Передав робочому воркеру: стиснути контекст');
     }
     return telegram.sayHtml('🗜 Робочий воркер спить. Підняти воркер і стиснути контекст?', {
@@ -408,6 +417,7 @@ export function createFastLaneCommands({
     if (kind === 'compact') {
       await telegram.editButtons(messageId);
       if (id === 'yes') {
+        // The owner confirmed starting the worker for it (the default start of a hand-over)
         await toWorker({ text: '/compact' }, 'стиснути контекст');
         await telegram.say('🗜 Піднімаю робочий воркер: він стисне контекст');
       }

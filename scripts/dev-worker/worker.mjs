@@ -27,6 +27,7 @@ import {
   withoutRepeated,
   voiceReplyWanted,
   classifierDenial,
+  PROGRESS_HEARTBEAT_MS,
   progressRecord,
   chatLogEntry,
   appendChatLog,
@@ -52,7 +53,13 @@ import {
   VOICE_MODELS,
 } from './telegram-format.mjs';
 import { searchPlaces } from './timezone-search.mjs';
-import { SETTINGS_KEY, describeControl, resolveSettings, splitControl } from './settings.mjs';
+import {
+  SETTINGS_KEY,
+  changedSettings,
+  describeControl,
+  resolveSettings,
+  splitControl,
+} from './settings.mjs';
 import { createSettingsCommands } from './settings-commands.mjs';
 import { createS3Objects } from './s3-objects.mjs';
 import { execFile } from 'node:child_process';
@@ -69,7 +76,7 @@ import { createTelegram } from './telegram.mjs';
 import { createVoice } from './voice.mjs';
 import { createIncoming } from './incoming.mjs';
 import { createInteractions } from './interactions.mjs';
-import { createPinnedStatus, mergeStatus, renderStatus, STATUS_KEY } from './status.mjs';
+import { createPinnedStatus, mergeStatus, renderStatus, STATUS_KEY, taskLabel } from './status.mjs';
 import {
   chmodSync,
   existsSync,
@@ -176,7 +183,7 @@ const ONCALL_MESSAGE_MAX_CHARS = 6000;
 const ONCALL_REPORTS_MAX = 3;
 const ONCALL_DIR = join(CLAUDE_HOME, 'oncall');
 /**
- * The owner's working time zone (`/timezone`, kept in meta.json): times shown in the chat (session save time, limit
+ * The owner's working time zone (`/timezone`, state/settings.json shared.timeZone, mirrored into meta on load and on change): times shown in the chat (session save time, limit
  * resets, background tasks, plans), and Claude is told when it changes.
  */
 const DEFAULT_TIME_ZONE = 'Europe/Warsaw';
@@ -599,24 +606,30 @@ function settingsSections() {
   };
 }
 
+/** The sections as this worker last wrote or read them: only keys that differ from these are written. */
 let lastMirrored = null;
 let settingsUploads = Promise.resolve();
 
 /**
- * Write the worker's settings to state/settings.json (conditional write) when they changed: the fast lane shows and
- * uses them from there. meta.json keeps them too, as this run's copy.
+ * Write the worker's own changes to state/settings.json (conditional write): only the keys this worker changed since
+ * it last read or wrote the file, never whole sections, so a change the fast lane made meanwhile (another key, or the
+ * same key while the worker was starting) is not undone. The fast lane shows and uses them from there; meta.json
+ * keeps them too, as this run's copy.
  */
 function mirrorSettings() {
   const sections = settingsSections();
-  const body = JSON.stringify(sections);
-  if (body === lastMirrored) return settingsUploads;
-  lastMirrored = body;
+  const patch = changedSettings(sections, lastMirrored);
+  if (!Object.keys(patch).length) return settingsUploads;
+  lastMirrored = {
+    worker: { ...(lastMirrored?.worker ?? {}), ...(patch.worker ?? {}) },
+    shared: { ...(lastMirrored?.shared ?? {}), ...(patch.shared ?? {}) },
+  };
   settingsUploads = settingsUploads.then(() =>
     stateObjects
       .updateJson(SETTINGS_KEY, (current) => ({
         ...current,
-        worker: { ...(current.worker ?? {}), ...sections.worker },
-        shared: { ...(current.shared ?? {}), ...sections.shared },
+        worker: { ...(current?.worker ?? {}), ...(patch.worker ?? {}) },
+        shared: { ...(current?.shared ?? {}), ...(patch.shared ?? {}) },
       }))
       .catch((error) => log('settings write failed', error))
   );
@@ -638,8 +651,9 @@ async function loadSettingsFile() {
   else delete meta.effort;
   for (const key of ['voiceMode', 'voiceName', 'voiceModel'])
     if (shared[key] !== undefined) meta[key] = shared[key];
-  if (!file?.worker || !file?.shared) await mirrorSettings();
-  else lastMirrored = JSON.stringify(settingsSections());
+  // What the file says now is the base: later only this worker's own changes are written over it
+  lastMirrored = { worker: { ...(file?.worker ?? {}) }, shared: { ...(file?.shared ?? {}) } };
+  await mirrorSettings();
 }
 
 // ---------------------------------------------------------------------------------------------- attachments
@@ -665,6 +679,11 @@ const stateStore = {
     writeFileSync(local, JSON.stringify(value));
     await aws('s3', 'cp', local, `s3://${BUCKET}/${key}`, '--quiet');
   },
+  /**
+   * A conditional read-modify-write (ETag, retried on a conflict: s3-objects.mjs updateJson), for the objects the fast
+   * lane writes too (voice transcripts, the speech budget record).
+   */
+  updateJson: (key, change) => stateObjects.updateJson(key, change),
 };
 
 // Voice in and out, the /voice menu (voice.mjs); settings in meta.json
@@ -920,8 +939,13 @@ function publishActivity(turnActive) {
 
 /** The current step of the turn, as the in-chat progress message shows it (for the progress record). */
 let currentStep = null;
-/** The worker process's state in the progress record (session-state.mjs WORKER_STATES). */
-let workerState = 'running';
+/**
+ * The worker process's state in the progress record (session-state.mjs WORKER_STATES): `starting` from the first step
+ * of main() until the restore is done (the pinned status shows it as being started), then `running`.
+ */
+let workerState = 'starting';
+/** When this process started (the status's "піднімається з"). */
+const startingSince = new Date().toISOString();
 let progressTimer = null;
 let progressUploads = Promise.resolve();
 let lastProgressBody = '';
@@ -946,11 +970,11 @@ function currentProgress() {
   });
 }
 
-/** Upload the record (after the uploads before it); skipped when only its time changed. */
-function uploadProgress(record) {
+/** Upload the record (after the uploads before it); skipped when only its time changed, unless `force` (heartbeat). */
+function uploadProgress(record, { force = false } = {}) {
   const { updatedAt, ...content } = record;
   const body = JSON.stringify(content);
-  if (body === lastProgressBody) return progressUploads;
+  if (body === lastProgressBody && !force) return progressUploads;
   lastProgressBody = body;
   progressUploads = progressUploads.then(async () => {
     try {
@@ -1412,14 +1436,24 @@ async function statusBody({ sleeping }) {
   }
   if (sleeping) sleepingSince ??= new Date().toISOString();
   const scheduled = (await s3Keys(SCHEDULED_PREFIX).catch(() => [])).length;
-  const figures = {
-    state: sleeping ? 'stopped' : turn ? 'busy' : 'running',
-    ...(sleeping ? { since: sleepingSince } : {}),
-    mode: currentMode(),
-    model: modelName(),
-    effort: meta?.effort ?? null,
-    ctx,
-  };
+  // Still starting (before the restore): the stored settings, not this process's defaults
+  const stored =
+    workerState === 'starting' && !sleeping
+      ? resolveSettings(await stateObjects.getJson(SETTINGS_KEY).catch(() => null), null, {
+          workerModel: MODEL,
+        }).worker
+      : null;
+  const figures = stored
+    ? { state: 'starting', since: startingSince, ...stored, ctx: null }
+    : {
+        state: sleeping ? 'stopped' : turn ? 'busy' : 'running',
+        ...(sleeping ? { since: sleepingSince } : {}),
+        task: turn && !sleeping ? taskLabel(turnPurpose) : null,
+        mode: currentMode(),
+        model: modelName(),
+        effort: meta?.effort ?? null,
+        ctx,
+      };
   const shared = {
     windows: Object.keys(windows).length ? windows : undefined,
     speech: spend,
@@ -2836,6 +2870,20 @@ function checkLimits() {
 }
 
 async function main() {
+  // Being started: the progress record and the pinned status say so at once (the restore takes a while). The record is
+  // written before the restore reads memory and plans: from then on the fast lane hands their changes over instead of
+  // writing them (a write that landed between the restore's read and this record would be lost). Bounded wait.
+  await Promise.race([
+    writeProgressNow().catch((error) => log('starting record failed', error)),
+    new Promise((resolveWait) => setTimeout(resolveWait, 10_000)),
+  ]);
+  // Heartbeat from the first step on, through a slow restore too: the record is rewritten also when nothing changed,
+  // so a starting / running record older than its stale bound means a failed start or a crashed or killed worker
+  // (session-state.mjs workerLiveness), never a slow but live one
+  setInterval(() => {
+    if (!stopping) void uploadProgress(currentProgress(), { force: true });
+  }, PROGRESS_HEARTBEAT_MS).unref();
+  void updateStatus();
   let restored;
   try {
     if (CLAUDE_USER) startGithubBroker();
@@ -2851,6 +2899,7 @@ async function main() {
   }
   if (stopReason) return stop();
   await loadSettingsFile();
+  workerState = 'running';
   const branch = (await claudeSh('git', ['-C', REPO_DIR, 'branch', '--show-current'])).trim();
   const modeNote =
     (currentMode() === DEFAULT_MODE

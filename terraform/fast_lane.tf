@@ -140,10 +140,12 @@ resource "aws_iam_role_policy" "fast_lane" {
       {
         Effect = "Allow"
         Action = "s3:PutObject"
-        # settings.json: both lanes' settings (settings.mjs); status.json: the pinned status of both lanes
+        # settings.json: both lanes' settings (settings.mjs); status.json: the pinned status of both lanes; memory/ and
+        # plans/: the worker's memory and plans, written by the fast lane only while the worker sleeps (memory_write,
+        # plan_write)
         Resource = [for key in [
           "state/chat-log.jsonl", "state/voice-transcripts.json", "state/voice-usage.json", "state/scheduled/*",
-          "state/settings.json", "state/status.json", "fast-lane/*",
+          "state/settings.json", "state/status.json", "fast-lane/*", "memory/*", "plans/*",
         ] : "${aws_s3_bucket.dev_worker_state.arn}/${key}"]
       },
       {

@@ -17,6 +17,7 @@ import {
   newScheduledTask,
   validTaskId,
 } from './scheduled-tasks.mjs';
+import { resolveSettings } from './settings.mjs';
 
 /** Size limits of what a tool returns to the model (characters). */
 export const LIMITS = {
@@ -30,6 +31,7 @@ export const LIMITS = {
 
 export const STATE_KEYS = {
   META: 'state/meta.json',
+  SETTINGS: 'state/settings.json',
   CHAT_LOG: 'state/chat-log.jsonl',
   PROGRESS: 'state/progress.json',
   MEMORY_PREFIX: 'memory/',
@@ -62,8 +64,55 @@ export function safePath(path) {
   return /^[A-Za-z0-9._/@+ -]+$/.test(value) ? value : null;
 }
 
-export function createTools({ s3, github, repo, project }) {
+/** Size limit of a memory file or a plan the fast lane writes (characters). */
+export const WRITE_MAX_CHARS = 40000;
+
+/** MEMORY.md with `line` for `file`: replaces the line that links to the file, or appends it. */
+export function withIndexLine(index, file, line) {
+  const lines = String(index ?? '')
+    .split('\n')
+    .filter((item, i, all) => item !== '' || i < all.length - 1);
+  const at = lines.findIndex((item) => item.includes(`](${file})`));
+  if (at >= 0) lines[at] = line;
+  else lines.push(line);
+  return `${lines.filter(Boolean).join('\n')}\n`;
+}
+
+/**
+ * `workerAsleep()`: true only when the worker certainly does not run: its progress record says stopped, or a running /
+ * starting record went stale (session-state.mjs workerAsleepNow); `toWorker(task)`: a change handed over to the worker as a message (memory_write / plan_write
+ * while it runs or starts: it is then the only writer of its memory and plans, plan "Synchronisation" rule 2).
+ */
+export function createTools({
+  s3,
+  github,
+  repo,
+  project,
+  workerAsleep = async () => false,
+  toWorker,
+}) {
   const memoryPrefix = `${STATE_KEYS.MEMORY_PREFIX}${project}/`;
+
+  /**
+   * One of the worker's own files (memory, plans) written by the fast lane: directly while the worker sleeps
+   * (conditional writes), otherwise handed over; and handed over too when the worker started while it was written,
+   * so a starting worker that restored the old copy still gets the change (its next save would undo it otherwise).
+   */
+  async function writeWorkerFile(what, writes, description) {
+    if (!(await workerAsleep())) {
+      if (!toWorker)
+        return 'The worker is running: tell the owner to ask the worker for this change.';
+      const result = await toWorker(description);
+      return `The worker is running or starting: it is the only writer of its ${what} now, so the change was handed over to it. ${result}`;
+    }
+    for (const [key, change] of writes) await s3.updateObject(key, change);
+    if (!(await workerAsleep()) && toWorker) {
+      await toWorker(description);
+      return `Written to S3; the worker started meanwhile, so the change was also handed over to it.`;
+    }
+    return `Written (the worker reads it at its next start).`;
+  }
+
   return {
     /** The last N lines of the conversation both lanes write (state/chat-log.jsonl). */
     async chatLog({ lines } = {}) {
@@ -94,6 +143,39 @@ export function createTools({ s3, github, repo, project }) {
       if (!file) return 'Invalid memory file name.';
       const text = await s3.get(`${memoryPrefix}${file}`);
       return text ? clip(text, LIMITS.MEMORY_CHARS) : `No memory file ${file}.`;
+    },
+
+    /** A memory file and its MEMORY.md line, while the worker sleeps (otherwise handed over to the worker). */
+    async memoryWrite({ name, content, index_line: indexLine }) {
+      const file = safeName(name);
+      if (!file || !file.endsWith('.md') || file === 'MEMORY.md')
+        return 'Invalid memory file name (a .md file other than MEMORY.md).';
+      const body = String(content ?? '');
+      if (!body.trim() || body.length > WRITE_MAX_CHARS) return 'Empty or too long content.';
+      const line = String(indexLine ?? '').trim();
+      if (!line.startsWith('- [') || !line.includes(`](${file})`) || line.includes('\n'))
+        return `Invalid index line: one line "- [Title](${file}) — hook".`;
+      return writeWorkerFile(
+        'memory',
+        [
+          [`${memoryPrefix}${file}`, () => (body.endsWith('\n') ? body : `${body}\n`)],
+          [`${memoryPrefix}MEMORY.md`, (index) => withIndexLine(index, file, line)],
+        ],
+        `Write the memory file ${file} with this content and put this line into MEMORY.md (asked by the owner in the fast lane):\n${line}\n\n${body}`
+      );
+    },
+
+    /** A saved plan (plans/<name>), while the worker sleeps (otherwise handed over to the worker). */
+    async planWrite({ name, content }) {
+      const file = safeName(name);
+      if (!file || !file.endsWith('.md')) return 'Invalid plan name (a .md file name).';
+      const body = String(content ?? '');
+      if (!body.trim() || body.length > WRITE_MAX_CHARS) return 'Empty or too long content.';
+      return writeWorkerFile(
+        'plans',
+        [[`${STATE_KEYS.PLANS_PREFIX}${file}`, () => (body.endsWith('\n') ? body : `${body}\n`)]],
+        `Write the saved plan ${file} (plans/, ~/plans) with this content (asked by the owner in the fast lane):\n\n${body}`
+      );
     },
 
     async plansList() {
@@ -179,9 +261,15 @@ export function createTools({ s3, github, repo, project }) {
 
     /** A one-off scheduled task: "YYYY-MM-DD HH:MM" in the owner's working time zone (or the given zone). */
     async scheduleAdd({ when, text, zone }) {
+      // The owner's working time zone (state/settings.json shared.timeZone; the old meta.json as a fallback)
       let ownerZone = null;
       try {
-        ownerZone = JSON.parse((await s3.get(STATE_KEYS.META)) ?? '{}').timeZone ?? null;
+        const [own, meta] = await Promise.all([
+          s3.get(STATE_KEYS.SETTINGS),
+          s3.get(STATE_KEYS.META),
+        ]);
+        ownerZone = resolveSettings(JSON.parse(own ?? 'null'), JSON.parse(meta ?? 'null')).shared
+          .timeZone;
       } catch {
         ownerZone = null;
       }
