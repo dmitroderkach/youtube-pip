@@ -88,6 +88,12 @@ export function createVoice({
    * said. AWS Transcribe (a batch job, ~10 s, $0.024 / min) is the fallback.
    */
   const TRANSCRIBE_MODEL = 'gemini-3.5-flash';
+  /**
+   * An overloaded Gemini (429 "Resource exhausted": Vertex AI's shared quota, seen live on 2026-11-16; or 5xx) is
+   * asked once more after a short pause; then AWS Transcribe takes the message.
+   */
+  const TRANSCRIBE_RETRY_DELAY_MS = 1000;
+  const overloaded = (error) => /^Gemini (429|5\d\d)\b/.test(String(error?.message ?? ''));
   const TRANSCRIBE_PROMPT =
     'Transcribe this voice message word for word, exactly as spoken. It is mostly Ukrainian and may contain English ' +
     'technical terms (PR, CI, merge, Terraform, Docker, Claude, Gemini, youtube-pip, Telegram). Strict rules: never ' +
@@ -151,7 +157,17 @@ export function createVoice({
       try {
         return await transcribeGemini(path, mimeType, { seconds });
       } catch (error) {
-        log('Gemini transcription failed, falling back to AWS Transcribe', error);
+        if (overloaded(error)) {
+          log('Gemini transcription overloaded, retrying once', error);
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, TRANSCRIBE_RETRY_DELAY_MS));
+          try {
+            return await transcribeGemini(path, mimeType, { seconds });
+          } catch (retryError) {
+            log('Gemini transcription failed, falling back to AWS Transcribe', retryError);
+          }
+        } else {
+          log('Gemini transcription failed, falling back to AWS Transcribe', error);
+        }
       }
     }
     return transcribeAws(path, mimeType);
@@ -160,7 +176,8 @@ export function createVoice({
   async function transcribeAws(path, mimeType) {
     const format = TRANSCRIBE_FORMATS[mimeType] ?? 'ogg';
     const key = `${INBOX_PREFIX}${path.slice(path.lastIndexOf('/') + 1)}`;
-    const job = `dev-worker-${Date.now()}`;
+    // The project's prefix: the fast lane's role (permissions boundary) may only touch jobs named so
+    const job = `youtube-pip-voice-${Date.now()}`;
     // Uploaded by Claude's user: the file is in Claude's inbox (never read with the worker's rights)
     await upload(path, `s3://${BUCKET}/${key}`);
     try {
