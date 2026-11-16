@@ -88,6 +88,17 @@ export function createVoice({
    * said. AWS Transcribe (a batch job, ~10 s, $0.024 / min) is the fallback.
    */
   const TRANSCRIBE_MODEL = 'gemini-3.5-flash';
+  /**
+   * Tried in order when a model is overloaded (429 "Resource exhausted": Vertex AI's shared quota, seen live on
+   * 2026-11-16; or 5xx): the same model once more after a short pause, then Gemini 2.5 Flash (GA, also on `global`,
+   * its thinking off with a zero budget), and only then AWS Transcribe.
+   */
+  const TRANSCRIBE_ATTEMPTS = [
+    { model: TRANSCRIBE_MODEL, thinkingConfig: { thinkingLevel: 'MINIMAL' } },
+    { model: TRANSCRIBE_MODEL, thinkingConfig: { thinkingLevel: 'MINIMAL' }, delayMs: 1000 },
+    { model: 'gemini-2.5-flash', thinkingConfig: { thinkingBudget: 0 } },
+  ];
+  const overloaded = (error) => /^Gemini (429|5\d\d)\b/.test(String(error?.message ?? ''));
   const TRANSCRIBE_PROMPT =
     'Transcribe this voice message word for word, exactly as spoken. It is mostly Ukrainian and may contain English ' +
     'technical terms (PR, CI, merge, Terraform, Docker, Claude, Gemini, youtube-pip, Telegram). Strict rules: never ' +
@@ -96,14 +107,18 @@ export function createVoice({
     'word is not clear, write [нерозбірливо] instead of guessing. Output only the transcript text: no comments, ' +
     'quotes, labels or timestamps. If there is no speech, output nothing.';
 
-  async function transcribeGemini(path, mimeType, { seconds } = {}) {
+  async function transcribeGemini(
+    path,
+    mimeType,
+    { seconds, model = TRANSCRIBE_MODEL, thinkingConfig = { thinkingLevel: 'MINIMAL' } } = {}
+  ) {
     const { token, project } = await gcpAccessToken();
     const audio = readPlainFile(path);
     // Bounds from the audio's length (transcript-guard.mjs): a slower or longer answer is a runaway and falls back
     const length = { seconds, bytes: audio.length };
     const url =
       `https://aiplatform.googleapis.com/v1/projects/${project}/locations/global/publishers/google/models/` +
-      `${TRANSCRIBE_MODEL}:generateContent`;
+      `${model}:generateContent`;
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -124,8 +139,8 @@ export function createVoice({
         ],
         generationConfig: {
           temperature: 0,
-          // The lowest thinking level of Gemini 3.x Flash (it cannot be turned off): a transcript needs none
-          thinkingConfig: { thinkingLevel: 'MINIMAL' },
+          // The lowest thinking of the model (Gemini 3.x Flash cannot turn it off): a transcript needs none
+          thinkingConfig,
           maxOutputTokens: transcriptTokenBudget(length),
         },
       }),
@@ -148,11 +163,24 @@ export function createVoice({
   /** Text of a voice message or audio file: Gemini when the service account is there, AWS Transcribe otherwise. */
   async function transcribe(path, mimeType, { seconds } = {}) {
     if (ttsServiceAccount()) {
-      try {
-        return await transcribeGemini(path, mimeType, { seconds });
-      } catch (error) {
-        log('Gemini transcription failed, falling back to AWS Transcribe', error);
+      let lastError = null;
+      for (const attempt of TRANSCRIBE_ATTEMPTS) {
+        if (lastError && !overloaded(lastError)) break;
+        if (attempt.delayMs)
+          await new Promise((resolveDelay) => setTimeout(resolveDelay, attempt.delayMs));
+        try {
+          return await transcribeGemini(path, mimeType, { seconds, ...attempt });
+        } catch (error) {
+          lastError = error;
+          log(`Gemini transcription (${attempt.model}) failed`, error);
+        }
       }
+      // The fast lane cannot reach AWS Transcribe (outside the project's boundary): it hands the audio over at once
+      if (env.TRANSCRIBE_AWS_FALLBACK === 'off')
+        throw lastError ?? new Error('Gemini transcription failed');
+      log('falling back to AWS Transcribe');
+    } else if (env.TRANSCRIBE_AWS_FALLBACK === 'off') {
+      throw new Error('no Gemini service account and no AWS Transcribe here');
     }
     return transcribeAws(path, mimeType);
   }

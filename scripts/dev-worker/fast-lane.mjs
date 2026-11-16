@@ -232,6 +232,8 @@ async function initChat() {
       env: {
         GOOGLE_TTS_API_KEY: secrets.googleKey ?? undefined,
         TRANSCRIBE_LANGUAGE: env.TRANSCRIBE_LANGUAGE,
+        // AWS Transcribe is outside the project's permissions boundary: a failed Gemini hands the audio over at once
+        TRANSCRIBE_AWS_FALLBACK: 'off',
       },
       log,
       telegram: tg,
