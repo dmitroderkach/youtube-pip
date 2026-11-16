@@ -13,6 +13,11 @@
 import { createSign } from 'node:crypto';
 import { readPlainFile } from './isolation.mjs';
 import {
+  degenerateTranscript,
+  transcriptTimeoutMs,
+  transcriptTokenBudget,
+} from './transcript-guard.mjs';
+import {
   budgetLevel,
   budgetStates,
   latestBudgetState,
@@ -91,8 +96,11 @@ export function createVoice({
     'word is not clear, write [нерозбірливо] instead of guessing. Output only the transcript text: no comments, ' +
     'quotes, labels or timestamps. If there is no speech, output nothing.';
 
-  async function transcribeGemini(path, mimeType) {
+  async function transcribeGemini(path, mimeType, { seconds } = {}) {
     const { token, project } = await gcpAccessToken();
+    const audio = readPlainFile(path);
+    // Bounds from the audio's length (transcript-guard.mjs): a slower or longer answer is a runaway and falls back
+    const length = { seconds, bytes: audio.length };
     const url =
       `https://aiplatform.googleapis.com/v1/projects/${project}/locations/global/publishers/google/models/` +
       `${TRANSCRIBE_MODEL}:generateContent`;
@@ -107,29 +115,41 @@ export function createVoice({
               {
                 inlineData: {
                   mimeType: mimeType || 'audio/ogg',
-                  data: readPlainFile(path).toString('base64'),
+                  data: audio.toString('base64'),
                 },
               },
               { text: TRANSCRIBE_PROMPT },
             ],
           },
         ],
-        generationConfig: { temperature: 0 },
+        generationConfig: {
+          temperature: 0,
+          // The lowest thinking level of Gemini 3.x Flash (it cannot be turned off): a transcript needs none
+          thinkingConfig: { thinkingLevel: 'MINIMAL' },
+          maxOutputTokens: transcriptTokenBudget(length),
+        },
       }),
+      signal: AbortSignal.timeout(transcriptTimeoutMs(length)),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(`Gemini ${res.status}: ${json.error?.message ?? 'no transcript'}`);
-    return (json.candidates?.[0]?.content?.parts ?? [])
+    const candidate = json.candidates?.[0] ?? {};
+    const text = (candidate.content?.parts ?? [])
+      // Thought summaries are not the transcript (not requested, but never take them as words)
+      .filter((part) => !part.thought)
       .map((part) => part.text ?? '')
       .join('')
       .trim();
+    const degenerate = degenerateTranscript(text, candidate.finishReason);
+    if (degenerate) throw new Error(`Gemini transcript looks degenerate: ${degenerate}`);
+    return text;
   }
 
   /** Text of a voice message or audio file: Gemini when the service account is there, AWS Transcribe otherwise. */
-  async function transcribe(path, mimeType) {
+  async function transcribe(path, mimeType, { seconds } = {}) {
     if (ttsServiceAccount()) {
       try {
-        return await transcribeGemini(path, mimeType);
+        return await transcribeGemini(path, mimeType, { seconds });
       } catch (error) {
         log('Gemini transcription failed, falling back to AWS Transcribe', error);
       }
