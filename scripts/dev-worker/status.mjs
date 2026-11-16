@@ -123,6 +123,34 @@ export function mergeStatus(current, { lane, figures, shared = {}, now = new Dat
   return record;
 }
 
+/** A progress record older than this without a worker state (a worker image before it wrote one, or a crash). */
+const PROGRESS_STALE_MS = 15 * 60 * 1000;
+
+/**
+ * The worker's section as another lane shows it (the fast lane): the state from the worker's progress record (the
+ * worker writes it on every step and as its last step before exiting), not from its last status section, which a
+ * stopped or crashed worker no longer updates; while the worker does not run, mode / model / effort are the stored
+ * ones (state/settings.json `worker`, resolveSettings), which a change made in the fast lane updates.
+ */
+export function workerView(section, { progress, stored, now = Date.now() } = {}) {
+  const live = section ?? {};
+  const updated = Date.parse(progress?.updatedAt ?? '');
+  const age = Number.isNaN(updated) ? Infinity : now - updated;
+  let state;
+  if (progress?.worker === 'running') state = progress.turnActive ? 'busy' : 'running';
+  else if (progress?.worker === 'stopped' || progress?.worker === 'stopping') state = 'stopped';
+  else if (age > PROGRESS_STALE_MS) state = 'stopped';
+  else state = live.state;
+  if (state === 'running' || state === 'busy') return { ...stored, ...live, state };
+  return {
+    ...live,
+    ...stored,
+    state,
+    since: Number.isNaN(updated) ? live.since : progress.updatedAt,
+    ctx: live.ctx,
+  };
+}
+
 const pct = (value) => (typeof value === 'number' ? `${Math.round(value * 100)}%` : '?');
 
 /**
@@ -155,7 +183,9 @@ export function renderStatus(
   const mode = modes[worker.mode];
   const ctx = (value) => (typeof value === 'number' ? ` · ctx ${Math.round(value)}%` : '');
   const summary =
-    `${stateEmoji}${mode?.emoji ?? ''} ${worker.model ?? '?'}${ctx(worker.ctx)} · ⚡${fast.model ?? '?'} · ` +
+    // The pinned bar shows only this line: both lanes' context is here, not only in the lines below
+    `${stateEmoji}${mode?.emoji ?? ''} ${worker.model ?? '?'}${ctx(worker.ctx)} · ⚡${fast.model ?? '?'}` +
+    `${typeof fast.ctx === 'number' ? ` ctx ${Math.round(fast.ctx)}%` : ''} · ` +
     `5г ${pct(windows.five_hour?.utilization)} · тж ${pct(windows.seven_day?.utilization)}` +
     `${shared.speech ? ` · 🔊${shared.speech}` : ''}`;
   const workerState =

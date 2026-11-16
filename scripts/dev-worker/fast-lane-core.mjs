@@ -40,6 +40,7 @@ export const CHILD_ENV_NAMES = [
   'CLAUDE_CONFIG_DIR',
   'DISABLE_AUTOUPDATER',
   'CLAUDE_CODE_TRANSCRIPT_LOCAL_GC',
+  'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC',
   'ANTHROPIC_BASE_URL',
   'CLAUDE_CODE_OAUTH_TOKEN',
 ];
@@ -52,6 +53,9 @@ export function childEnv({ home, proxyUrl, placeholder, path = '/usr/local/bin:/
     CLAUDE_CONFIG_DIR: `${home}/.claude`,
     DISABLE_AUTOUPDATER: '1',
     CLAUDE_CODE_TRANSCRIPT_LOCAL_GC: '1',
+    // No telemetry, error reporting or update checks: nothing but the API (through the proxy) on the session start,
+    // which took 28-101 s in the Lambda against ~1 s on the worker (2026-11-16)
+    CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
     ANTHROPIC_BASE_URL: proxyUrl,
     CLAUDE_CODE_OAUTH_TOKEN: placeholder,
   };
