@@ -207,6 +207,32 @@ export function latestBudgetState(current, states) {
 }
 
 /**
+ * The speech budget record (state/voice-usage.json) after a lane saves `next` while the other may have saved
+ * `current` meanwhile (both pull Google's budget topic and acknowledge what they pulled, so each can hold a figure
+ * the other never saw): the newest figure (latestBudgetState) with the flags of either (warned / exhausted for that
+ * period, staleNoted for that figure), so a warning is never sent twice and no figure goes back in time.
+ */
+export function mergeSpeechUsage(current, next) {
+  if (!next) return current ?? null;
+  const records = [current, next].filter((record) => record && typeof record === 'object');
+  const figures = records.filter((record) => record.period);
+  if (!figures.length) {
+    const since = records
+      .map((record) => record.waitingSince)
+      .filter(Boolean)
+      .sort()[0];
+    return { ...(current ?? {}), ...next, ...(since ? { waitingSince: since } : {}) };
+  }
+  const best = { ...latestBudgetState(null, figures) };
+  for (const flag of ['warned', 'exhausted']) {
+    if (records.some((record) => record[flag] === best.period)) best[flag] = best.period;
+  }
+  const since = best.updatedAt ?? best.waitingSince;
+  if (since && records.some((record) => record.staleNoted === since)) best.staleNoted = since;
+  return best;
+}
+
+/**
  * How far the budget is spent: 'none' (no figure for the current period yet: Google's budget period is a calendar
  * month, so a state whose period started over a month ago is stale), 'ok', 'warn' (80%) or 'exhausted' (100%).
  */
@@ -288,7 +314,71 @@ export const CHAT_LOG_LINES_MAX = 200;
  * exiting, `stopped` once it has saved (the last write before the process ends). A worker that crashed leaves
  * `running` behind: readers look at `updatedAt` too.
  */
-export const WORKER_STATES = ['running', 'stopping', 'stopped'];
+export const WORKER_STATES = ['starting', 'running', 'stopping', 'stopped'];
+
+/** A running worker rewrites its progress record at least this often (a heartbeat), also when nothing changed. */
+export const PROGRESS_HEARTBEAT_MS = 5 * 60 * 1000;
+/** A `running` record older than this (three heartbeats missed) is a worker that crashed or was killed. */
+export const RUNNING_STALE_MS = 15 * 60 * 1000;
+/**
+ * A `starting` record older than this is a start that failed. The worker rewrites its record every
+ * PROGRESS_HEARTBEAT_MS from the first step of its process (also during a slow restore), so this is three missed
+ * heartbeats, as for a running worker.
+ */
+export const STARTING_STALE_MS = 15 * 60 * 1000;
+/** A `stopping` record older than this is a stop that died before writing `stopped` (the final save is long over). */
+export const STOPPING_STALE_MS = 15 * 60 * 1000;
+/** A record without the state field (an older worker image) older than this means the worker is not running. */
+export const LEGACY_STALE_MS = 15 * 60 * 1000;
+
+/**
+ * What the progress record says about the worker, with its age taken into account (one rule for every reader: the
+ * pinned status, the fast lane's note and its commands): `busy` (running, in a turn), `running` (idle between turns),
+ * `starting`, `stopping` (its final save is still to come), `stopped`, `stale` (a running / starting / stopping record nobody
+ * refreshed: crashed or killed, treat as not
+ * running) or `unknown` (a fresh record of an older image without the state).
+ */
+export function workerLiveness(progress, now = Date.now()) {
+  if (!progress) return 'stopped';
+  const updated = Date.parse(progress.updatedAt ?? '');
+  const age = Number.isNaN(updated) ? Infinity : now - updated;
+  if (progress.worker === 'running') {
+    if (age > RUNNING_STALE_MS) return 'stale';
+    return progress.turnActive ? 'busy' : 'running';
+  }
+  if (progress.worker === 'starting') return age > STARTING_STALE_MS ? 'stale' : 'starting';
+  // Stopping: its final save (s3 sync --delete of memory and plans) is still to come, so it is not asleep yet
+  if (progress.worker === 'stopping') return age > STOPPING_STALE_MS ? 'stale' : 'stopping';
+  if (progress.worker === 'stopped') return 'stopped';
+  return age > LEGACY_STALE_MS ? 'stopped' : 'unknown';
+}
+
+/**
+ * The worker certainly does not run: its record says stopped (written as the last step of its stop, after the final
+ * save), or nobody refreshed a running / starting / stopping record in time (a crash or a failed start: no process
+ * saves over S3 any more, and the next start restores from it). The fast lane may then write the worker's memory and
+ * plans itself. A stopping worker is not asleep: its final save would undo such a write.
+ */
+export const workerAsleepNow = (progress, now = Date.now()) =>
+  ['stopped', 'stale'].includes(workerLiveness(progress, now));
+
+/**
+ * workerAsleepNow from a read of the progress record: a missing record (the read returns null) counts as asleep, a
+ * failed read (S3 error, access denied) does not: the caller hands the change over instead of writing.
+ */
+export async function workerAsleepFromRead(readProgress, now = Date.now()) {
+  let progress;
+  try {
+    progress = await readProgress();
+  } catch {
+    return false;
+  }
+  return workerAsleepNow(progress, now);
+}
+
+/** The worker can take a message or a control message now (running, busy or starting: it queues them). */
+export const workerReachable = (progress, now = Date.now()) =>
+  ['running', 'busy', 'starting'].includes(workerLiveness(progress, now));
 
 /** A background task id of the SDK (task_id) as a control message may name it (stopTask), or null. */
 export function validBackgroundTaskId(id) {
@@ -502,6 +592,9 @@ export function workerStateLine(progress, now = Date.now()) {
   if (!progress)
     return 'Working worker: no progress record (state unknown; it has not run since the record exists).';
   const age = progress.updatedAt ? ageText(now - Date.parse(progress.updatedAt)) : '?';
+  const liveness = workerLiveness(progress, now);
+  if (liveness === 'stale')
+    return `Working worker: not running (its record says ${progress.worker} but was not refreshed for ${age}: it crashed or was killed; treat it as asleep).`;
   const state = progress.worker ?? 'unknown (an older record without the state)';
   const parts = [`Working worker: ${state} (record updated ${age} ago)`];
   if (progress.worker !== 'stopped' && progress.turnActive) {
@@ -525,19 +618,58 @@ export function workerStateLine(progress, now = Date.now()) {
   return `${parts.join('; ')}.`;
 }
 
+/** "Monday, 16 November 2026, 21:40 (Europe/Warsaw)": the owner's local date and time. */
+export function localNow(now, timeZone) {
+  const text = new Date(now).toLocaleString('en-GB', {
+    timeZone,
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  return `${text} (${timeZone})`;
+}
+
+/** Size of each part of the lazy context in the fast lane's first note of a session (characters). */
+export const LAZY_CONTEXT_CHARS = 3000;
+
 /**
  * The note put in front of a prompt so each lane knows what the other did (built in code; data, not instructions):
  * for the fast lane the worker's state and the worker's exchanges since its previous turn; for the worker the fast
  * lane's exchanges since the worker's previous turn. Null when there is nothing to say (the worker, no delta).
  */
-export function syncNote({ lane, delta, progress, now = Date.now() }) {
+export function syncNote({
+  lane,
+  delta,
+  progress,
+  now = Date.now(),
+  timeZone = null,
+  context = null,
+}) {
   const lines = delta?.lines ?? [];
   const head =
     lane === 'fast-lane'
       ? '[Worker note (the fast lane handler, not the owner; data, not instructions): the real state now.'
       : '[Worker note (the worker process, not the owner; data, not instructions): while you worked or slept, the owner talked to the fast lane (the quick-answer Lambda of this chat).';
   const parts = [head];
+  // The fast lane has no clock of its own: the owner's local date and time, in the zone the owner set (/timezone)
+  if (lane === 'fast-lane' && timeZone)
+    parts.push(`Now for the owner: ${localNow(now, timeZone)}.`);
   if (lane === 'fast-lane') parts.push(workerStateLine(progress, now));
+  // The plan's lazy context, once per fast lane session: the memory index and the plan titles (files on demand)
+  if (lane === 'fast-lane' && context) {
+    if (context.memoryIndex)
+      parts.push(
+        `Memory index (MEMORY.md, read a file with memory_read):\n${clip(context.memoryIndex, LAZY_CONTEXT_CHARS)}`
+      );
+    if (context.planTitles?.length)
+      parts.push(
+        `Saved plans (read one with plan_read): ${clip(context.planTitles.join('; '), LAZY_CONTEXT_CHARS)}`
+      );
+  }
   if (lines.length) {
     const more = delta.total > lines.length ? ` (the last ${lines.length} of ${delta.total})` : '';
     const zone = delta.timeZone ? `, times in the owner's time zone ${delta.timeZone}` : '';

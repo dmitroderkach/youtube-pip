@@ -153,3 +153,16 @@ export function describeControl(control) {
     .map(([key, value]) => `${names[key] ?? key} ${value ?? 'за замовчуванням моделі'}`)
     .join(', ');
 }
+
+/** The keys of `sections` whose values differ from `previous` ({ worker: {…}, shared: {…} }, only those). */
+export function changedSettings(sections, previous) {
+  const patch = {};
+  for (const section of ['worker', 'shared']) {
+    for (const [key, value] of Object.entries(sections[section] ?? {})) {
+      if (JSON.stringify(previous?.[section]?.[key]) !== JSON.stringify(value)) {
+        patch[section] = { ...(patch[section] ?? {}), [key]: value };
+      }
+    }
+  }
+  return patch;
+}

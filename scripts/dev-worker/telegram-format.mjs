@@ -281,7 +281,9 @@ export function questionKeyboard(id, index, question, picked = new Set()) {
   if (question.multiSelect) {
     rows.push([{ text: '✅ Готово', callback_data: callbackData('q', id, `${index}.done`) }]);
   }
-  rows.push([{ text: '✏️ Свій варіант', callback_data: callbackData('q', id, `${index}.own`) }]);
+  // A buttons-only question (the fast lane's taint gate) has no "own answer": a text message stays a message
+  if (!question.buttonsOnly)
+    rows.push([{ text: '✏️ Свій варіант', callback_data: callbackData('q', id, `${index}.own`) }]);
   return { inline_keyboard: rows };
 }
 

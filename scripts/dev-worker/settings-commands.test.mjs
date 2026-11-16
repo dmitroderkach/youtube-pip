@@ -53,7 +53,12 @@ function recordingTelegram() {
 
 const callbackOf = (markup, text) =>
   markup.inline_keyboard.flat().find((button) => button.text.includes(text))?.callback_data;
-const RUNNING = JSON.stringify({ worker: 'running', turnActive: true });
+// Fresh records (session-state.mjs workerLiveness: an old running record is a crashed worker)
+const RUNNING = JSON.stringify({
+  worker: 'running',
+  turnActive: true,
+  updatedAt: new Date().toISOString(),
+});
 const STOPPED = JSON.stringify({ worker: 'stopped', turnActive: false });
 
 function fastLane({ objects = {}, places = [] } = {}) {
@@ -346,11 +351,29 @@ test('/scheduled lists with cancel buttons; a button deletes the task and refres
 test('/stop only to a busy worker; /compact asks before starting a sleeping one', async () => {
   const busy = fastLane({ objects: { 'state/progress.json': RUNNING } });
   await busy.commands.handleCommand('/stop');
+  // start: false: dev-bot never starts a worker for a stop or for /compact sent to a running one
   assert.deepEqual(busy.toWorker, [
-    { text: '/stop', interrupt: true, reason: 'зупинити поточну задачу' },
+    { text: '/stop', interrupt: true, start: false, reason: 'зупинити поточну задачу' },
   ]);
   await busy.commands.handleCommand('/compact keep the PR list');
   assert.equal(busy.toWorker.at(-1).text, '/compact keep the PR list');
+  assert.equal(busy.toWorker.at(-1).start, false);
+
+  // A crashed worker's record (running, not refreshed for an hour): treated as asleep, nothing is sent to it
+  const crashed = fastLane({
+    objects: {
+      'state/progress.json': JSON.stringify({
+        worker: 'running',
+        turnActive: true,
+        updatedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      }),
+    },
+  });
+  await crashed.commands.handleCommand('/stop');
+  assert.match(crashed.telegram.sent.at(-1).text, /нічого не виконує/);
+  await crashed.commands.handleCommand('/compact');
+  assert.equal(crashed.toWorker.length, 0);
+  assert.equal(callbackOf(crashed.telegram.sent.at(-1).markup, 'Підняти'), 'compact:yes');
 
   const idle = fastLane({ objects: { 'state/progress.json': STOPPED } });
   await idle.commands.handleCommand('/stop');
@@ -370,6 +393,7 @@ test("/background, /context, /agents from the worker's records in S3", async () 
       'state/progress.json': JSON.stringify({
         worker: 'running',
         turnActive: true,
+        updatedAt: new Date().toISOString(),
         backgroundTasks: [
           { id: 'b7x2k', type: 'bash', description: 'Wait for CI', since: '2026-11-16T18:00:00Z' },
         ],
@@ -430,6 +454,7 @@ test('/background stop button: the running worker gets a stopTask control messag
   const progress = {
     worker: 'running',
     turnActive: false,
+    updatedAt: new Date().toISOString(),
     backgroundTasks: [
       { id: 'b7x2k', type: 'bash', description: 'Wait for CI', since: '2026-11-16T18:00:00Z' },
       { type: 'bash', description: 'An old record without an id', since: '2026-11-16T18:01:00Z' },
@@ -474,4 +499,37 @@ test('stopTask control: validated, split apart from the settings, shown as /back
   });
   assert.equal(splitControl({ model: 'opus' }).stopTask, null);
   assert.equal(controlText({ stopTask: 'b7x2k' }), '/background');
+});
+
+test('changedSettings: only the keys that differ, so the worker never writes back a whole section', async () => {
+  const { changedSettings } = await import('./settings.mjs');
+  const previous = {
+    worker: { model: 'opus', effort: 'high', mode: 'bypass' },
+    shared: { timeZone: 'Europe/Warsaw' },
+  };
+  assert.deepEqual(changedSettings(previous, previous), {});
+  // The fast lane set the worker's model to sonnet meanwhile: the worker changed only its mode, so only mode is written
+  assert.deepEqual(
+    changedSettings(
+      {
+        worker: { model: 'opus', effort: 'high', mode: 'auto' },
+        shared: { timeZone: 'Europe/Warsaw' },
+      },
+      previous
+    ),
+    { worker: { mode: 'auto' } }
+  );
+  assert.deepEqual(
+    changedSettings({ worker: { effort: null }, shared: {} }, { worker: { effort: 'low' } }),
+    {
+      worker: { effort: null },
+    }
+  );
+  assert.deepEqual(
+    changedSettings({ worker: { model: 'opus' }, shared: { voiceMode: 'on' } }, null),
+    {
+      worker: { model: 'opus' },
+      shared: { voiceMode: 'on' },
+    }
+  );
 });
