@@ -476,3 +476,72 @@ class MarkStarting(unittest.TestCase):
         clients["ecs"].run_task.return_value = {"tasks": [], "failures": [{"reason": "x"}]}
         self.assertFalse(bot.start_worker(1000))
         bot.mark_starting.assert_not_called()
+
+
+class MarkStartingConditional(unittest.TestCase):
+    """The progress record is the worker's: dev-bot's starting mark is a conditional write."""
+
+    def test_the_write_carries_the_etag_read(self):
+        bot, clients = load_dev_bot()
+        clients["s3"].get_object.return_value = {
+            "Body": io.BytesIO(json.dumps({"worker": "stopped"}).encode()),
+            "ETag": '"abc"',
+        }
+        bot.mark_starting()
+        self.assertEqual(clients["s3"].put_object.call_args.kwargs.get("IfMatch"), '"abc"')
+
+    def test_a_missing_record_is_created_only_if_still_missing(self):
+        bot, clients = load_dev_bot()
+        clients["s3"].get_object.side_effect = Exception("An error occurred (NoSuchKey) when calling GetObject")
+        bot.mark_starting()
+        self.assertEqual(clients["s3"].put_object.call_args.kwargs.get("IfNoneMatch"), "*")
+
+    def test_a_conflict_writes_nothing_and_does_not_raise(self):
+        bot, clients = load_dev_bot()
+        clients["s3"].get_object.return_value = {
+            "Body": io.BytesIO(json.dumps({"worker": "stopped"}).encode()),
+            "ETag": '"abc"',
+        }
+        clients["s3"].put_object.side_effect = Exception("An error occurred (PreconditionFailed)")
+        bot.mark_starting()
+        clients["s3"].put_object.assert_called_once()
+
+
+class OnlyForARunningWorker(unittest.TestCase):
+    """A stop or a command meant only for a running worker never starts one (a crashed worker's stale record)."""
+
+    def hand_over(self, request, tasks):
+        bot, clients = load_dev_bot()
+        bot.config = mock.MagicMock(return_value={"chat_id": "42"})
+        bot.worker_tasks = mock.MagicMock(return_value=tasks)
+        bot.worker_stopping = mock.MagicMock(return_value=False)
+        bot.start_worker = mock.MagicMock(return_value=True)
+        clients["s3"].get_object.return_value = {
+            "Body": io.BytesIO(json.dumps(request).encode()),
+            "LastModified": datetime.fromtimestamp(time.time(), timezone.utc),
+        }
+        return bot.handler({"action": "hand_over", "key": KEY}, None), bot, clients
+
+    def test_a_stop_without_a_running_worker_is_dropped(self):
+        for request in (
+            {"reason": "stop", "interrupt": True, "message": {"text": "/stop"}},
+            {"reason": "compact", "start": False, "message": {"text": "/compact"}},
+        ):
+            with self.subTest(request=request):
+                result, bot, clients = self.hand_over(request, [])
+                self.assertEqual(result, {"handed_over": False, "running": False})
+                clients["sqs"].send_message.assert_not_called()
+                bot.start_worker.assert_not_called()
+
+    def test_with_a_running_worker_it_is_queued(self):
+        result, bot, clients = self.hand_over(
+            {"reason": "compact", "start": False, "message": {"text": "/compact"}}, RUNNING
+        )
+        self.assertEqual(result, {"handed_over": True, "running": True})
+        clients["sqs"].send_message.assert_called_once()
+        bot.start_worker.assert_not_called()
+
+    def test_a_confirmed_compact_may_start_the_worker(self):
+        result, bot, clients = self.hand_over({"reason": "compact", "message": {"text": "/compact"}}, [])
+        self.assertTrue(result["handed_over"])
+        bot.start_worker.assert_called_once()

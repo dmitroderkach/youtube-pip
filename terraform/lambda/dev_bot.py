@@ -226,10 +226,15 @@ def start_worker(up_at):
 
 def mark_starting():
     """The progress record says the worker is being started (the pinned status shows it as such, the fast lane's note
-    too), unless a fresh record says a worker is running. The other fields stay; best effort."""
+    too), unless a fresh record says a worker is running. The other fields stay; best effort. The record is the
+    worker's: the write is conditional (the ETag read, or none when it did not exist), so a record the worker wrote in
+    the meantime is never overwritten (on a conflict nothing is written)."""
     try:
+        etag = None
         try:
-            progress = json.loads(s3.get_object(Bucket=STATE_BUCKET, Key=PROGRESS_KEY)["Body"].read())
+            stored = s3.get_object(Bucket=STATE_BUCKET, Key=PROGRESS_KEY)
+            etag = stored.get("ETag")
+            progress = json.loads(stored["Body"].read())
         except Exception as error:
             # Only a missing record means "none yet": a failed read must not be written over
             if "NoSuchKey" not in repr(error):
@@ -243,7 +248,8 @@ def mark_starting():
                 return
         now = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
         record = {**progress, "worker": "starting", "turnActive": False, "awaitingAnswer": False, "updatedAt": now}
-        s3.put_object(Bucket=STATE_BUCKET, Key=PROGRESS_KEY, Body=json.dumps(record).encode())
+        condition = {"IfMatch": etag} if etag else {"IfNoneMatch": "*"}
+        s3.put_object(Bucket=STATE_BUCKET, Key=PROGRESS_KEY, Body=json.dumps(record).encode(), **condition)
     except Exception as error:
         print(f"progress record (starting): {error!r}")
 
@@ -798,6 +804,12 @@ def hand_over(event):
         return {"handed_over": False, "error": "stale"}
     if "control" in request:
         return hand_over_control(request)
+    # A stop, or a command meant only for a running worker (`start: false`, e.g. /compact sent to it): never start a
+    # worker for it, and never leave it in the queue for a later one
+    only_running = request.get("interrupt") is True or request.get("start") is False
+    if only_running and not worker_tasks():
+        print(f"hand-over {key}: only for a running worker, none runs: dropped")
+        return {"handed_over": False, "running": False}
     message = request.get("message") or {}
     text = str(message.get("text") or "")[:20000]
     attachments = [a for a in (message.get("attachments") or []) if isinstance(a, dict) and a.get("file_id")]
