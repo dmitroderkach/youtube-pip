@@ -54,8 +54,8 @@
     <div id="card">
       <h1>Message flow: from the owner's message to the answer</h1>
       <div class="sub">
-        Diamonds are decisions: green "yes", red "no". ⚡ the fast lane (Lambda) answers in seconds;
-        🛠 the worker (ECS) does the long work.
+        Diamonds are decisions: green "yes", red "no". Every message reaches ⚡ the fast lane
+        (Lambda) first; it answers in seconds and hands 🛠 the worker (ECS) its work.
       </div>
       <svg width="1540" height="1640" viewBox="-40 0 1540 1640" xmlns="http://www.w3.org/2000/svg">
         <defs>
@@ -197,35 +197,28 @@
         <polygon class="dia" points="730,346 900,401 730,456 560,401" />
         <text x="730" y="396" text-anchor="middle">a fast lane button, or</text>
         <text x="730" y="418" text-anchor="middle">/model, /voice, /status… ?</text>
-        <path class="lnn" d="M730,456 L730,484" marker-end="url(#an)" />
-        <text x="742" y="476" class="no">no</text>
+        <path class="lnn" d="M730,456 L730,614" marker-end="url(#an)" />
+        <text x="742" y="540" class="no">no</text>
 
         <!-- D3 -->
-        <polygon class="dia" points="730,486 880,536 730,586 580,536" />
-        <text x="730" y="531" text-anchor="middle">worker not running?</text>
-        <text x="730" y="553" text-anchor="middle" class="t-small">asleep, starting, stopping</text>
-        <path class="lnn" d="M730,586 L730,614" marker-end="url(#an)" />
-        <text x="742" y="606" class="no">no</text>
-
-        <!-- D4 -->
         <polygon class="dia" points="730,616 910,676 730,736 550,676" />
-        <text x="730" y="666" text-anchor="middle">worker busy with a turn, or</text>
-        <text x="730" y="688" text-anchor="middle">fast lane still answering?</text>
-        <path class="lnn" d="M730,736 L730,812" marker-end="url(#an)" />
-        <text x="742" y="770" class="no">no</text>
+        <text x="730" y="666" text-anchor="middle">the worker waits for your</text>
+        <text x="730" y="688" text-anchor="middle">answer, or its own button?</text>
+        <path class="ly" d="M730,736 L730,812" marker-end="url(#ay)" />
+        <text x="742" y="770" class="yes">yes</text>
         <text x="742" y="790" class="lbl">
-          (the worker is free, or waits for the owner's answer)
+          (an answer it waits for, or a press of its own button: only these go straight to the
+          worker)
         </text>
 
-        <!-- yes-bus to the fast lane -->
-        <path class="ly" d="M560,401 L470,401" />
-        <path class="ly" d="M580,536 L470,536" />
-        <path class="ly" d="M550,676 L470,676" />
-        <path class="ly" d="M470,676 L470,401" />
-        <path class="ly" d="M470,401 L470,342 L362,342" marker-end="url(#ay)" />
+        <!-- to the fast lane: D2 yes, D3 no (everything else, whatever the worker is doing) -->
+        <path class="lnn" d="M550,676 L470,676 L470,404" />
+        <path class="ly" d="M560,401 L470,401 L470,342 L362,342" marker-end="url(#ay)" />
         <text x="490" y="392" class="yes">yes</text>
-        <text x="490" y="527" class="yes">yes</text>
-        <text x="490" y="667" class="yes">yes</text>
+        <text x="490" y="667" class="no">no</text>
+        <text x="460" y="704" class="lbl" transform="rotate(-90 460,704)">
+          everything else: asleep · starting · busy · free
+        </text>
 
         <!-- Fast lane column -->
         <rect class="box fast" x="40" y="312" width="320" height="60" />
@@ -261,8 +254,8 @@
 
         <!-- D5 -->
         <polygon class="dia-f" points="200,750 360,810 200,870 40,810" />
-        <text x="200" y="804" text-anchor="middle">long, or does it</text>
-        <text x="200" y="826" text-anchor="middle">change something?</text>
+        <text x="200" y="804" text-anchor="middle">the worker's work, a</text>
+        <text x="200" y="826" text-anchor="middle">change or a long task?</text>
         <path class="lnn" d="M200,870 L200,1440 L438,1440" marker-end="url(#an)" />
         <text x="212" y="900" class="no">no: answers itself</text>
         <text x="212" y="922" class="t-small">

@@ -2,7 +2,7 @@
 
 This repository is developed, tested, released and operated by one person from a Telegram chat, with Claude Code doing the hands-on work and the owner approving every step that changes something outside a branch. This page is the overview: what the pieces are, how a task flows through them, and why it is safe to run on a public repository. Details live in the linked documents.
 
-- **[Dev worker](DEV_WORKER.md)**: Claude Code on an on-demand ECS task, talked to from Telegram. Its [fast lane](DEV_WORKER.md#fast-lane), a small Lambda assistant in the same chat, answers quick questions in seconds while the worker sleeps or is busy and hands longer tasks over to it.
+- **[Dev worker](DEV_WORKER.md)**: Claude Code on an on-demand ECS task, talked to from Telegram. Its [fast lane](DEV_WORKER.md#fast-lane), a small Lambda assistant in the same chat, takes the owner's messages first, answers quick questions in seconds and hands the worker's work over to it.
 - **[On-call](ONCALL.md)**: a daily e2e run, a YouTube experiment flag scan and a Claude investigation, reported to the same chat.
 - **[Self-hosted runners](SELF_HOSTED_RUNNERS.md)**: CI on Fargate behind a fixed IP (Google bans GitHub-hosted runner IPs for the e2e test account).
 - **[Infrastructure and images](DEV_WORKER.md#infrastructure-and-images)**: Terraform plans and image builds in CodeBuild, applied only after the owner's button.
