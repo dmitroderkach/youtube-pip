@@ -2984,19 +2984,21 @@ async function main() {
         await handleIdleWatchdog(message).catch((error) => log('idle watchdog failed', error));
         continue;
       }
-      lastActivity = Date.now();
       try {
-        if (message.callback) {
-          await onCallback(message.callback);
-          continue;
-        }
         const command = message.attachments?.length ? '' : (message.text?.trim() ?? '');
+        // A settings change from the fast lane or a stop is no work: it does not keep an idle worker up (the idle
+        // timer counts from the last real message, button press or turn step)
         if (message.control) {
           await applyControl(message.control);
           continue;
         }
         if (message.interrupt || STOP_COMMAND.test(command)) {
           await stopTurn(message);
+          continue;
+        }
+        lastActivity = Date.now();
+        if (message.callback) {
+          await onCallback(message.callback);
           continue;
         }
         const [, name, argument] = /^\/([a-z_]+)(?:@\w+)?(?:\s+([\s\S]*))?$/i.exec(command) ?? [];
