@@ -5,9 +5,10 @@ const checks = [
   `${ok(e.UNIT)} юніт-тести воркера`,
   `${ok(e.SMOKE)} контракт SDK (живий Claude)`,
   `${ok(e.WORKER)} воркер end to end`,
+  `${ok(e.FAST_LANE)} швидка смуга (живий Claude)`,
   `${ok(e.CLI_SMOKE)} CLI онколу`,
 ];
-const green = [e.UNIT, e.SMOKE, e.WORKER, e.CLI_SMOKE].every((o) => o === 'success');
+const green = [e.UNIT, e.SMOKE, e.WORKER, e.FAST_LANE, e.CLI_SMOKE].every((o) => o === 'success');
 // A forced run on the versions already pinned: a check of the integrations, no PR to open
 const unchanged = e.CLI === e.FROM_CLI && e.SDK === e.FROM_SDK;
 const head = unchanged

@@ -4,7 +4,7 @@
  * - generates the webhook secret token if `youtube-pip-dev-worker` has none (kept in that secret, never printed);
  * - points the on-call bot's webhook at the dev-bot Lambda URL with that secret (`message` updates and
  *   `callback_query` for the worker's buttons, one connection at a time so commands and messages arrive in order);
- * - sets the bot's command menu (/up, /down, /mode, /model, /effort, /agents, /plans, /compact, /context, /background, /voice, /timezone, /scheduled, /status).
+ * - sets the bot's command menu (/up, /down, /stop, /mode, /model, /effort, /agents, /plans, /compact, /context, /background, /voice, /timezone, /scheduled, /status).
  *
  * Safe to re-run (e.g. after a menu change): the secret is kept and the webhook set again.
  *
@@ -85,9 +85,10 @@ await bot('setMyCommands', {
   commands: [
     { command: 'up', description: 'Підняти воркера (Claude Code)' },
     { command: 'down', description: 'Зупинити воркера, зберегти контекст' },
-    { command: 'mode', description: 'Режим: bypass, auto, manual, plan' },
-    { command: 'model', description: 'Модель Claude (зберігається між сесіями)' },
-    { command: 'effort', description: 'Effort: low … max (зберігається між сесіями)' },
+    { command: 'stop', description: 'Зупинити поточну задачу воркера одразу' },
+    { command: 'mode', description: 'Режим воркера: bypass, auto, manual, plan' },
+    { command: 'model', description: 'Модель Claude: окремо Лямбди і воркера' },
+    { command: 'effort', description: 'Effort: low … max, окремо Лямбди і воркера' },
     { command: 'agents', description: 'Агенти: основний і субагенти, чиї повідомлення дивитись' },
     { command: 'plans', description: 'Збережені плани (режим plan)' },
     { command: 'compact', description: 'Стиснути контекст сесії [інструкція]' },
@@ -100,7 +101,7 @@ await bot('setMyCommands', {
   ],
 });
 console.log(
-  'commands: /up, /down, /mode, /model, /effort, /agents, /plans, /compact, /context, /background, /voice, /timezone, /scheduled, /status'
+  'commands: /up, /down, /stop, /mode, /model, /effort, /agents, /plans, /compact, /context, /background, /voice, /timezone, /scheduled, /status'
 );
 const info = await bot('getWebhookInfo', {});
 console.log(

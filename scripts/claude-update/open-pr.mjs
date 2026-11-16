@@ -41,7 +41,7 @@ git(
 git(
   'commit',
   '-m',
-  `Claude Code ${CLI} (Agent SDK ${SDK})\n\nWeekly update check: unit tests, the SDK contract smoke test, the worker end to end and the on-call CLI smoke test passed (${RUN_URL}).`
+  `Claude Code ${CLI} (Agent SDK ${SDK})\n\nWeekly update check: unit tests, the SDK contract smoke test, the worker end to end, the fast lane smoke test and the on-call CLI smoke test passed (${RUN_URL}).`
 );
 git(
   '-c',
@@ -62,6 +62,7 @@ const body = [
   '- worker unit tests and `node --check`;',
   '- SDK contract smoke test with the real Claude (`scripts/dev-worker/sdk-smoke.mjs`): permission callback allow / deny, AskUserQuestion answers, permission mode status, model switch, background task events, rate-limit event, resume with `CLAUDE_CODE_TRANSCRIPT_LOCAL_GC`;',
   '- the worker end to end with a fake AWS / Telegram and the real Claude (`scripts/claude-update/worker-e2e.sh`);',
+  '- the fast lane smoke test with an in-memory state bucket, a GitHub stub and the real Claude (`scripts/dev-worker/fast-lane-smoke.mjs`): its exact tool list, the child environment with only the proxy placeholder, an answer through an in-process tool, no way to run a command;',
   '- the on-call CLI in print mode.',
   '',
   `Run: ${RUN_URL}`,
