@@ -236,8 +236,10 @@ def update_progress_worker(state, *, unless_fresh_running=False, only_if=None):
             etag = stored.get("ETag")
             progress = json.loads(stored["Body"].read())
         except Exception as error:
-            # Only a missing record means "none yet": a failed read must not be written over
-            if "NoSuchKey" not in repr(error):
+            # Only a missing record means "none yet": a failed read must not be written over. dev-bot may not list the
+            # bucket there, so S3 reports a missing record as AccessDenied rather than NoSuchKey; either way the write
+            # below is IfNoneMatch: *, which never replaces a record that does exist
+            if not any(code in repr(error) for code in ("NoSuchKey", "AccessDenied")):
                 raise
             progress = {}
         if not isinstance(progress, dict):

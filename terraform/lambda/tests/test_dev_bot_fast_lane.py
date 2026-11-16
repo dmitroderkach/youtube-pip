@@ -455,6 +455,19 @@ class MarkStarting(unittest.TestCase):
         clients["s3"].get_object.side_effect = Exception("An error occurred (NoSuchKey) when calling GetObject")
         bot.mark_starting()
         self.assertEqual(self.written(clients)["worker"], "starting")
+        self.assertEqual(clients["s3"].put_object.call_args.kwargs["IfNoneMatch"], "*")
+
+    def test_no_record_yet_reported_as_access_denied(self):
+        # Without s3:ListBucket on state/, S3 answers a missing key with 403 AccessDenied
+        bot, clients = load_dev_bot()
+        clients["s3"].get_object.side_effect = Exception(
+            "An error occurred (AccessDenied) when calling the GetObject operation: Access Denied"
+        )
+        bot.mark_starting()
+        self.assertEqual(self.written(clients)["worker"], "starting")
+        args = clients["s3"].put_object.call_args.kwargs
+        self.assertEqual(args["IfNoneMatch"], "*")
+        self.assertNotIn("IfMatch", args)
 
     def test_an_unreadable_record_is_not_overwritten(self):
         bot, clients = load_dev_bot()
