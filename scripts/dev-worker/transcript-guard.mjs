@@ -7,27 +7,48 @@
  * ("Wait, let's listen to the very beginning…") and one question repeated a few hundred times.
  */
 
-/** Output tokens per second of speech (Ukrainian runs at about 6–8 tokens per second; generous). */
-const TOKENS_PER_SECOND = 12;
-/** Fixed allowance on top: short messages, punctuation, [нерозбірливо] marks. */
+/**
+ * Output token bound: TOKENS_PER_SECOND per second of audio + TOKENS_BASE, at most the model's own output limit
+ * (gemini-3.5-flash: 65,536). Ukrainian speech runs at about 6–8 tokens per second, so 10 leaves room, and a
+ * 15-minute message (≈ 9,300 tokens) fits.
+ */
+const TOKENS_PER_SECOND = 10;
 const TOKENS_BASE = 256;
-/** Upper bound whatever the length (about ten minutes of speech). */
-export const TOKENS_CAP = 8192;
-/** Telegram voice messages are OGG/Opus at roughly 2–4 KB per second; a low guess gives a generous bound. */
-const BYTES_PER_SECOND_LOW = 1500;
+export const MODEL_OUTPUT_TOKENS_MAX = 65536;
 
 /**
- * maxOutputTokens for a transcript of `seconds` of audio (Telegram's duration when known), else estimated from the
- * file size in bytes.
+ * Request timeout: TIMEOUT_BASE_MS + TIMEOUT_MS_PER_10_SECONDS for every 10 s of audio, at most TIMEOUT_MAX_MS
+ * (20 s for a short message, 110 s for 15 minutes), so a long message is not cut off and a runaway one still ends.
  */
-export function transcriptTokenBudget({ seconds, bytes } = {}) {
-  const length =
-    Number(seconds) > 0
-      ? Number(seconds)
-      : Number(bytes) > 0
-        ? Number(bytes) / BYTES_PER_SECOND_LOW
-        : TOKENS_CAP;
-  return Math.min(TOKENS_CAP, Math.ceil(length * TOKENS_PER_SECOND) + TOKENS_BASE);
+const TIMEOUT_BASE_MS = 20000;
+const TIMEOUT_MS_PER_10_SECONDS = 1000;
+export const TIMEOUT_MAX_MS = 120000;
+
+/** Telegram voice messages are OGG/Opus at roughly 2–4 KB per second; a low guess gives generous bounds. */
+const BYTES_PER_SECOND_LOW = 1500;
+
+/** Seconds of audio: Telegram's duration when known, else estimated from the file size; null when neither is. */
+export function audioSeconds({ seconds, bytes } = {}) {
+  if (Number(seconds) > 0) return Number(seconds);
+  if (Number(bytes) > 0) return Number(bytes) / BYTES_PER_SECOND_LOW;
+  return null;
+}
+
+/** maxOutputTokens for a transcript of this audio (`seconds` from Telegram, or the file size in `bytes`). */
+export function transcriptTokenBudget(audio = {}) {
+  const length = audioSeconds(audio);
+  if (length === null) return MODEL_OUTPUT_TOKENS_MAX;
+  return Math.min(MODEL_OUTPUT_TOKENS_MAX, Math.ceil(length * TOKENS_PER_SECOND) + TOKENS_BASE);
+}
+
+/** The Gemini request's timeout (ms) for this audio. */
+export function transcriptTimeoutMs(audio = {}) {
+  const length = audioSeconds(audio);
+  if (length === null) return TIMEOUT_MAX_MS;
+  return Math.min(
+    TIMEOUT_MAX_MS,
+    TIMEOUT_BASE_MS + Math.ceil(length / 10) * TIMEOUT_MS_PER_10_SECONDS
+  );
 }
 
 /** English meta-text a transcript of the owner's speech never contains (the model talking about the audio). */

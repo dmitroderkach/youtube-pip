@@ -12,7 +12,11 @@
  */
 import { createSign } from 'node:crypto';
 import { readPlainFile } from './isolation.mjs';
-import { degenerateTranscript, transcriptTokenBudget } from './transcript-guard.mjs';
+import {
+  degenerateTranscript,
+  transcriptTimeoutMs,
+  transcriptTokenBudget,
+} from './transcript-guard.mjs';
 import {
   budgetLevel,
   budgetStates,
@@ -92,12 +96,11 @@ export function createVoice({
     'word is not clear, write [нерозбірливо] instead of guessing. Output only the transcript text: no comments, ' +
     'quotes, labels or timestamps. If there is no speech, output nothing.';
 
-  /** Gemini gets this long; a slower answer (a runaway transcript) goes to the fallback. */
-  const GEMINI_TRANSCRIBE_TIMEOUT_MS = 30000;
-
   async function transcribeGemini(path, mimeType, { seconds } = {}) {
     const { token, project } = await gcpAccessToken();
     const audio = readPlainFile(path);
+    // Bounds from the audio's length (transcript-guard.mjs): a slower or longer answer is a runaway and falls back
+    const length = { seconds, bytes: audio.length };
     const url =
       `https://aiplatform.googleapis.com/v1/projects/${project}/locations/global/publishers/google/models/` +
       `${TRANSCRIBE_MODEL}:generateContent`;
@@ -123,10 +126,10 @@ export function createVoice({
           temperature: 0,
           // The lowest thinking level of Gemini 3.x Flash (it cannot be turned off): a transcript needs none
           thinkingConfig: { thinkingLevel: 'MINIMAL' },
-          maxOutputTokens: transcriptTokenBudget({ seconds, bytes: audio.length }),
+          maxOutputTokens: transcriptTokenBudget(length),
         },
       }),
-      signal: AbortSignal.timeout(GEMINI_TRANSCRIBE_TIMEOUT_MS),
+      signal: AbortSignal.timeout(transcriptTimeoutMs(length)),
     });
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(`Gemini ${res.status}: ${json.error?.message ?? 'no transcript'}`);

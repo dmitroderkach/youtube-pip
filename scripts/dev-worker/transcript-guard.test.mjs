@@ -1,13 +1,29 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { TOKENS_CAP, degenerateTranscript, transcriptTokenBudget } from './transcript-guard.mjs';
+import {
+  MODEL_OUTPUT_TOKENS_MAX,
+  TIMEOUT_MAX_MS,
+  degenerateTranscript,
+  transcriptTimeoutMs,
+  transcriptTokenBudget,
+} from './transcript-guard.mjs';
 
-test('token budget: from the duration, else from the file size, capped', () => {
-  assert.equal(transcriptTokenBudget({ seconds: 60 }), 60 * 12 + 256);
-  assert.equal(transcriptTokenBudget({ seconds: 60, bytes: 10 }), 60 * 12 + 256);
-  assert.equal(transcriptTokenBudget({ bytes: 150000 }), 100 * 12 + 256);
-  assert.equal(transcriptTokenBudget({ seconds: 3600 }), TOKENS_CAP);
-  assert.equal(transcriptTokenBudget({}), TOKENS_CAP);
+test('token budget: 10 per second + 256 from the duration, else the file size; the model limit at most', () => {
+  assert.equal(transcriptTokenBudget({ seconds: 60 }), 60 * 10 + 256);
+  assert.equal(transcriptTokenBudget({ seconds: 60, bytes: 10 }), 60 * 10 + 256);
+  assert.equal(transcriptTokenBudget({ bytes: 150000 }), 100 * 10 + 256);
+  assert.equal(transcriptTokenBudget({ seconds: 15 * 60 }), 900 * 10 + 256);
+  assert.equal(transcriptTokenBudget({ seconds: 10 * 3600 }), MODEL_OUTPUT_TOKENS_MAX);
+  assert.equal(transcriptTokenBudget({}), MODEL_OUTPUT_TOKENS_MAX);
+});
+
+test('timeout: 20 s + 1 s per 10 s of audio, 120 s at most', () => {
+  assert.equal(transcriptTimeoutMs({ seconds: 5 }), 21000);
+  assert.equal(transcriptTimeoutMs({ seconds: 60 }), 26000);
+  assert.equal(transcriptTimeoutMs({ seconds: 15 * 60 }), 110000);
+  assert.equal(transcriptTimeoutMs({ seconds: 3600 }), TIMEOUT_MAX_MS);
+  assert.equal(transcriptTimeoutMs({ bytes: 15000 }), 21000);
+  assert.equal(transcriptTimeoutMs({}), TIMEOUT_MAX_MS);
 });
 
 test('ordinary speech passes, with English terms and short repetitions', () => {
