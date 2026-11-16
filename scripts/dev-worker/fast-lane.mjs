@@ -300,8 +300,8 @@ async function handOver(task, context) {
 
 /**
  * The owner's message as it came (attachments too), passed on to the worker unchanged but dated now and marked as a
- * hand-over: voice messages (AWS Transcribe is outside the project's permissions boundary, so the fast lane does not
- * transcribe) and messages the fast lane cannot take (fail closed).
+ * hand-over: voice messages the fast lane cannot transcribe (no Google key, or Gemini failed: AWS Transcribe is outside
+ * the project's permissions boundary) and messages the fast lane cannot take (fail closed).
  */
 async function handOverRaw(message, reason) {
   const date = Math.floor(Date.now() / 1000);
@@ -673,8 +673,11 @@ async function deliver(message) {
     return;
   }
   const audio = (message.attachments ?? []).some((a) => a.kind === 'voice' || a.kind === 'audio');
+  // Speech to text here only with Gemini (the Google key in the on-call secret): AWS Transcribe, the voice module's
+  // fallback, is outside the project's permissions boundary
+  const canTranscribe = Boolean(secrets.googleKey);
   if (interactions.answersPending(message)) {
-    if (audio) {
+    if (audio && !canTranscribe) {
       await tg.say('🎙 Тут аудіо не розпізнаю: відповідай на питання текстом або кнопкою');
       return;
     }
@@ -686,7 +689,7 @@ async function deliver(message) {
     if (status) await tg.edit(status.message_id, line);
     else status = await tg.call('sendMessage', { text: line });
   };
-  if (audio) {
+  if (audio && !canTranscribe) {
     await tg.say('🎙 Аудіо розпізнає робочий воркер: передаю йому повідомлення');
     await logChat(
       'fast-lane',
@@ -696,7 +699,18 @@ async function deliver(message) {
     if (/failed/.test(result)) await tg.say('⚠️ Не вдалося підняти воркер: надішли /up');
     return;
   }
-  let prompt = await incoming.buildPrompt(message, setStatus);
+  let prompt;
+  try {
+    prompt = await incoming.buildPrompt(message, setStatus);
+  } catch (error) {
+    if (!audio) throw error;
+    // Gemini could not transcribe it (and Transcribe is out of reach here): the worker takes the message as it came
+    log('fast lane transcription failed, handing the audio over', error);
+    await tg.say('🎙 Не вдалося розпізнати тут: передаю повідомлення робочому воркеру');
+    const result = await handOverRaw(message, 'голосове повідомлення');
+    if (/failed/.test(result)) await tg.say('⚠️ Не вдалося підняти воркер: надішли /up');
+    return;
+  }
   if (!prompt) return;
   // No Read tool here: files the owner sent are opened with view_attachment
   prompt = prompt.replaceAll('with the Read tool', 'with the view_attachment tool');
