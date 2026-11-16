@@ -280,6 +280,8 @@ resource "aws_iam_policy" "project_boundary" {
             "arn:aws:iam::*:policy/${local.project_glob}",
             "arn:aws:budgets::*:budget/${local.project_glob}",
             "arn:aws:codebuild:*:*:project/${local.project_glob}",
+            # Speech to text of voice messages (the fast lane's fallback after Gemini): jobs named youtube-pip-*
+            "arn:aws:transcribe:*:*:transcription-job/${local.project_glob}",
           ]
         },
         {
