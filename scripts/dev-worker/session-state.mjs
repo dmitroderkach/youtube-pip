@@ -207,6 +207,32 @@ export function latestBudgetState(current, states) {
 }
 
 /**
+ * The speech budget record (state/voice-usage.json) after a lane saves `next` while the other may have saved
+ * `current` meanwhile (both pull Google's budget topic and acknowledge what they pulled, so each can hold a figure
+ * the other never saw): the newest figure (latestBudgetState) with the flags of either (warned / exhausted for that
+ * period, staleNoted for that figure), so a warning is never sent twice and no figure goes back in time.
+ */
+export function mergeSpeechUsage(current, next) {
+  if (!next) return current ?? null;
+  const records = [current, next].filter((record) => record && typeof record === 'object');
+  const figures = records.filter((record) => record.period);
+  if (!figures.length) {
+    const since = records
+      .map((record) => record.waitingSince)
+      .filter(Boolean)
+      .sort()[0];
+    return { ...(current ?? {}), ...next, ...(since ? { waitingSince: since } : {}) };
+  }
+  const best = { ...latestBudgetState(null, figures) };
+  for (const flag of ['warned', 'exhausted']) {
+    if (records.some((record) => record[flag] === best.period)) best[flag] = best.period;
+  }
+  const since = best.updatedAt ?? best.waitingSince;
+  if (since && records.some((record) => record.staleNoted === since)) best.staleNoted = since;
+  return best;
+}
+
+/**
  * How far the budget is spent: 'none' (no figure for the current period yet: Google's budget period is a calendar
  * month, so a state whose period started over a month ago is stale), 'ok', 'warn' (80%) or 'exhausted' (100%).
  */
@@ -288,7 +314,7 @@ export const CHAT_LOG_LINES_MAX = 200;
  * exiting, `stopped` once it has saved (the last write before the process ends). A worker that crashed leaves
  * `running` behind: readers look at `updatedAt` too.
  */
-export const WORKER_STATES = ['running', 'stopping', 'stopped'];
+export const WORKER_STATES = ['starting', 'running', 'stopping', 'stopped'];
 
 /** A background task id of the SDK (task_id) as a control message may name it (stopTask), or null. */
 export function validBackgroundTaskId(id) {

@@ -150,7 +150,7 @@ test('incoming: a voice message is transcribed, shown and kept; a photo becomes 
     voice: { transcribe: async () => 'привіт' },
     store: {
       getJson: async (key) => store.get(key) ?? null,
-      putJson: async (key, value) => store.set(key, value),
+      updateJson: async (key, change) => store.set(key, change(store.get(key) ?? {})),
     },
   });
   const statuses = [];

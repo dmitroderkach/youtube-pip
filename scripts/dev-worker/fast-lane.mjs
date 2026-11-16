@@ -232,6 +232,8 @@ let pinnedIds = { statusMessageId: null };
 /** Claude's plan windows from this lane's last rate_limit_event (status.mjs rateWindows). */
 let planWindows = {};
 let lastAnswerAt = null;
+/** When this lane last handed a task over (status.mjs workerView: a sleeping worker shows as being started). */
+let lastHandoverAt = null;
 let settings = {};
 /** Writes of the shared voice settings (settings.json) the voice module starts; awaited before the invocation ends. */
 let settingWrites = Promise.resolve();
@@ -359,6 +361,7 @@ async function statusBody() {
     effort: settings.effort ?? null,
     ctx: contextUsage ? contextUsage.percentage : null,
     lastAnswerAt,
+    ...(lastHandoverAt ? { handoverAt: lastHandoverAt } : {}),
   };
   const shared = {
     windows: Object.keys(planWindows).length ? planWindows : undefined,
@@ -396,7 +399,14 @@ async function statusBody() {
     objects.getJson(META_KEY).catch(() => null),
   ]);
   const stored = resolveSettings(own, meta).worker;
-  record = { ...record, worker: workerView(record?.worker, { progress, stored }) };
+  record = {
+    ...record,
+    worker: workerView(record?.worker, {
+      progress,
+      stored,
+      handoverAt: record?.fastLane?.handoverAt ?? null,
+    }),
+  };
   return renderStatus(record, {
     timeZone: settings.timeZone,
     modes: MODES,
@@ -479,6 +489,11 @@ async function toWorker(body, date, reason) {
   } catch (error) {
     log('hand_over request failed', error);
     return 'Handing over failed: tell the owner the working worker could not be reached and to send /up.';
+  }
+  if (!body.control && body.interrupt !== true) {
+    // A task: a sleeping worker is being started now, which the pinned status shows at once
+    lastHandoverAt = new Date().toISOString();
+    void pinned?.updateStatus();
   }
   return 'Handed over: dev-bot puts the task into the worker queue and starts the worker (or it is already running).';
 }

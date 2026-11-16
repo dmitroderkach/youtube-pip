@@ -665,6 +665,11 @@ const stateStore = {
     writeFileSync(local, JSON.stringify(value));
     await aws('s3', 'cp', local, `s3://${BUCKET}/${key}`, '--quiet');
   },
+  /**
+   * A conditional read-modify-write (ETag, retried on a conflict: s3-objects.mjs updateJson), for the objects the fast
+   * lane writes too (voice transcripts, the speech budget record).
+   */
+  updateJson: (key, change) => stateObjects.updateJson(key, change),
 };
 
 // Voice in and out, the /voice menu (voice.mjs); settings in meta.json
@@ -920,8 +925,13 @@ function publishActivity(turnActive) {
 
 /** The current step of the turn, as the in-chat progress message shows it (for the progress record). */
 let currentStep = null;
-/** The worker process's state in the progress record (session-state.mjs WORKER_STATES). */
-let workerState = 'running';
+/**
+ * The worker process's state in the progress record (session-state.mjs WORKER_STATES): `starting` from the first step
+ * of main() until the restore is done (the pinned status shows it as being started), then `running`.
+ */
+let workerState = 'starting';
+/** When this process started (the status's "піднімається з"). */
+const startingSince = new Date().toISOString();
 let progressTimer = null;
 let progressUploads = Promise.resolve();
 let lastProgressBody = '';
@@ -1408,14 +1418,23 @@ async function statusBody({ sleeping }) {
   }
   if (sleeping) sleepingSince ??= new Date().toISOString();
   const scheduled = (await s3Keys(SCHEDULED_PREFIX).catch(() => [])).length;
-  const figures = {
-    state: sleeping ? 'stopped' : turn ? 'busy' : 'running',
-    ...(sleeping ? { since: sleepingSince } : {}),
-    mode: currentMode(),
-    model: modelName(),
-    effort: meta?.effort ?? null,
-    ctx,
-  };
+  // Still starting (before the restore): the stored settings, not this process's defaults
+  const stored =
+    workerState === 'starting' && !sleeping
+      ? resolveSettings(await stateObjects.getJson(SETTINGS_KEY).catch(() => null), null, {
+          workerModel: MODEL,
+        }).worker
+      : null;
+  const figures = stored
+    ? { state: 'starting', since: startingSince, ...stored, ctx: null }
+    : {
+        state: sleeping ? 'stopped' : turn ? 'busy' : 'running',
+        ...(sleeping ? { since: sleepingSince } : {}),
+        mode: currentMode(),
+        model: modelName(),
+        effort: meta?.effort ?? null,
+        ctx,
+      };
   const shared = {
     windows: Object.keys(windows).length ? windows : undefined,
     speech: spend,
@@ -2832,6 +2851,9 @@ function checkLimits() {
 }
 
 async function main() {
+  // Being started: the progress record and the pinned status say so at once (the restore takes a while)
+  void writeProgressNow();
+  void updateStatus();
   let restored;
   try {
     if (CLAUDE_USER) startGithubBroker();
@@ -2847,6 +2869,7 @@ async function main() {
   }
   if (stopReason) return stop();
   await loadSettingsFile();
+  workerState = 'running';
   const branch = (await claudeSh('git', ['-C', REPO_DIR, 'branch', '--show-current'])).trim();
   const modeNote =
     (currentMode() === DEFAULT_MODE

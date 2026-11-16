@@ -5,7 +5,7 @@
  * its Read tool), a reply's quote and a forward's origin, and the files of the replied-to message (downloaded again;
  * a replied-to voice message brings its kept transcript, not a new transcription).
  *
- * createIncoming({ log, telegram, voice, store }): store as in voice.mjs (getJson / putJson on the state bucket).
+ * createIncoming({ log, telegram, voice, store }): store as in voice.mjs (getJson / updateJson on the state bucket).
  */
 
 /**
@@ -60,24 +60,21 @@ export function createIncoming({ log, telegram, voice, store }) {
     return (await store.getJson(VOICE_TRANSCRIPTS_KEY)) ?? {};
   }
 
-  /** Keep a voice message's transcript under its message id (a failure only loses the shortcut). */
+  /**
+   * Keep a voice message's transcript under its message id (a failure only loses the shortcut). Both lanes write
+   * this object: a conditional read-modify-write (store.updateJson, retried on a conflict), so neither drops the
+   * other's transcripts; a failed read throws there and nothing is written.
+   */
   async function keepVoiceTranscript(messageId, text) {
     if (!messageId || !text) return;
-    let stored;
-    try {
-      stored = await voiceTranscripts();
-    } catch (error) {
-      log('keep voice transcript: read failed, not kept', error);
-      return;
-    }
-    const all = { ...stored, [messageId]: text };
-    const kept = Object.fromEntries(
-      Object.entries(all)
-        .sort(([a], [b]) => Number(b) - Number(a))
-        .slice(0, VOICE_TRANSCRIPTS_KEPT)
-    );
     await store
-      .putJson(VOICE_TRANSCRIPTS_KEY, kept)
+      .updateJson(VOICE_TRANSCRIPTS_KEY, (stored) =>
+        Object.fromEntries(
+          Object.entries({ ...(stored ?? {}), [messageId]: text })
+            .sort(([a], [b]) => Number(b) - Number(a))
+            .slice(0, VOICE_TRANSCRIPTS_KEPT)
+        )
+      )
       .catch((error) => log('keep voice transcript failed', error));
   }
 

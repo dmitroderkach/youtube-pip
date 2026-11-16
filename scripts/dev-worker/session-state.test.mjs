@@ -316,6 +316,7 @@ test('progressRecord: between turns only the background tasks and the last answe
 test('progressRecord: the worker state and waiting for the owner (only within a turn)', () => {
   const base = { backgroundTasks: [], lastAnswerAt: null };
   assert.equal(progressRecord({ ...base, worker: 'stopped' }).worker, 'stopped');
+  assert.equal(progressRecord({ ...base, worker: 'starting' }).worker, 'starting');
   assert.equal(progressRecord({ ...base, worker: 'bogus' }).worker, 'running');
   assert.equal(
     progressRecord({ ...base, turnActive: true, awaitingAnswer: true }).awaitingAnswer,

@@ -125,6 +125,10 @@ export function mergeStatus(current, { lane, figures, shared = {}, now = new Dat
 
 /** A progress record older than this without a worker state (a worker image before it wrote one, or a crash). */
 const PROGRESS_STALE_MS = 15 * 60 * 1000;
+/** A `starting` record older than this is a start that failed (a start takes well under a minute). */
+const STARTING_STALE_MS = 5 * 60 * 1000;
+/** After the fast lane handed a task to a sleeping worker, it shows it as starting this long without a record. */
+const HANDOVER_STARTING_MS = 3 * 60 * 1000;
 
 /**
  * The worker's section as another lane shows it (the fast lane): the state from the worker's progress record (the
@@ -132,23 +136,35 @@ const PROGRESS_STALE_MS = 15 * 60 * 1000;
  * stopped or crashed worker no longer updates; while the worker does not run, mode / model / effort are the stored
  * ones (state/settings.json `worker`, resolveSettings), which a change made in the fast lane updates.
  */
-export function workerView(section, { progress, stored, now = Date.now() } = {}) {
+export function workerView(
+  section,
+  { progress, stored, now = Date.now(), handoverAt = null } = {}
+) {
   const live = section ?? {};
   const updated = Date.parse(progress?.updatedAt ?? '');
   const age = Number.isNaN(updated) ? Infinity : now - updated;
   let state;
+  let since = Number.isNaN(updated) ? live.since : progress.updatedAt;
   if (progress?.worker === 'running') state = progress.turnActive ? 'busy' : 'running';
+  // Being started (dev-bot's start or the worker's own first step); an old one is a start that failed
+  else if (progress?.worker === 'starting')
+    state = age > STARTING_STALE_MS ? 'stopped' : 'starting';
   else if (progress?.worker === 'stopped' || progress?.worker === 'stopping') state = 'stopped';
   else if (age > PROGRESS_STALE_MS) state = 'stopped';
   else state = live.state;
+  // This lane just handed a task over to a sleeping worker: it is being started though no record says so yet
+  const handedOver = Date.parse(handoverAt ?? '');
+  if (
+    state === 'stopped' &&
+    !Number.isNaN(handedOver) &&
+    now - handedOver < HANDOVER_STARTING_MS &&
+    (Number.isNaN(updated) || updated < handedOver)
+  ) {
+    state = 'starting';
+    since = handoverAt;
+  }
   if (state === 'running' || state === 'busy') return { ...stored, ...live, state };
-  return {
-    ...live,
-    ...stored,
-    state,
-    since: Number.isNaN(updated) ? live.since : progress.updatedAt,
-    ctx: live.ctx,
-  };
+  return { ...live, ...stored, state, since, ctx: live.ctx };
 }
 
 const pct = (value) => (typeof value === 'number' ? `${Math.round(value * 100)}%` : '?');
@@ -179,7 +195,8 @@ export function renderStatus(
     windows[name]?.resetsAt
       ? time(new Date(windows[name].resetsAt * 1000).toISOString(), withDay)
       : '?';
-  const stateEmoji = { busy: '🔵', running: '🟢', stopped: '💤' }[worker.state] ?? '❔';
+  const stateEmoji =
+    { busy: '🔵', running: '🟢', starting: '⏳', stopped: '💤' }[worker.state] ?? '❔';
   const mode = modes[worker.mode];
   const ctx = (value) => (typeof value === 'number' ? ` · ctx ${Math.round(value)}%` : '');
   const summary =
@@ -192,6 +209,7 @@ export function renderStatus(
     {
       busy: '🔵 працює над задачею',
       running: '🟢 запущений, вільний',
+      starting: `⏳ піднімається з ${time(worker.since ?? worker.updatedAt)}`,
       stopped: `💤 спить з ${time(worker.since ?? worker.updatedAt)}`,
     }[worker.state] ?? '❔ стан невідомий';
   const voice = shared.voice;

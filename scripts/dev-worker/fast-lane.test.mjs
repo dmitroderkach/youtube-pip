@@ -515,3 +515,67 @@ test('leftoverClaudePids: Claude Code processes only, never our own process or i
   };
   assert.deepEqual(leftoverClaudePids(proc, { self: 1, parent: 50 }), [40, 41, 42]);
 });
+
+test('workerView: starting from the record (fresh only) and right after a hand-over to a sleeping worker', () => {
+  const now = Date.parse('2026-11-16T20:30:00Z');
+  const stored = { mode: 'bypass', model: 'opus', effort: 'high' };
+  // dev-bot or the worker wrote `starting` a moment ago
+  const starting = workerView(undefined, {
+    progress: { worker: 'starting', updatedAt: '2026-11-16T20:29:40Z' },
+    stored,
+    now,
+  });
+  assert.deepEqual(
+    [starting.state, starting.since, starting.model],
+    ['starting', '2026-11-16T20:29:40Z', 'opus']
+  );
+  const text = renderStatus({ worker: starting }, { modes: {} });
+  assert.match(text.split('\n')[0], /^⏳/);
+  assert.match(text, /Воркер: ⏳ піднімається з /);
+  // A start that never finished: asleep after 5 minutes
+  assert.equal(
+    workerView(undefined, {
+      progress: { worker: 'starting', updatedAt: '2026-11-16T20:20:00Z' },
+      stored,
+      now,
+    }).state,
+    'stopped'
+  );
+  // The fast lane handed a task over after the worker's last stop: starting for 3 minutes
+  const stopped = { worker: 'stopped', updatedAt: '2026-11-16T19:00:00Z' };
+  const handed = workerView(undefined, {
+    progress: stopped,
+    stored,
+    now,
+    handoverAt: '2026-11-16T20:29:00Z',
+  });
+  assert.deepEqual([handed.state, handed.since], ['starting', '2026-11-16T20:29:00Z']);
+  assert.equal(
+    workerView(undefined, { progress: stopped, stored, now, handoverAt: '2026-11-16T20:20:00Z' })
+      .state,
+    'stopped'
+  );
+  // A hand-over older than the worker's own record changes nothing (it already started and stopped since)
+  assert.equal(
+    workerView(undefined, {
+      progress: { worker: 'stopped', updatedAt: '2026-11-16T20:29:30Z' },
+      stored,
+      now,
+      handoverAt: '2026-11-16T20:29:00Z',
+    }).state,
+    'stopped'
+  );
+  // Running wins over a recent hand-over
+  assert.equal(
+    workerView(
+      { state: 'busy', model: 'opus' },
+      {
+        progress: { worker: 'running', turnActive: true, updatedAt: '2026-11-16T20:29:50Z' },
+        stored,
+        now,
+        handoverAt: '2026-11-16T20:29:00Z',
+      }
+    ).state,
+    'busy'
+  );
+});
