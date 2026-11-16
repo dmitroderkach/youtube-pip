@@ -193,7 +193,16 @@ function fakes() {
     if (path.includes('/check-runs'))
       return { check_runs: [{ name: 'lint', status: 'completed', conclusion: 'success' }] };
     if (path.startsWith('repos/o/r/pulls?'))
-      return [{ number: 5, title: 'T', state: 'open', head: { ref: 'b' }, html_url: 'u' }];
+      return [
+        {
+          number: 5,
+          title: 'T',
+          state: 'open',
+          user: { login: 'dmitroderkach' },
+          head: { ref: 'b' },
+          html_url: 'u',
+        },
+      ];
     if (path.startsWith('repos/o/r/contents/'))
       return { encoding: 'base64', content: Buffer.from('hello').toString('base64') };
     return {};
