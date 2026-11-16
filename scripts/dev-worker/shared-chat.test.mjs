@@ -176,9 +176,6 @@ test('incoming: a voice message is transcribed, shown and kept; a photo becomes 
 
 test('contextLines: a message handed over by the fast lane is marked as such', async () => {
   const { contextLines } = await import('./incoming.mjs');
-  assert.match(
-    contextLines({ handover: true, text: 'x' }).join('\n'),
-    /Handed over by the fast lane/
-  );
-  assert.equal(contextLines({ text: 'x' }).length, 0);
+  assert.match(contextLines({ handover: true, text: 'x' }), /Handed over by the fast lane/);
+  assert.equal(contextLines({ text: 'x' }), '');
 });
