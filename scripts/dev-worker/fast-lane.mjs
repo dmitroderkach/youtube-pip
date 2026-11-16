@@ -51,6 +51,9 @@ import {
   runtimeLoop,
   stripCallbackPrefix,
   taskTitle,
+  tokenExpiryWarning,
+  tokenWarningKey,
+  claimMarker,
   tooBigToResume,
 } from './fast-lane-core.mjs';
 import { createFastLaneCommands, META_KEY, PROGRESS_KEY } from './fast-lane-commands.mjs';
@@ -75,6 +78,8 @@ import {
   lastEntryAt,
   syncNote,
   voiceReplyWanted,
+  workerAsleepFromRead,
+  workerLiveness,
 } from './session-state.mjs';
 import { searchPlaces } from './timezone-search.mjs';
 import { createTelegram } from './telegram.mjs';
@@ -95,7 +100,7 @@ const REPO = env.GITHUB_REPO ?? 'dmitroderkach/youtube-pip';
 /** Claude Code's memory project of the worker (memory/<project>/ in the state bucket). */
 const MEMORY_PROJECT = env.MEMORY_PROJECT ?? '-home-worker-youtube-pip';
 /** No message and no turn for this long: the invocation ends. */
-const IDLE_MS = Number(env.IDLE_SECONDS ?? 60) * 1000;
+let IDLE_MS = Number(env.IDLE_SECONDS ?? 60) * 1000;
 /** Stop this long before the Lambda's deadline (save the session, answer the invocation). */
 const DEADLINE_MARGIN_MS = 90_000;
 const RECEIVE_WAIT_SECONDS = 5;
@@ -111,8 +116,13 @@ const MCP_NAME = 'fast_lane';
 const BUILTIN_TOOLS = ['AskUserQuestion'];
 const PROMPT = readFileSync(new URL('./fast-lane-prompt.md', import.meta.url), 'utf8');
 
-const sqs = new SQSClient({ region: REGION });
-const lambda = new LambdaClient({ region: REGION });
+// Through transports the smoke test can swap for stubs (useClientsForTest): the queue and dev-bot's invoke
+let testSqs = null;
+let testLambda = null;
+const realSqs = new SQSClient({ region: REGION });
+const realLambda = new LambdaClient({ region: REGION });
+const sqs = { send: (command) => (testSqs ?? realSqs).send(command) };
+const lambda = { send: (command) => (testLambda ?? realLambda).send(command) };
 
 // ---------------------------------------------------------------------------------------------- S3
 
@@ -152,17 +162,36 @@ const PROC = {
       return null;
     }
   },
+  /** The parent pid from /proc/<pid>/stat (the field after the parenthesised command name). */
+  ppid: (pid) => {
+    try {
+      const stat = readFileSync(`/proc/${pid}/stat`, 'utf8');
+      const after = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+      return Number(after[1]);
+    } catch {
+      return null;
+    }
+  },
 };
 
+/** How a leftover is killed: SIGKILL in a Lambda; a no-op where tests inject one (useClientsForTest). */
+let killProcess = (pid) => process.kill(pid, 'SIGKILL');
+
 /**
- * Kill the Claude Code processes an earlier invocation left (they would compete for this one's CPU), except `keep`
- * (the live session's process, kept across invocations of this sandbox).
+ * Kill the Claude Code processes an earlier invocation of this sandbox left (they would compete for this one's CPU),
+ * except `keep` (the live session's process, kept across invocations). Only this handler's own descendants
+ * (leftoverClaudePids) and only inside a Lambda: anywhere else (a local or smoke run on a machine that may run the
+ * dev worker's own Claude Code) it only logs what it would kill.
  */
 function killLeftoverClaude(keep = []) {
   const pids = leftoverClaudePids(PROC).filter((pid) => !keep.includes(pid));
+  if (!env.AWS_LAMBDA_RUNTIME_API) {
+    if (pids.length) log(`not in a Lambda: leaving ${pids.length} Claude Code process(es) alone`);
+    return pids.length;
+  }
   for (const pid of pids) {
     try {
-      process.kill(pid, 'SIGKILL');
+      killProcess(pid);
     } catch (error) {
       log(`leftover claude ${pid}: ${error.message}`);
     }
@@ -208,11 +237,21 @@ let testGithub = null;
  * Tests only (fast-lane-smoke.mjs in claude-code-update.yml, no AWS there): the state bucket as an S3 client stub
  * (memory-s3-client.mjs) and GitHub as a function, never inside a Lambda.
  */
-export function useClientsForTest({ s3, github }) {
+export function useClientsForTest({ s3, github, sqs: queue, lambda: invoker, telegram, idleMs }) {
   if (env.AWS_LAMBDA_RUNTIME_API) throw new Error('not in a Lambda');
+  // Never kill a process in a test run (the kill is also off outside a Lambda: killLeftoverClaude)
+  killProcess = () => {};
   testS3 = s3 ?? null;
   testGithub = github ?? null;
+  // The handler path (fast-lane-smoke.mjs): the queue, dev-bot's invoke and the Bot API as stubs
+  testSqs = queue ?? null;
+  testLambda = invoker ?? null;
+  testTelegram = telegram ?? null;
+  if (idleMs) IDLE_MS = idleMs;
 }
+
+/** The Bot API client in the smoke test (createTelegram's functions as stubs that record the calls). */
+let testTelegram = null;
 
 const secretValues = () =>
   secrets
@@ -235,6 +274,8 @@ let pinnedIds = { statusMessageId: null };
 /** Claude's plan windows from this lane's last rate_limit_event (status.mjs rateWindows). */
 let planWindows = {};
 let lastAnswerAt = null;
+/** When this lane last handed a task over (status.mjs workerView: a sleeping worker shows as being started). */
+let lastHandoverAt = null;
 let settings = {};
 /** Writes of the shared voice settings (settings.json) the voice module starts; awaited before the invocation ends. */
 let settingWrites = Promise.resolve();
@@ -259,13 +300,14 @@ async function initChat() {
   mkdirSync(INBOX_DIR, { recursive: true });
   if (!tg) {
     tg = fastLaneTelegram(
-      createTelegram({
-        token: secrets.botToken,
-        chatId: secrets.chatId,
-        log,
-        readFile: (path) => readFileSync(path),
-        inboxDir: INBOX_DIR,
-      })
+      testTelegram ??
+        createTelegram({
+          token: secrets.botToken,
+          chatId: secrets.chatId,
+          log,
+          readFile: (path) => readFileSync(path),
+          inboxDir: INBOX_DIR,
+        })
     );
     voice = createVoice({
       env: {
@@ -362,6 +404,7 @@ async function statusBody() {
     effort: settings.effort ?? null,
     ctx: contextUsage ? contextUsage.percentage : null,
     lastAnswerAt,
+    ...(lastHandoverAt ? { handoverAt: lastHandoverAt } : {}),
   };
   const shared = {
     windows: Object.keys(planWindows).length ? planWindows : undefined,
@@ -399,7 +442,14 @@ async function statusBody() {
     objects.getJson(META_KEY).catch(() => null),
   ]);
   const stored = resolveSettings(own, meta).worker;
-  record = { ...record, worker: workerView(record?.worker, { progress, stored }) };
+  record = {
+    ...record,
+    worker: workerView(record?.worker, {
+      progress,
+      stored,
+      handoverAt: record?.fastLane?.handoverAt ?? null,
+    }),
+  };
   return renderStatus(record, {
     timeZone: settings.timeZone,
     modes: MODES,
@@ -463,11 +513,12 @@ async function handOverRaw(message, reason) {
 async function toWorker(body, date, reason) {
   const key = `${HANDOVER_PREFIX}${randomUUID()}.json`;
   try {
-    // dev-bot's hand_over reads `control` (a settings change for the running worker) and `interrupt` from the top
-    // level of the object, next to the message
+    // dev-bot's hand_over reads `control` (a settings change for the running worker), `interrupt` and `start` (false:
+    // only for a running worker, never start one for it) from the top level of the object, next to the message
     const request = { reason, since: date, message: body };
     if (body.control) request.control = body.control;
     if (body.interrupt === true) request.interrupt = true;
+    if (body.start === false) request.start = false;
     await putObject(key, JSON.stringify(request), {
       ifNoneMatch: '*',
     });
@@ -483,6 +534,18 @@ async function toWorker(body, date, reason) {
     log('hand_over request failed', error);
     return 'Handing over failed: tell the owner the working worker could not be reached and to send /up.';
   }
+  if (!body.control) {
+    // In the chat log at the moment it is made (also when this lane sends no answer of its own): the worker and the
+    // next turns see what went where
+    await logChat('fast-lane', `Handed over to the worker: ${reason ?? 'a task'}`).catch((error) =>
+      log('hand-over chat log failed', error)
+    );
+  }
+  if (!body.control && body.interrupt !== true && body.start !== false) {
+    // A task: a sleeping worker is being started now, which the pinned status shows at once
+    lastHandoverAt = new Date().toISOString();
+    void pinned?.updateStatus();
+  }
   return 'Handed over: dev-bot puts the task into the worker queue and starts the worker (or it is already running).';
 }
 
@@ -493,10 +556,11 @@ async function toWorker(body, date, reason) {
  */
 async function stopWorker(reason) {
   const progress = await objects.getJson(PROGRESS_KEY).catch(() => null);
-  if (progress?.worker !== 'running' || !progress.turnActive)
+  // A stale record (a crashed worker) runs nothing: a stop must never start a worker
+  if (workerLiveness(progress) !== 'busy')
     return 'The worker is not running a turn (progress record): nothing to stop. Tell the owner so.';
   const result = await handOverRaw(
-    { text: '/stop', interrupt: true, reason: String(reason ?? '').slice(0, 200) },
+    { text: '/stop', interrupt: true, start: false, reason: String(reason ?? '').slice(0, 200) },
     'зупинити поточну задачу'
   );
   return /failed/.test(result) ? result : 'Stop sent: the worker interrupts its turn now.';
@@ -642,6 +706,42 @@ export function gateTools(definitions, gate = taint) {
   );
 }
 
+/** Token warnings this process already handled (`<day>-<reason>`): no S3 call for every GitHub request. */
+const tokenWarned = new Set();
+
+/**
+ * Tell the owner (once a day, logged every time) that the fast lane's read-only GitHub token expires soon or no longer
+ * works (plan: "Watch the token's expiry"). Never throws: a GitHub answer is not delayed by it.
+ */
+async function noteTokenExpiry(warning) {
+  if (!warning) return;
+  log(`github_read_token ${warning.reason}: ${warning.expiresAt ?? 'HTTP 401'}`);
+  try {
+    const zone = settings.timeZone ?? 'Europe/Warsaw';
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: zone });
+    const seen = `${today}-${warning.reason}`;
+    if (tokenWarned.has(seen)) return;
+    tokenWarned.add(seen);
+    // One message a day even with concurrent calls: only the call that creates the day's marker sends it
+    const first = await claimMarker(
+      objects.putObject,
+      tokenWarningKey(today, warning.reason),
+      JSON.stringify({ date: today, ...warning })
+    );
+    if (!first) return;
+    const when = warning.expiresAt
+      ? new Date(warning.expiresAt).toLocaleString('uk-UA', { timeZone: zone })
+      : null;
+    await tg?.say(
+      warning.reason === 'expired'
+        ? '🔑 Токен GitHub швидкої смуги (github_read_token у секреті on-call) більше не працює: онови його, інакше вона не читає PR, код і логи CI.'
+        : `🔑 Токен GitHub швидкої смуги (github_read_token у секреті on-call) спливає ${when} (за ${warning.daysLeft} дн.): онови його заздалегідь.`
+    );
+  } catch (error) {
+    log('token warning failed', error);
+  }
+}
+
 export function mcpServer() {
   const githubApi = async (path) => {
     const res = await fetch(`https://api.github.com/${path}`, {
@@ -652,6 +752,14 @@ export function mcpServer() {
         ...(secrets.githubToken ? { Authorization: `Bearer ${secrets.githubToken}` } : {}),
       },
     });
+    if (secrets.githubToken) {
+      void noteTokenExpiry(
+        tokenExpiryWarning({
+          status: res.status,
+          expiration: res.headers.get('github-authentication-token-expiration'),
+        })
+      );
+    }
     const json = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(`GitHub ${res.status}: ${json.message ?? ''}`);
     return json;
@@ -708,6 +816,18 @@ export function mcpServer() {
     repo: REPO,
     project: MEMORY_PROJECT,
     timeZone: () => settings.timeZone ?? 'Europe/Warsaw',
+    // The worker's memory and plans are written here only while it sleeps (its stop wrote `stopped` as its last
+    // step, or its record went stale); a stopping, starting or running worker is their only writer and gets the
+    // change as a message. A record that cannot be read (anything but a missing object) is not proof of sleep.
+    workerAsleep: () =>
+      workerAsleepFromRead(() =>
+        objects.getJson(PROGRESS_KEY).catch((error) => {
+          log('progress record unreadable: handing the change over', error);
+          throw error;
+        })
+      ),
+    toWorker: (task) =>
+      handOver(task, "A change of the worker's own files asked in the fast lane."),
   });
   /** A tool whose result is untrusted text: the turn is tainted once it returned. */
   const reads = (source, fn) => async (args) => {
@@ -771,6 +891,18 @@ export function mcpServer() {
         'One memory file by name (from the index).',
         { name: z.string() },
         wrap(tools.memoryRead)
+      ),
+      tool(
+        'memory_write',
+        'Write a memory file (Markdown with the memory frontmatter) and its one-line entry in MEMORY.md. Written directly only while the worker sleeps; otherwise it is handed over to the worker.',
+        { name: z.string(), content: z.string(), index_line: z.string() },
+        wrap(tools.memoryWrite)
+      ),
+      tool(
+        'plan_write',
+        'Write a saved plan (a .md file in plans/). Written directly only while the worker sleeps; otherwise it is handed over to the worker.',
+        { name: z.string(), content: z.string() },
+        wrap(tools.planWrite)
       ),
       tool('plans_list', 'Saved plans (file names).', {}, wrap(tools.plansList)),
       tool('plan_read', 'One saved plan by file name.', { name: z.string() }, wrap(tools.planRead)),
@@ -919,6 +1051,8 @@ export const EXPECTED_TOOLS = [
     'progress',
     'memory_index',
     'memory_read',
+    'memory_write',
+    'plan_write',
     'plans_list',
     'plan_read',
     'pull_requests',
@@ -981,6 +1115,8 @@ let voiceTrigger = null;
 let isolationFailed = null;
 /** Timings of the turn in progress (ms from the message's receipt): one JSON line when it ends. */
 let turnTiming = null;
+/** The owner's messages of the turn in progress (handed over as they came if the session fails its self-check). */
+const turnMessages = [];
 /** The chat log time up to which the worker's exchanges are known to the fast lane's session. */
 let workerSeenAt = null;
 /** When this invocation last wrote the busy marker (null: not marked). */
@@ -1012,10 +1148,24 @@ async function syncBusy(busy) {
  * record and what the owner and the worker said since this lane's previous turn. Built here, never by the model.
  */
 async function workerNote() {
-  const [content, progress] = await Promise.all([
+  // A new session (none yet in this sandbox, or its process ended) gets the plan's lazy context once
+  const fresh = !session;
+  const [content, progress, memoryIndex, planKeys] = await Promise.all([
     objects.get(STATE_KEYS.CHAT_LOG).catch(() => null),
     objects.getJson(PROGRESS_KEY).catch(() => null),
+    fresh
+      ? objects.get(`${STATE_KEYS.MEMORY_PREFIX}${MEMORY_PROJECT}/MEMORY.md`).catch(() => null)
+      : null,
+    fresh ? objects.list(STATE_KEYS.PLANS_PREFIX).catch(() => []) : [],
   ]);
+  const context = fresh
+    ? {
+        memoryIndex,
+        planTitles: planKeys
+          .map((key) => key.slice(STATE_KEYS.PLANS_PREFIX.length))
+          .filter((name) => name.endsWith('.md')),
+      }
+    : null;
   if (workerSeenAt === null) workerSeenAt = lastEntryAt(content, 'fast-lane') ?? '';
   const delta = laneDelta(content, {
     lane: 'fast-lane',
@@ -1023,7 +1173,13 @@ async function workerNote() {
     timeZone: settings.timeZone ?? 'Europe/Warsaw',
   });
   if (delta.latest) workerSeenAt = delta.latest;
-  return syncNote({ lane: 'fast-lane', delta, progress });
+  return syncNote({
+    lane: 'fast-lane',
+    delta,
+    progress,
+    timeZone: settings.timeZone ?? 'Europe/Warsaw',
+    context,
+  });
 }
 
 /** The transcript of a session id under Claude Code's projects directory, or null. */
@@ -1122,9 +1278,12 @@ async function startSession() {
     }),
   });
   sessionDone = consume()
-    .catch((error) => {
+    .catch(async (error) => {
       log('session failed', error);
       turnActive = false;
+      // The messages of the broken turn go to the worker as they came (fail closed), none waits for an answer
+      for (const owner of turnMessages.splice(0))
+        await failClosed(owner, `session failed: ${error}`);
     })
     .finally(() => {
       sessionAlive = false;
@@ -1147,6 +1306,12 @@ async function consume() {
         log(`isolation self-check failed: ${isolationFailed}`);
         await session.interrupt().catch(() => {});
         session.close();
+        // Fail closed at once: the messages of this turn go to the worker as they came, nothing waits for an answer
+        turnActive = false;
+        turnTiming = null;
+        const stranded = turnMessages.splice(0);
+        for (const owner of stranded)
+          await failClosed(owner, `isolation self-check: ${isolationFailed}`);
         return;
       }
     }
@@ -1161,6 +1326,7 @@ async function consume() {
     }
     if (message.type === 'result') {
       turnActive = false;
+      turnMessages.length = 0;
       const final = (typeof message.result === 'string' && message.result) || answer;
       answer = '';
       await finishTurn(final, message.is_error);
@@ -1274,6 +1440,7 @@ async function deliver(message, receivedAt = Date.now()) {
   if (isolationFailed) throw new Error(`isolation self-check: ${isolationFailed}`);
   if (!turnTiming) turnTiming = { start: receivedAt, promptReadyMs: Date.now() - receivedAt };
   if (!session) await startSession();
+  turnMessages.push(message);
   if (turnActive) {
     sendToClaude(
       // Not "read it first": the earlier message still needs its answer (fast-lane-prompt.md, SEVERAL MESSAGES)
@@ -1326,6 +1493,15 @@ async function failClosed(message, reason) {
 export async function handler(event, context = {}) {
   const deadline = context.deadline ?? Date.now() + 900_000;
   const invoked = Date.now();
+  if (event?.action === 'refresh_status') {
+    // dev-bot started or saw a stopped worker: redraw the pinned status (both lanes, from S3) and nothing else; the
+    // queue is left for the next message's invocation
+    await initChat();
+    await loadSettings();
+    await pinned?.updateStatus().catch((error) => log('status refresh failed', error));
+    timing('fast-lane-refresh-status', { ms: Date.now() - invoked });
+    return { refreshed: true };
+  }
   if (session && !sessionAlive) {
     // Its Claude Code process ended (while frozen or before): the next message starts a new one
     session = null;
