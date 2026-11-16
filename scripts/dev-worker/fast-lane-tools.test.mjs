@@ -79,9 +79,12 @@ function toolsWith({ events = [], jobs = [], jobLog = '', groups = {} } = {}) {
     },
     logs: {
       groups: async (prefix) => groups[prefix] ?? [],
+      // Like CloudWatch: only the events of the range asked for
       filter: async (args) => {
         calls.filter.push(args);
-        return events;
+        return events.filter(
+          (event) => event.timestamp >= args.start && event.timestamp <= args.end
+        );
       },
     },
     repo: 'owner/repo',
@@ -111,13 +114,15 @@ test('logs: refuses other groups, newest events last, local times, clipped from 
   assert.match(out, /1 event\(s\), 20:30:00-21:30:00 Europe\/Warsaw, filter "timing"/);
   assert.match(out, /21:10:00 second$/);
   assert.doesNotMatch(out, /first/);
+  // The search starts with the last 5 minutes and widens backwards until it has the newest `limit`
   assert.deepEqual(calls.filter[0], {
     group: '/aws/lambda/youtube-pip-prod-fast-lane',
-    start: NOW - 3600000,
+    start: NOW - 300000,
     end: NOW,
     pattern: 'timing',
     limit: 1,
   });
+  assert.equal(calls.filter.at(-1).start, NOW - 1200000);
 
   const many = Array.from({ length: 400 }, (_, i) => ({
     timestamp: NOW - (400 - i) * 1000,
@@ -277,4 +282,100 @@ test('one answer per message: the fast lane text is dropped only when every mess
   assert.equal(shouldSuppressAnswer({ messages: 1, handedOver: 1, failed: true }), false);
   assert.equal(shouldSuppressAnswer({ messages: 1, handedOver: 1, gateAsked: true }), false);
   assert.equal(shouldSuppressAnswer({}), false);
+});
+
+test('newestEvents: a truncated query narrows the span, too few widens it; the result is the true newest', async () => {
+  const { newestEvents } = await import('./assistant-tools.mjs');
+  const end = 10_000_000;
+  // One event a second over the last 2 h; a query returns at most 300 events, oldest first
+  const all = Array.from({ length: 7200 }, (_, i) => ({
+    timestamp: end - (7200 - i) * 1000,
+    message: `e${i}`,
+  }));
+  const queries = [];
+  const fetchRange = async (from, to) => {
+    queries.push([from, to]);
+    const inRange = all.filter((event) => event.timestamp >= from && event.timestamp <= to);
+    return { events: inRange.slice(0, 300), truncated: inRange.length > 300 };
+  };
+  const newest = await newestEvents(fetchRange, { start: end - 7_200_000, end, limit: 100 });
+  assert.equal(newest.length, 100);
+  assert.equal(newest.at(-1).message, 'e7199');
+  assert.equal(newest[0].message, 'e7100');
+  assert.ok(queries.length < 24);
+  // A quiet window: widens to the whole window and returns what there is
+  const few = await newestEvents(
+    async (from, to) => ({
+      events: all.filter(
+        (e) => e.timestamp >= from && e.timestamp <= to && e.message.endsWith('00')
+      ),
+      truncated: false,
+    }),
+    { start: end - 7_200_000, end, limit: 500 }
+  );
+  assert.equal(few.at(-1).message, 'e7100');
+});
+
+test('stepSection: the failed step lines by its times; null without times', async () => {
+  const { stepSection } = await import('./assistant-tools.mjs');
+  const raw = [
+    '2026-11-16T19:00:00.1000000Z ##[group]Run npm ci',
+    '2026-11-16T19:00:30.0000000Z added 500 packages',
+    '2026-11-16T19:01:00.5000000Z ##[group]Run npm test',
+    '2026-11-16T19:01:20.0000000Z Error: expected 1 got 2',
+    '2026-11-16T19:02:00.0000000Z ##[group]Post job cleanup',
+  ].join('\n');
+  const section = stepSection(raw, {
+    name: 'Unit tests',
+    started_at: '2026-11-16T19:01:00Z',
+    completed_at: '2026-11-16T19:01:21Z',
+  });
+  assert.match(section, /Run npm test/);
+  assert.match(section, /expected 1 got 2/);
+  assert.doesNotMatch(section, /npm ci|cleanup/);
+  assert.equal(stepSection(raw, { name: 'x' }), null);
+});
+
+test('gateTools: schedule_cancel, web, memory_write, plan_write wait for the owner after untrusted text', async () => {
+  const { gateTools, GATED_TOOLS } = await import('./fast-lane.mjs');
+  assert.deepEqual(GATED_TOOLS, ['schedule_cancel', 'web', 'memory_write', 'plan_write']);
+  const ran = [];
+  const definitions = ['schedule_cancel', 'web', 'memory_write', 'plan_write', 'chat_log'].map(
+    (name) => ({
+      name,
+      handler: async () => {
+        ran.push(name);
+        return { content: [{ type: 'text', text: `${name} done` }] };
+      },
+    })
+  );
+  let tainted = false;
+  let answer = true;
+  const asked = [];
+  const gate = {
+    tainted: () => tainted,
+    async guard(description, run) {
+      if (!tainted) return run();
+      asked.push(description);
+      return answer ? run() : 'Not done: the owner did not confirm.';
+    },
+  };
+  const gated = Object.fromEntries(gateTools(definitions, gate).map((d) => [d.name, d.handler]));
+  // A clean turn: run directly
+  assert.match((await gated.web({ question: 'x' })).content[0].text, /web done/);
+  assert.equal(asked.length, 0);
+  // After untrusted text: asked; refused -> not run
+  tainted = true;
+  answer = false;
+  for (const name of GATED_TOOLS) {
+    const out = await gated[name]({ id: '1' });
+    assert.match(out.content[0].text, /Not done/);
+  }
+  assert.equal(asked.length, 4);
+  assert.deepEqual(ran, ['web']);
+  // chat_log is not gated
+  assert.match((await gated.chat_log({})).content[0].text, /chat_log done/);
+  // Confirmed -> run
+  answer = true;
+  assert.match((await gated.plan_write({ name: 'p.md' })).content[0].text, /plan_write done/);
 });
