@@ -408,7 +408,7 @@ test('pinned status of both lanes: each lane writes its section, the message sho
     voiceModels: { chirp3: { label: 'Chirp 3 HD' } },
   });
   const lines = text.split('\n');
-  assert.equal(lines[0], '🔵🚀 opus · ctx 42% · ⚡sonnet · 5г 12% · тж 30% · 🔊$1.20/10');
+  assert.equal(lines[0], '🔵🚀 opus · ctx 42% · ⚡sonnet ctx 8% · 5г 12% · тж 30% · 🔊$1.20/10');
   assert.match(
     text,
     /🛠 Воркер: 🔵 працює над задачею · режим bypass · opus · effort default · ctx 42%/
@@ -443,6 +443,13 @@ test('busy marker: put when marking or stale, delete when idle, nothing otherwis
   assert.equal(busyMarkerAction({ busy: true, markedAt: now - BUSY_REFRESH_MS, now }), 'put');
   assert.equal(busyMarkerAction({ busy: false, markedAt: now - 1000, now }), 'delete');
   assert.equal(busyMarkerAction({ busy: false, markedAt: null, now }), null);
+});
+
+test('pinned status first line: the fast lane context only when known', () => {
+  const first = (fastLane) => renderStatus({ fastLane }, { modes: {} }).split('\n')[0];
+  assert.match(first({ model: 'sonnet', ctx: 3.6 }), /⚡sonnet ctx 4% · /);
+  assert.match(first({ model: 'sonnet' }), /⚡sonnet · /);
+  assert.doesNotMatch(first({ model: 'sonnet' }), /ctx/);
 });
 
 test('workerView: the state from the progress record, stored settings while the worker sleeps', () => {

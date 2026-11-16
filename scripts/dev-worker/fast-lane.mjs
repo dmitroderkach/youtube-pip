@@ -926,7 +926,9 @@ async function deliver(message, receivedAt = Date.now()) {
   if (!session) await startSession();
   if (turnActive) {
     sendToClaude(
-      `[New message from the owner while you were answering. Read it first.]\n\n${prompt}`,
+      // Not "read it first": the earlier message still needs its answer (fast-lane-prompt.md, SEVERAL MESSAGES)
+      `[New message from the owner while you were answering. Answer it too, together with the earlier one(s): ` +
+        `none goes unanswered.]\n\n${prompt}`,
       'next'
     );
   } else {

@@ -183,7 +183,9 @@ export function renderStatus(
   const mode = modes[worker.mode];
   const ctx = (value) => (typeof value === 'number' ? ` · ctx ${Math.round(value)}%` : '');
   const summary =
-    `${stateEmoji}${mode?.emoji ?? ''} ${worker.model ?? '?'}${ctx(worker.ctx)} · ⚡${fast.model ?? '?'} · ` +
+    // The pinned bar shows only this line: both lanes' context is here, not only in the lines below
+    `${stateEmoji}${mode?.emoji ?? ''} ${worker.model ?? '?'}${ctx(worker.ctx)} · ⚡${fast.model ?? '?'}` +
+    `${typeof fast.ctx === 'number' ? ` ctx ${Math.round(fast.ctx)}%` : ''} · ` +
     `5г ${pct(windows.five_hour?.utilization)} · тж ${pct(windows.seven_day?.utilization)}` +
     `${shared.speech ? ` · 🔊${shared.speech}` : ''}`;
   const workerState =
