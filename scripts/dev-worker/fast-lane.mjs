@@ -750,6 +750,9 @@ export function queryOptions({ environment, resumeId, model, effort, ask = canUs
     systemPrompt: PROMPT,
     env: environment,
     stderr: (data) => log(`claude: ${String(data).trim().slice(0, 1000)}`),
+    // Claude Code's debug log to stderr (CloudWatch, with timestamps) while FAST_LANE_CLAUDE_DEBUG=1: what its start
+    // waits on in the Lambda
+    ...(env.FAST_LANE_CLAUDE_DEBUG === '1' ? { extraArgs: { 'debug-to-stderr': null } } : {}),
   };
 }
 

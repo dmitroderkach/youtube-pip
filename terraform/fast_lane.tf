@@ -60,6 +60,8 @@ resource "aws_lambda_function" "fast_lane" {
       DEV_BOT_FUNCTION  = aws_lambda_function.dev_bot.function_name
       ONCALL_SECRET_ARN = data.aws_secretsmanager_secret.oncall.arn
       GITHUB_REPO       = "${var.github_owner}/${var.github_repo}"
+      # Claude Code's debug log in CloudWatch: on while the slow session start (28-101 s) is diagnosed
+      FAST_LANE_CLAUDE_DEBUG = "1"
     }
   }
 
