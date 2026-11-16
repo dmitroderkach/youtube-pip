@@ -246,5 +246,103 @@ class BusyWorkerRouting(unittest.TestCase):
                 clients["ecs"].run_task.assert_not_called()
 
 
+def command_update(text):
+    return {"message_id": 9, "date": 1000, "chat": {"id": 42}, "text": text}
+
+
+class FastLaneCommands(unittest.TestCase):
+    def routed(self, text, tasks, fast_lane=True, busy=False):
+        bot, clients = load_dev_bot(fast_lane=fast_lane)
+        bot.config = mock.MagicMock(return_value={"chat_id": "42", "webhook_secret": "s"})
+        bot.worker_tasks = mock.MagicMock(return_value=tasks)
+        bot.worker_stopping = mock.MagicMock(return_value=False)
+        bot.worker_busy = mock.MagicMock(return_value=busy)
+        bot.start_worker = mock.MagicMock(return_value=True)
+        event = {
+            "headers": {"X-Telegram-Bot-Api-Secret-Token": "s"},
+            "body": json.dumps({"message": command_update(text)}),
+        }
+        self.assertEqual(bot.handler(event, None)["statusCode"], 200)
+        call = clients["sqs"].send_message.call_args
+        return (call.kwargs["QueueUrl"] if call else None), bot, clients
+
+    def test_settings_and_state_commands_go_to_the_fast_lane_while_the_worker_runs(self):
+        for text in ("/model", "/effort high", "/mode@ytpip_dev_bot", "/timezone Europe/Kyiv", "/voice on",
+                     "/scheduled", "/plans", "/status", "/background", "/context", "/MODEL opus"):
+            with self.subTest(text=text):
+                queue, bot, clients = self.routed(text, RUNNING)
+                self.assertEqual(queue, "fast-lane-queue")
+                clients["lambda"].invoke.assert_called_once()
+                bot.worker_busy.assert_not_called()
+
+    def test_agents_and_compact_keep_the_message_routing(self):
+        for text in ("/agents", "/compact keep the plan"):
+            with self.subTest(text=text):
+                self.assertEqual(self.routed(text, RUNNING)[0], "worker-queue")
+                self.assertEqual(self.routed(text, [])[0], "fast-lane-queue")
+                self.assertEqual(self.routed(text, RUNNING, busy=True)[0], "fast-lane-queue")
+
+    def test_without_the_fast_lane_commands_go_to_the_worker(self):
+        queue, _bot, clients = self.routed("/model", RUNNING, fast_lane=False)
+        self.assertEqual(queue, "worker-queue")
+        clients["lambda"].invoke.assert_not_called()
+
+    def test_a_command_word_inside_text_is_an_ordinary_message(self):
+        self.assertEqual(self.routed("what does /model do?", RUNNING)[0], "worker-queue")
+
+
+class ControlHandOver(unittest.TestCase):
+    def stored_hand_over(self, clients, request):
+        clients["s3"].get_object.return_value = {
+            "Body": io.BytesIO(json.dumps(request).encode()),
+            "LastModified": datetime.fromtimestamp(time.time(), timezone.utc),
+        }
+
+    def hand_over(self, request, tasks):
+        bot, clients = load_dev_bot()
+        bot.config = mock.MagicMock(return_value={"chat_id": "42"})
+        bot.worker_tasks = mock.MagicMock(return_value=tasks)
+        bot.worker_stopping = mock.MagicMock(return_value=False)
+        bot.start_worker = mock.MagicMock(return_value=True)
+        self.stored_hand_over(clients, request)
+        return bot.handler({"action": "hand_over", "key": KEY}, None), bot, clients
+
+    def test_control_is_queued_for_a_running_worker(self):
+        control = {"model": "opus", "effort": "high", "mode": "auto", "timeZone": "Europe/Kyiv", "voice": "on"}
+        result, bot, clients = self.hand_over({"control": control}, RUNNING)
+        self.assertEqual(result, {"handed_over": True, "control": True, "running": True})
+        sent = clients["sqs"].send_message.call_args.kwargs
+        self.assertEqual(sent["QueueUrl"], "worker-queue")
+        body = json.loads(sent["MessageBody"])
+        self.assertEqual(body["control"], control)
+        self.assertEqual(body["text"], "")
+        bot.say.assert_not_called()
+        bot.start_worker.assert_not_called()
+
+    def test_control_for_a_sleeping_worker_is_neither_queued_nor_starts_it(self):
+        result, bot, clients = self.hand_over({"control": {"model": "opus"}, "message": {"text": "x"}}, [])
+        self.assertEqual(result, {"handed_over": False, "control": True, "running": False})
+        clients["sqs"].send_message.assert_not_called()
+        clients["ecs"].run_task.assert_not_called()
+        bot.start_worker.assert_not_called()
+
+    def test_invalid_control_is_rejected(self):
+        for control in (
+            {},
+            {"model": "opus", "permissionMode": "bypassPermissions"},
+            {"model": 1},
+            {"model": ""},
+            {"model": "x" * 101},
+            ["model", "opus"],
+            "opus",
+            None,
+        ):
+            with self.subTest(control=control):
+                result, bot, clients = self.hand_over({"control": control, "message": {"text": "x"}}, RUNNING)
+                self.assertEqual(result, {"handed_over": False, "error": "bad control"})
+                clients["sqs"].send_message.assert_not_called()
+                bot.start_worker.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

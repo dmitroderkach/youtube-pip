@@ -74,6 +74,23 @@ HANDOVER_MAX_AGE_SECONDS = 600
 PROGRESS_KEY = "state/progress.json"
 # An older record is no evidence of a running turn: the message goes to the worker
 PROGRESS_FRESH_SECONDS = 15 * 60
+# Settings and state commands: the fast lane always handles them (both lanes, a lane switch in the buttons), whether
+# the worker runs or not. /agents and /compact need the worker's live session, so they keep the message routing.
+FAST_LANE_COMMANDS = {
+    "/model",
+    "/effort",
+    "/mode",
+    "/timezone",
+    "/voice",
+    "/scheduled",
+    "/plans",
+    "/status",
+    "/background",
+    "/context",
+}
+# A settings change for a running worker (hand_over "control"): these keys only, short string values
+CONTROL_KEYS = {"model", "effort", "mode", "timeZone", "voice"}
+CONTROL_VALUE_MAX = 100
 # Tasks the owner scheduled (scripts/dev-worker/schedule.sh): {id, dueAt (UTC ISO), timeZone, text, createdAt}
 SCHEDULED_PREFIX = "state/scheduled/"
 # Gate (terraform/dev_worker_ops.tf)
@@ -569,6 +586,13 @@ def telegram_update(event):
             "/compact — стиснути контекст, /context — ліміти, /background — фонові задачі, /voice — голос, "
             "/timezone — таймзона, /scheduled — заплановані задачі, /status — закріпити статус."
         )
+    elif command in FAST_LANE_COMMANDS and FAST_LANE_FUNCTION:
+        # Settings and state commands: the fast lane, even while the worker runs (it changes either lane's settings)
+        to_fast_lane(
+            message_body(message, text, attachments),
+            str(message["chat"]["id"]),
+            str(message["message_id"]),
+        )
     else:
         forward(message, text, attachments)
     return {"statusCode": 200, "body": "ok"}
@@ -720,6 +744,8 @@ def hand_over(event):
     now = int(time.time())
     if now - stored["LastModified"].timestamp() > HANDOVER_MAX_AGE_SECONDS:
         return {"handed_over": False, "error": "stale"}
+    if "control" in request:
+        return hand_over_control(request)
     message = request.get("message") or {}
     text = str(message.get("text") or "")[:20000]
     attachments = [a for a in (message.get("attachments") or []) if isinstance(a, dict) and a.get("file_id")]
@@ -757,6 +783,38 @@ def hand_over(event):
         return {"handed_over": True, "pending": True}
     say(f"🛠 Довга задача ({reason}): піднімаю робочий воркер…")
     return {"handed_over": True, "started": start_worker(since)}
+
+
+def valid_control(control):
+    """A settings change for the worker ({model, effort, mode, timeZone, voice}: short strings), or None."""
+    if not isinstance(control, dict) or not control:
+        return None
+    for key, value in control.items():
+        if key not in CONTROL_KEYS or not isinstance(value, str) or not value or len(value) > CONTROL_VALUE_MAX:
+            return None
+    return dict(control)
+
+
+def hand_over_control(request):
+    """A settings change the owner made in the fast lane for the worker (/model, /effort, /mode with the lane switch,
+    /timezone, /voice): the fast lane already wrote it to state/settings.json, which a worker reads at start, so it is
+    queued only for a worker that runs now (applied to its live session) and never starts one. Nothing is said in the
+    chat: the fast lane confirms the change itself."""
+    control = valid_control(request.get("control"))
+    if not control:
+        print(f"hand-over control rejected: {str(request.get('control'))[:300]}")
+        return {"handed_over": False, "error": "bad control"}
+    if not worker_tasks():
+        return {"handed_over": False, "control": True, "running": False}
+    now = int(time.time())
+    body = {"text": "", "attachments": [], "date": now, "handover": True, "control": control}
+    sqs.send_message(
+        QueueUrl=QUEUE_URL,
+        MessageBody=json.dumps(body),
+        MessageGroupId=config()["chat_id"],
+        MessageDeduplicationId=f"control-{now}-{hashlib.sha256(json.dumps(control, sort_keys=True).encode()).hexdigest()[:16]}",
+    )
+    return {"handed_over": True, "control": True, "running": True}
 
 
 def handler(event, _context):
