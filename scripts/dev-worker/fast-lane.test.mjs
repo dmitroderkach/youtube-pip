@@ -42,6 +42,7 @@ test('childEnv: only the allowed names, the placeholder token, no inherited vari
   assert.deepEqual(checkChildEnv(environment, { placeholder: PLACEHOLDER, secrets: [REAL] }), []);
   assert.equal(environment.AWS_SECRET_ACCESS_KEY, undefined);
   assert.equal(environment.CLAUDE_CONFIG_DIR, '/tmp/fl/.claude');
+  assert.equal(environment.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC, '1');
 });
 
 test('checkChildEnv: an extra variable, the real token or a leaked secret fail the self-check', () => {
