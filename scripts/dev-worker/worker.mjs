@@ -30,6 +30,9 @@ import {
   withoutRepeated,
   voiceReplyWanted,
   classifierDenial,
+  progressRecord,
+  chatLogEntry,
+  appendChatLog,
 } from './session-state.mjs';
 import {
   backgroundRestoreHtml,
@@ -129,6 +132,11 @@ const WORKSPACE_KEY = 'state/workspace.tar.gz';
  * long after its last answer with no turn running (e.g. a stray background task keeps the idle timer from firing).
  */
 const ACTIVITY_KEY = 'state/activity.json';
+/** What the worker is doing now, for the fast lane's "як там" (progressRecord; docs/DEV_WORKER.md). */
+const PROGRESS_KEY = 'state/progress.json';
+const PROGRESS_DEBOUNCE_MS = 2000;
+/** The owner's messages and the worker's answers, newest CHAT_LOG_LINES_MAX, for the fast lane. */
+const CHAT_LOG_KEY = 'state/chat-log.jsonl';
 const PROJECTS_PREFIX = 'claude/projects/';
 /**
  * Session transcripts (`~/.claude/projects/<project>/<session id>.jsonl`) as `transcripts/<project>/<session id>.jsonl`:
@@ -1293,12 +1301,75 @@ function publishActivity(turnActive) {
   });
 }
 
+/** The current step of the turn, as the in-chat progress message shows it (for the progress record). */
+let currentStep = null;
+let progressTimer = null;
+let progressUploads = Promise.resolve();
+let lastProgressBody = '';
+
+/** Write the progress record to S3 soon (debounced; only when it changed). Best effort. */
+function scheduleProgress() {
+  if (progressTimer) return;
+  progressTimer = setTimeout(() => {
+    progressTimer = null;
+    const record = progressRecord({
+      purpose: turnPurpose,
+      step: currentStep,
+      steps: turn?.steps ?? 0,
+      backgroundTasks: backgroundTasks.values(),
+      lastAnswerAt,
+      turnActive: Boolean(turn),
+    });
+    const { updatedAt, ...content } = record;
+    const body = JSON.stringify(content);
+    if (body === lastProgressBody) return;
+    lastProgressBody = body;
+    progressUploads = progressUploads.then(async () => {
+      try {
+        const path = join(WORKER_TMP, 'progress.json');
+        writeFileSync(path, JSON.stringify({ updatedAt, ...content }));
+        await aws('s3', 'cp', path, `s3://${BUCKET}/${PROGRESS_KEY}`, '--quiet');
+      } catch (error) {
+        log('publish progress failed', error);
+      }
+    });
+  }, PROGRESS_DEBOUNCE_MS);
+  progressTimer.unref?.();
+}
+
+/** The chat log as last read or written (null until first used: read from S3 then). */
+let chatLog = null;
+let chatLogUploads = Promise.resolve();
+
+/** Append an owner's message or an answer to the chat log in S3 (read-modify-write, one at a time). Best effort. */
+function logChat(role, text, options = {}) {
+  if (!text) return;
+  const entry = chatLogEntry(role, text, options);
+  chatLogUploads = chatLogUploads.then(async () => {
+    try {
+      const path = join(WORKER_TMP, 'chat-log.jsonl');
+      if (chatLog === null) {
+        chatLog = (await s3Exists(CHAT_LOG_KEY))
+          ? (await aws('s3', 'cp', `s3://${BUCKET}/${CHAT_LOG_KEY}`, '-', '--quiet')) || ''
+          : '';
+      }
+      chatLog = appendChatLog(chatLog, entry);
+      writeFileSync(path, chatLog);
+      await aws('s3', 'cp', path, `s3://${BUCKET}/${CHAT_LOG_KEY}`, '--quiet');
+    } catch (error) {
+      log('chat log failed', error);
+    }
+  });
+}
+
 /** Start tracking a turn (a message from the owner, or a turn Claude starts for a finished background task). */
 function ensureTurn() {
   if (turn) return turn;
   const current = { progress: null, started: Date.now(), steps: 0, lastEdit: 0 };
   turn = current;
+  currentStep = null;
   publishActivity(true);
+  scheduleProgress();
   // Kept as a promise: a fast turn can end before Telegram has returned the message to edit
   current.progressSent = telegram('sendMessage', { text: '⏳ Працюю…' }).then((progress) => {
     current.progress = progress;
@@ -1310,6 +1381,8 @@ function ensureTurn() {
 function onToolUse(what) {
   const current = ensureTurn();
   current.steps++;
+  currentStep = what;
+  scheduleProgress();
   const now = Date.now();
   if (!current.progress || now - current.lastEdit < PROGRESS_EDIT_INTERVAL_MS) return;
   current.lastEdit = now;
@@ -1322,6 +1395,8 @@ function onToolUse(what) {
 async function finishTurn(result) {
   const current = turn ?? { progress: null, started: Date.now(), steps: 0 };
   turn = null;
+  currentStep = null;
+  scheduleProgress();
   // Wait for "⏳ Працюю…" to exist, so it is edited to the final status instead of being left behind the answer
   if (!current.progress && current.progressSent) await current.progressSent.catch(() => null);
   foregroundToolIds.clear();
@@ -1405,6 +1480,7 @@ async function finishTurn(result) {
       },
     });
   } else if (message) await say(`${label}${message}`);
+  if (message) logChat('worker', message);
   scheduleStatusUpdate();
   lastAnswerAt = new Date().toISOString();
   publishActivity(false);
@@ -1543,6 +1619,7 @@ async function runSession(resumeId) {
         ])
       );
       syncBackgroundRecords(message.tasks ?? []);
+      scheduleProgress();
     } else if (message.type === 'result') {
       await finishTurn(message);
     }
@@ -3572,6 +3649,10 @@ async function deliver(message) {
     );
   }
   turnPurpose = text;
+  logChat('owner', text, {
+    kind: (message.attachments ?? []).some((a) => a.kind === 'voice') ? 'voice' : 'text',
+  });
+  scheduleProgress();
   if (notesForClaude.length) text = `${notesForClaude.splice(0).join('\n')}\n\n${text}`;
   const oncall = await oncallNote().catch((error) => log('oncall check failed', error));
   if (oncall) text = `${oncall}\n\n${text}`;
@@ -3719,14 +3800,15 @@ async function stop() {
     saved = false;
     log('save failed', error);
   }
-  const context = saved ? 'Контекст збережено' : 'Контекст НЕ вдалося зберегти (див. логи)';
+  const context = saved ? 'контекст збережено' : 'контекст НЕ вдалося зберегти (див. логи)';
   const minutes = Math.round(IDLE_MS / 60000);
   // Sent as the process ends; ECS still needs a while to stop the task. "⚪ Воркер зупинено" comes from the bot on
   // the task's STOPPED event, when it really is stopped.
-  const shuttingDown = `${context}, вимикаюсь…`;
+  // The long-running worker (not the chat itself) is what goes to sleep
+  const shuttingDown = `😴 Робочий воркер засинає: ${context}`;
   const text = {
-    idle: `💤 ${minutes} хв без активності. ${shuttingDown}`,
-    sigterm: `${interrupted ? 'Поточну задачу перервано. ' : ''}${shuttingDown}`,
+    idle: `${shuttingDown} (${minutes} хв без активності)`,
+    sigterm: `${shuttingDown}${interrupted ? '. Поточну задачу перервано' : ''}`,
     crash: shuttingDown,
   }[reason];
   await say(text);
@@ -3771,8 +3853,8 @@ async function main() {
     (meta?.effort ? ` Effort: ${meta.effort}.` : '');
   await say(
     (meta?.sessionId
-      ? `🟢 Воркер готовий (${modelName()}). Контекст відновлено з сесії від ${new Date(meta.savedAt).toLocaleString('uk-UA', { timeZone: ownerTimeZone() })}; гілка ${branch || '(detached)'}${restored.workspace ? '' : ', робоча копія свіжа'}.`
-      : `🟢 Воркер готовий (${modelName()}). Нова сесія; гілка ${branch || '(detached)'}.`) +
+      ? `🛠 Робочий воркер готовий (${modelName()}). Контекст відновлено з сесії від ${new Date(meta.savedAt).toLocaleString('uk-UA', { timeZone: ownerTimeZone() })}; гілка ${branch || '(detached)'}${restored.workspace ? '' : ', робоча копія свіжа'}.`
+      : `🛠 Робочий воркер готовий (${modelName()}). Нова сесія; гілка ${branch || '(detached)'}.`) +
       modeNote
   );
   // The pinned status at the top of the chat (sent and pinned on the first run)

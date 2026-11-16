@@ -275,3 +275,70 @@ export function withoutRepeated(answer, seen) {
     .join('\n\n')
     .trim();
 }
+
+/** Most characters kept of a request, step or chat log text. */
+const PROGRESS_PURPOSE_MAX = 1000;
+const PROGRESS_STEP_MAX = 300;
+const PROGRESS_TASKS_MAX = 20;
+export const CHAT_LOG_TEXT_MAX = 2000;
+export const CHAT_LOG_LINES_MAX = 200;
+
+/**
+ * The worker's progress record (`state/progress.json`), what the fast lane answers "як там" from: the request being
+ * worked on, the current step (as the in-chat progress message shows it), running background tasks, the last answer.
+ * Small by design (texts clipped, at most PROGRESS_TASKS_MAX tasks).
+ */
+export function progressRecord({
+  purpose,
+  step,
+  steps,
+  backgroundTasks,
+  lastAnswerAt,
+  turnActive,
+  now = new Date(),
+}) {
+  const tasks = [...(backgroundTasks ?? [])].slice(0, PROGRESS_TASKS_MAX).map((task) => ({
+    type: task.type,
+    description: clip(task.description, PROGRESS_STEP_MAX),
+    since: new Date(task.since).toISOString(),
+  }));
+  return {
+    updatedAt: now.toISOString(),
+    turnActive: Boolean(turnActive),
+    purpose: turnActive && purpose ? clip(purpose, PROGRESS_PURPOSE_MAX) : null,
+    step: turnActive && step ? clip(step, PROGRESS_STEP_MAX) : null,
+    steps: turnActive ? (steps ?? 0) : 0,
+    backgroundTasks: tasks,
+    lastAnswerAt: lastAnswerAt ?? null,
+  };
+}
+
+/**
+ * A chat log line (`state/chat-log.jsonl`): who (`owner` / `worker`), when, the kind of the owner's message (text /
+ * voice), the text clipped to CHAT_LOG_TEXT_MAX.
+ */
+export function chatLogEntry(role, text, { kind, now = new Date() } = {}) {
+  return {
+    at: now.toISOString(),
+    role,
+    ...(kind ? { kind } : {}),
+    text: clip(text, CHAT_LOG_TEXT_MAX),
+  };
+}
+
+/** The chat log's lines with `entry` appended, keeping the newest `max` (unparsable lines dropped). */
+export function appendChatLog(content, entry, max = CHAT_LOG_LINES_MAX) {
+  const lines = String(content ?? '')
+    .split('\n')
+    .filter((line) => {
+      if (!line.trim()) return false;
+      try {
+        JSON.parse(line);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+  lines.push(JSON.stringify(entry));
+  return `${lines.slice(-max).join('\n')}\n`;
+}
