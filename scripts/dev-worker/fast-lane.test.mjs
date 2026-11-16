@@ -28,7 +28,7 @@ import {
   syncNote,
   workerStateLine,
 } from './session-state.mjs';
-import { mergeStatus, rateWindows, renderStatus } from './status.mjs';
+import { mergeStatus, rateWindows, renderStatus, workerView } from './status.mjs';
 
 const PLACEHOLDER = 'sk-ant-oat01-proxy-abc';
 const REAL = 'sk-ant-oat01-the-real-subscription-token';
@@ -443,4 +443,49 @@ test('busy marker: put when marking or stale, delete when idle, nothing otherwis
   assert.equal(busyMarkerAction({ busy: true, markedAt: now - BUSY_REFRESH_MS, now }), 'put');
   assert.equal(busyMarkerAction({ busy: false, markedAt: now - 1000, now }), 'delete');
   assert.equal(busyMarkerAction({ busy: false, markedAt: null, now }), null);
+});
+
+test('workerView: the state from the progress record, stored settings while the worker sleeps', () => {
+  const now = Date.parse('2026-11-16T19:30:00Z');
+  const stored = { mode: 'bypass', model: 'opus', effort: 'high' };
+  const live = { state: 'busy', mode: 'auto', model: 'sonnet', effort: 'low', ctx: 21 };
+  // The bug seen live: no worker section yet and a progress record of an older worker image (no worker field)
+  const legacy = workerView(undefined, {
+    progress: { updatedAt: '2026-11-16T17:00:00Z', turnActive: true },
+    stored,
+    now,
+  });
+  assert.equal(legacy.state, 'stopped');
+  assert.deepEqual([legacy.mode, legacy.model, legacy.effort], ['bypass', 'opus', 'high']);
+  assert.match(
+    renderStatus({ worker: legacy }, { modes: {} }),
+    /Воркер: 💤 спить з .* режим bypass · opus · effort high/
+  );
+  // Stopped: its last status section said busy, the progress record says stopped
+  const stopped = workerView(live, {
+    progress: { worker: 'stopped', updatedAt: '2026-11-16T19:20:00Z' },
+    stored,
+    now,
+  });
+  assert.equal(stopped.state, 'stopped');
+  assert.equal(stopped.since, '2026-11-16T19:20:00Z');
+  assert.equal(stopped.model, 'opus');
+  // Running: the live section wins, the state from the progress record
+  const busy = workerView(live, {
+    progress: { worker: 'running', turnActive: true, updatedAt: '2026-11-16T19:29:00Z' },
+    stored,
+    now,
+  });
+  assert.deepEqual([busy.state, busy.model, busy.ctx], ['busy', 'sonnet', 21]);
+  const idle = workerView(live, {
+    progress: { worker: 'running', turnActive: false, updatedAt: '2026-11-16T19:29:00Z' },
+    stored,
+    now,
+  });
+  assert.equal(idle.state, 'running');
+  // A fresh record without the field (unknown): the last section's state stays
+  assert.equal(
+    workerView(live, { progress: { updatedAt: '2026-11-16T19:29:00Z' }, stored, now }).state,
+    'busy'
+  );
 });
