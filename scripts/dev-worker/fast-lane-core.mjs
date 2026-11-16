@@ -223,6 +223,50 @@ export function leftoverClaudePids(proc, { self = process.pid, parent = process.
   return pids;
 }
 
+/**
+ * The taint gate (plan "Web search and web pages in the fast lane"): once a turn took in untrusted text (a web page
+ * summary, log text), the action tools of that turn (hand_over, stop_worker, schedule_add) run only after the owner's
+ * button, so a page or a log line cannot start work, stop the worker or plant a scheduled task. Enforced here, in the
+ * handler, not by the prompt. `confirm(description)` -> true only when the owner said yes. `newTurn()` at the start of
+ * each owner turn.
+ */
+export function createTaintGate({ confirm }) {
+  let sources = [];
+  return {
+    newTurn() {
+      sources = [];
+    },
+    taint(source) {
+      if (!sources.includes(source)) sources.push(source);
+    },
+    tainted: () => sources.length > 0,
+    sources: () => [...sources],
+    /** Runs `run()` directly when the turn is clean; otherwise only after the owner's yes. */
+    async guard(description, run) {
+      if (!sources.length) return run();
+      const yes = await confirm(description, [...sources]);
+      if (!yes)
+        return 'Not done: this turn read untrusted text (web / logs), and the owner did not confirm the action. Tell the owner.';
+      return run();
+    },
+  };
+}
+
+/**
+ * One answer per message: when the fast lane handed every owner message of a turn over to the worker (or stopped
+ * the worker's turn for it), the worker answers, so the fast lane's own "handed over" text is not sent. It is sent
+ * when a hand-over failed (the owner must know) or when the taint gate asked the owner first (the owner pressed a
+ * button and expects the outcome). `turn`: { messages, handedOver, failed, gateAsked }.
+ */
+export function shouldSuppressAnswer({
+  messages = 0,
+  handedOver = 0,
+  failed = false,
+  gateAsked = false,
+} = {}) {
+  return messages > 0 && handedOver >= messages && !failed && !gateAsked;
+}
+
 /** Days before the read-only GitHub token expires when the owner starts being told (once a day). */
 export const TOKEN_WARN_DAYS = 7;
 

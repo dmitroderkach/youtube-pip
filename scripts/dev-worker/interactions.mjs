@@ -68,7 +68,8 @@ export function createInteractions({ telegram, onWaiting = () => {} }) {
         html,
         messageId: sent?.message_id,
         picked: new Set(),
-        takesText: true,
+        // A buttons-only question (question.buttonsOnly) never takes the owner's next text message as its answer
+        takesText: !question.buttonsOnly,
       };
       const result = await waitForOwner(entry, signal);
       if (result.aborted || result.timeout) {
@@ -92,6 +93,7 @@ export function createInteractions({ telegram, onWaiting = () => {} }) {
     const [, choice] = value.split('.');
     const { question } = entry;
     if (choice === 'own') {
+      if (question.buttonsOnly) return;
       textTarget = entry;
       if (entry.messageId)
         await editHtml(entry.messageId, `${entry.html}\n\n✏️ <i>Напиши відповідь текстом</i>`);
