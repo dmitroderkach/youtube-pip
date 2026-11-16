@@ -59,10 +59,18 @@ build_and_push() {
     aws ecr get-login-password --region "${AWS_REGION}" \
       | "${work}/crane" auth login "${ECR_REGISTRY}" -u AWS --password-stdin
     "${work}/crane" push "${work}/soci-image" "${IMAGE_REF}"
+    # The fast lane Lambda (terraform/fast_lane.tf) runs the same image, but Lambda takes a single image manifest,
+    # not an index: its manifest gets the `<tag>-lambda` tag
+    local manifest
+    manifest="$("${work}/crane" manifest "${IMAGE_REF}" \
+      | jq -r '[.manifests[] | select(.artifactType == null)] | if length == 1 then .[0].digest else empty end')"
+    [[ -n "${manifest}" ]] || { echo "No single image manifest in ${IMAGE_REF}" >&2; exit 1; }
+    "${work}/crane" tag "${ECR_REGISTRY}/${ECR_REPO}@${manifest}" "${IMAGE_TAG}-lambda"
     rm -rf "${work}"
   else
-    docker build --platform linux/amd64 -t "${IMAGE_REF}" -f "${dockerfile}" "${context}"
+    docker build --platform linux/amd64 -t "${IMAGE_REF}" -t "${IMAGE_REF}-lambda" -f "${dockerfile}" "${context}"
     docker push "${IMAGE_REF}"
+    docker push "${IMAGE_REF}-lambda"
   fi
 }
 

@@ -57,3 +57,10 @@ jobs:
             -e GITHUB_APP_ID=1 -e GITHUB_APP_INSTALLATION_ID=1 \
             -v "$PWD/scripts/dev-worker:/check:ro" \
             --entrypoint node dev-worker:check /check/isolation-check.mjs
+
+      - name: Fast lane loads as in Lambda (another user, read-only root, writable /tmp)
+        # docs/DEV_WORKER.md, "Fast lane": the same image runs the fast lane Lambda
+        run: |
+          docker run --rm --read-only --tmpfs /tmp --user 993:993 -w /opt/dev-worker \
+            --entrypoint node dev-worker:check --input-type=module \
+            -e "await import('/opt/dev-worker/fast-lane.mjs'); console.log('fast lane module loads')"

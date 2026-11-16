@@ -57,6 +57,7 @@ jobs:
           cd scripts/dev-worker
           npm ci --no-audit --no-fund
           node --check worker.mjs
+          node --check fast-lane.mjs
           node --test ./*.test.mjs
 
       - name: SDK contract smoke test (real Claude)
