@@ -2,7 +2,10 @@
 /**
  * Smoke test of the fast lane's Claude session (docs/DEV_WORKER.md "Fast lane"), with the real Claude: the session is
  * started exactly as fast-lane.mjs starts it (queryOptions, childEnv), and must report only the expected tools, use
- * one of them, and have no way to run a command. Not part of the image.
+ * one of them, and have no way to run a command; then the handler path: a message through the fast lane's queue, its
+ * handler (deliver, the session, the in-process tools) to a hand-over that reaches dev-bot's invoke, with the queue,
+ * dev-bot and the Bot API as stubs (the handler path needs the real token: the handler starts its own proxy, as in the
+ * Lambda). Not part of the image.
  *
  * AWS and GitHub are stubs (an in-memory state bucket, a fixed pull request list), so it runs without AWS: in the
  * weekly Claude Code update (claude-code-update.yml) after the pin bump, and locally.
@@ -16,6 +19,7 @@ import { startAnthropicProxy } from './anthropic-proxy.mjs';
 import { checkChildEnv, checkToolList, childEnv } from './fast-lane-core.mjs';
 import {
   EXPECTED_TOOLS,
+  handler,
   queryOptions,
   useClientsForTest,
   useSecretsForTest,
@@ -32,15 +36,61 @@ const REPO_PULLS = [
   { number: 502, title: 'Smoke: second', state: 'open', draft: true, head: { ref: 'smoke-2' } },
 ].map((pr) => ({ ...pr, html_url: `https://github.com/example/repo/pull/${pr.number}` }));
 const githubCalls = [];
-useClientsForTest({
-  s3: createMemoryS3Client({
-    'state/chat-log.jsonl': `${JSON.stringify({ at: new Date().toISOString(), role: 'owner', text: 'smoke' })}\n`,
-    'state/progress.json': JSON.stringify({
-      updatedAt: new Date().toISOString(),
-      worker: 'stopped',
-      turnActive: false,
-    }),
+// The handler path's stubs: the queue (one owner message), dev-bot's invoke, the Bot API (records the calls)
+const queue = [];
+const invokes = [];
+const telegramCalls = [];
+let messageIds = 100;
+const record =
+  (name) =>
+  async (...args) => {
+    telegramCalls.push({ name, args });
+    return { message_id: ++messageIds, ok: true };
+  };
+const fakeTelegram = Object.fromEntries(
+  [
+    'request',
+    'call',
+    'say',
+    'sayHtml',
+    'editHtml',
+    'edit',
+    'editButtons',
+    'sendFile',
+    'flushOutbox',
+    'download',
+    'sendVoice',
+  ].map((name) => [name, record(name)])
+);
+const bucket = createMemoryS3Client({
+  'state/chat-log.jsonl': `${JSON.stringify({ at: new Date().toISOString(), role: 'owner', text: 'smoke' })}\n`,
+  'state/progress.json': JSON.stringify({
+    updatedAt: new Date().toISOString(),
+    worker: 'stopped',
+    turnActive: false,
   }),
+});
+useClientsForTest({
+  s3: bucket,
+  sqs: {
+    send: async (command) => {
+      const name = command.constructor?.name;
+      if (name === 'ReceiveMessageCommand') {
+        const next = queue.shift();
+        if (!next) await new Promise((resolveWait) => setTimeout(resolveWait, 500));
+        return next ? { Messages: [{ Body: JSON.stringify(next), ReceiptHandle: 'r' }] } : {};
+      }
+      return {};
+    },
+  },
+  lambda: {
+    send: async (command) => {
+      invokes.push(JSON.parse(Buffer.from(command.input.Payload).toString()));
+      return { StatusCode: 202 };
+    },
+  },
+  telegram: fakeTelegram,
+  idleMs: 3000,
   github: async (path) => {
     githubCalls.push(path);
     if (/\/pulls\?state=open/.test(path)) return REPO_PULLS;
@@ -124,4 +174,39 @@ const second = await run(
 const forbidden = second.used.filter((name) => !name.startsWith('mcp__fast_lane__'));
 if (forbidden.length) fail(`used a tool outside the fast lane set: ${forbidden.join(', ')}`);
 console.log(`ok   no way to run a command: ${String(second.result?.result).slice(0, 120)}`);
+
+// The handler path: needs the real token (the handler starts its own proxy for it, as in the Lambda)
+if (process.env.ANTHROPIC_BASE_URL) {
+  console.log(
+    'skip handler path: only a running proxy placeholder here (it runs with the real token in CI)'
+  );
+  process.exit(0);
+}
+useSecretsForTest({
+  claudeToken: process.env.CLAUDE_CODE_OAUTH_TOKEN,
+  botToken: null,
+  chatId: null,
+  githubToken: null,
+  googleKey: null,
+});
+queue.push({
+  text: 'Please hand this over to the working worker: run the unit tests of scripts/dev-worker and report the result.',
+  attachments: [],
+  date: Math.floor(Date.now() / 1000),
+  message_id: 1,
+});
+const invoked = await handler({ wake: true }, { deadline: Date.now() + 240_000 });
+if (invoked.handled !== 1) fail(`handler handled ${invoked.handled} message(s)`);
+console.log('ok   handler: the message went through the queue, deliver and the session');
+const handOver = invokes.find((event) => event.action === 'hand_over');
+if (!handOver)
+  fail(`no hand_over invoke of dev-bot (invokes: ${JSON.stringify(invokes).slice(0, 200)})`);
+const taskText = bucket.read(handOver.key) ?? '';
+if (!/unit tests/i.test(taskText))
+  fail(`the hand-over object does not carry the task (${taskText.slice(0, 200)})`);
+console.log(`ok   hand-over reached dev-bot's invoke (${handOver.key})`);
+if (!telegramCalls.length) fail('nothing reached the Bot API');
+console.log(
+  `ok   Bot API calls: ${[...new Set(telegramCalls.map((call) => call.name))].join(', ')}`
+);
 process.exit(0);

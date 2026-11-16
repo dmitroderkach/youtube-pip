@@ -84,9 +84,10 @@ COPY scripts/dev-worker/worker.mjs scripts/dev-worker/telegram-format.mjs script
      scripts/dev-worker/telegram.mjs scripts/dev-worker/voice.mjs scripts/dev-worker/transcript-guard.mjs scripts/dev-worker/incoming.mjs \
      scripts/dev-worker/interactions.mjs scripts/dev-worker/status.mjs \
      scripts/dev-worker/fast-lane.mjs scripts/dev-worker/fast-lane-core.mjs scripts/dev-worker/fast-lane-prompt.md \
+     scripts/dev-worker/fast-lane-web.mjs \
      scripts/dev-worker/assistant-tools.mjs scripts/dev-worker/scheduled-tasks.mjs \
      scripts/dev-worker/fast-lane-commands.mjs scripts/dev-worker/s3-objects.mjs \
-     scripts/dev-worker/timezone-search.mjs scripts/dev-worker/settings.mjs scripts/dev-worker/settings-commands.mjs \
+     scripts/dev-worker/timezone-search.mjs scripts/dev-worker/settings.mjs scripts/dev-worker/settings-commands.mjs scripts/dev-worker/compact-command.mjs \
      /opt/dev-worker/
 # User settings: the PreToolUse hook that keeps text sent to GitHub / git history in English
 COPY --chown=worker:worker scripts/dev-worker/claude-settings.json /home/worker/.claude/settings.json

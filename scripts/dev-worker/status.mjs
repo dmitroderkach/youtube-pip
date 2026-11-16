@@ -1,3 +1,5 @@
+import { workerLiveness } from './session-state.mjs';
+
 /**
  * The pinned status of the chat (shared by the worker and the fast lane, docs/DEV_WORKER.md "Pinned status", "Code
  * layout"): a message pinned at the top of the chat with the session's settings and limits, edited in place
@@ -123,8 +125,31 @@ export function mergeStatus(current, { lane, figures, shared = {}, now = new Dat
   return record;
 }
 
-/** A progress record older than this without a worker state (a worker image before it wrote one, or a crash). */
-const PROGRESS_STALE_MS = 15 * 60 * 1000;
+/** After the fast lane handed a task to a sleeping worker, it shows it as starting this long without a record. */
+const HANDOVER_STARTING_MS = 3 * 60 * 1000;
+
+/** Characters of the worker's task shown in the pinned status. */
+export const TASK_LABEL_CHARS = 40;
+
+/**
+ * What the busy worker is doing, for the pinned status: the first line of its turn's purpose without the bracketed
+ * notes the chat layer puts in front ("[Handed over …]", "[Worker note …]"), clipped. Null when there is nothing.
+ */
+export function taskLabel(purpose, max = TASK_LABEL_CHARS) {
+  let text = String(purpose ?? '');
+  // Drop leading bracketed notes (they can span lines); what follows is the owner's (or the task's) own words
+  for (;;) {
+    const trimmed = text.trimStart();
+    if (!trimmed.startsWith('[')) break;
+    const end = trimmed.indexOf(']');
+    if (end < 0) break;
+    text = trimmed.slice(end + 1);
+  }
+  const task = /^\s*Task:\s*(.+)$/m.exec(text)?.[1];
+  const line = (task ?? text.trim().split('\n')[0] ?? '').trim();
+  if (!line) return null;
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
 
 /**
  * The worker's section as another lane shows it (the fast lane): the state from the worker's progress record (the
@@ -132,23 +157,39 @@ const PROGRESS_STALE_MS = 15 * 60 * 1000;
  * stopped or crashed worker no longer updates; while the worker does not run, mode / model / effort are the stored
  * ones (state/settings.json `worker`, resolveSettings), which a change made in the fast lane updates.
  */
-export function workerView(section, { progress, stored, now = Date.now() } = {}) {
+export function workerView(
+  section,
+  { progress, stored, now = Date.now(), handoverAt = null } = {}
+) {
   const live = section ?? {};
   const updated = Date.parse(progress?.updatedAt ?? '');
-  const age = Number.isNaN(updated) ? Infinity : now - updated;
+  let since = Number.isNaN(updated) ? live.since : progress.updatedAt;
+  // One rule for every reader (session-state.mjs workerLiveness): a record nobody refreshed (a crash, a kill, a
+  // failed start) is a worker that does not run, whatever its last state said
+  const liveness = workerLiveness(progress, now);
   let state;
-  if (progress?.worker === 'running') state = progress.turnActive ? 'busy' : 'running';
-  else if (progress?.worker === 'stopped' || progress?.worker === 'stopping') state = 'stopped';
-  else if (age > PROGRESS_STALE_MS) state = 'stopped';
-  else state = live.state;
-  if (state === 'running' || state === 'busy') return { ...stored, ...live, state };
-  return {
-    ...live,
-    ...stored,
-    state,
-    since: Number.isNaN(updated) ? live.since : progress.updatedAt,
-    ctx: live.ctx,
-  };
+  if (liveness === 'stale') state = 'stopped';
+  else if (liveness === 'unknown') state = live.state;
+  else state = liveness;
+  // This lane just handed a task over to a sleeping worker: it is being started though no record says so yet
+  const handedOver = Date.parse(handoverAt ?? '');
+  if (
+    state === 'stopped' &&
+    !Number.isNaN(handedOver) &&
+    now - handedOver < HANDOVER_STARTING_MS &&
+    (Number.isNaN(updated) || updated < handedOver)
+  ) {
+    state = 'starting';
+    since = handoverAt;
+  }
+  if (state === 'running' || state === 'busy')
+    return {
+      ...stored,
+      ...live,
+      state,
+      task: state === 'busy' ? (taskLabel(progress?.purpose) ?? live.task ?? null) : null,
+    };
+  return { ...live, ...stored, state, since, ctx: live.ctx };
 }
 
 const pct = (value) => (typeof value === 'number' ? `${Math.round(value * 100)}%` : '?');
@@ -179,7 +220,9 @@ export function renderStatus(
     windows[name]?.resetsAt
       ? time(new Date(windows[name].resetsAt * 1000).toISOString(), withDay)
       : '?';
-  const stateEmoji = { busy: '🔵', running: '🟢', stopped: '💤' }[worker.state] ?? '❔';
+  const stateEmoji =
+    { busy: '🔵', running: '🟢', starting: '⏳', stopping: '😴', stopped: '💤' }[worker.state] ??
+    '❔';
   const mode = modes[worker.mode];
   const ctx = (value) => (typeof value === 'number' ? ` · ctx ${Math.round(value)}%` : '');
   const summary =
@@ -190,8 +233,10 @@ export function renderStatus(
     `${shared.speech ? ` · 🔊${shared.speech}` : ''}`;
   const workerState =
     {
-      busy: '🔵 працює над задачею',
+      busy: worker.task ? `🔵 працює над «${worker.task}»` : '🔵 працює над задачею',
       running: '🟢 запущений, вільний',
+      starting: `⏳ піднімається з ${time(worker.since ?? worker.updatedAt)}`,
+      stopping: '😴 засинає, зберігає контекст',
       stopped: `💤 спить з ${time(worker.since ?? worker.updatedAt)}`,
     }[worker.state] ?? '❔ стан невідомий';
   const voice = shared.voice;

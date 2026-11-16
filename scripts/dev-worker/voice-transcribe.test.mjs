@@ -45,7 +45,7 @@ function voiceFor(env, awsCalls = []) {
     log: () => {},
     telegram: {},
     settings: { get: () => ({}), set: () => {} },
-    store: { getJson: async () => null, putJson: async () => {} },
+    store: { getJson: async () => null, updateJson: async () => {} },
     aws: async (...args) => {
       awsCalls.push(args);
       throw new Error('no AWS in this test');

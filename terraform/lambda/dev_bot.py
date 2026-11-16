@@ -81,7 +81,8 @@ FAST_LANE_BUSY_KEY = "fast-lane/busy.json"
 # An older marker is left over (the fast lane died or timed out): not busy
 FAST_LANE_BUSY_FRESH_SECONDS = 120
 # Settings and state commands: the fast lane always handles them (both lanes, a lane switch in the buttons), whether
-# the worker runs or not. /agents and /compact need the worker's live session, so they keep the message routing.
+# the worker runs or not. /agents needs the worker's live session, so it keeps the message routing. /compact has a
+# lane switch too (the fast lane compacts its own session, or passes it to the worker).
 FAST_LANE_COMMANDS = {
     "/model",
     "/effort",
@@ -93,6 +94,7 @@ FAST_LANE_COMMANDS = {
     "/status",
     "/background",
     "/context",
+    "/compact",
 }
 # A settings change for a running worker (hand_over "control"; scripts/dev-worker/settings.mjs validControl, which the
 # worker applies after its own check): these keys only, short string values; effort may be null (the default)
@@ -217,10 +219,76 @@ def start_worker(up_at):
             reason = "; ".join(f"{f.get('reason')} {f.get('detail') or ''}".strip() for f in failures)
             say(f"🔴 Не вдалося підняти робочий воркер: {reason or 'ECS не створив таск'}")
             return False
+        mark_starting()
         return True
     except Exception as error:
         say(f"🔴 Не вдалося підняти робочий воркер: {error}")
         return False
+
+
+def update_progress_worker(state, *, unless_fresh_running=False, only_if=None):
+    """Set the progress record's worker state (`starting` / `stopped`), keeping its other fields; best effort. The record
+    is the worker's: the write is conditional (the ETag read, or none when it did not exist), so a record the worker
+    wrote in the meantime is never overwritten (on a conflict nothing is written). `unless_fresh_running`: leave a fresh
+    `running` record alone; `only_if`: write only when the record's state is one of these. True when written."""
+    try:
+        etag = None
+        try:
+            stored = s3.get_object(Bucket=STATE_BUCKET, Key=PROGRESS_KEY)
+            etag = stored.get("ETag")
+            progress = json.loads(stored["Body"].read())
+        except Exception as error:
+            # Only a missing record means "none yet": a failed read must not be written over. dev-bot may not list the
+            # bucket there, so S3 reports a missing record as AccessDenied rather than NoSuchKey; either way the write
+            # below is IfNoneMatch: *, which never replaces a record that does exist
+            if not any(code in repr(error) for code in ("NoSuchKey", "AccessDenied")):
+                raise
+            progress = {}
+        if not isinstance(progress, dict):
+            progress = {}
+        if only_if is not None and progress.get("worker") not in only_if:
+            return False
+        if unless_fresh_running and progress.get("worker") == "running":
+            updated = datetime.fromisoformat(str(progress.get("updatedAt")).replace("Z", "+00:00"))
+            if 0 <= time.time() - updated.timestamp() <= PROGRESS_FRESH_SECONDS:
+                return False
+        now = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        record = {**progress, "worker": state, "turnActive": False, "awaitingAnswer": False, "updatedAt": now}
+        condition = {"IfMatch": etag} if etag else {"IfNoneMatch": "*"}
+        s3.put_object(Bucket=STATE_BUCKET, Key=PROGRESS_KEY, Body=json.dumps(record).encode(), **condition)
+        return True
+    except Exception as error:
+        print(f"progress record ({state}): {error!r}")
+        return False
+
+
+def refresh_status():
+    """Ask the fast lane to redraw the pinned status from S3 (its {"action": "refresh_status"} invocation), so the
+    owner sees a starting or stopped worker at once; best effort."""
+    if not FAST_LANE_FUNCTION:
+        return
+    try:
+        lambda_client.invoke(
+            FunctionName=FAST_LANE_FUNCTION,
+            InvocationType="Event",
+            Payload=json.dumps({"action": "refresh_status"}).encode(),
+        )
+    except Exception as error:
+        print(f"status refresh: {error!r}")
+
+
+def mark_starting():
+    """The progress record says the worker is being started (the pinned status shows it as such, the fast lane's note
+    too), unless a fresh record says a worker is running; then the pinned status is redrawn."""
+    if update_progress_worker("starting", unless_fresh_running=True):
+        refresh_status()
+
+
+def mark_stopped():
+    """The worker's task stopped: a record still saying running or starting (a crash, a kill, a failed start: the worker
+    wrote no `stopped` itself) says stopped now, and the pinned status is redrawn."""
+    if update_progress_worker("stopped", only_if=("running", "starting")):
+        refresh_status()
 
 
 def request_start_after_stop(up_at):
@@ -350,21 +418,23 @@ def message_body(message, text, attachments):
     }
 
 
-def worker_busy():
-    """True only when the worker's progress record says it is in a turn, is fresh, and the worker does not wait for the
-    owner's answer (a question, a permission prompt, a plan review: those answers must reach the worker). Anything
-    unreadable or unexpected is False, so the message goes to the worker as before."""
+def worker_routing_state():
+    """The running worker's progress record, read once for routing: {"waits": the worker waits for the owner's answer
+    (a question, a permission prompt, a plan review: that answer must reach the worker), "busy": it is in a turn}, both
+    only from a fresh record; None when the record cannot be read (route as before: to the worker)."""
     try:
         progress = json.loads(s3.get_object(Bucket=STATE_BUCKET, Key=PROGRESS_KEY)["Body"].read())
-        if not isinstance(progress, dict) or progress.get("turnActive") is not True:
-            return False
-        if progress.get("awaitingAnswer") is True:
-            return False
+        if not isinstance(progress, dict):
+            return None
         updated = datetime.fromisoformat(str(progress["updatedAt"]).replace("Z", "+00:00"))
-        return 0 <= time.time() - updated.timestamp() <= PROGRESS_FRESH_SECONDS
+        fresh = 0 <= time.time() - updated.timestamp() <= PROGRESS_FRESH_SECONDS
+        return {
+            "waits": fresh and progress.get("awaitingAnswer") is True,
+            "busy": fresh and progress.get("turnActive") is True and progress.get("awaitingAnswer") is not True,
+        }
     except Exception as error:
         print(f"progress record: {error}")
-        return False
+        return None
 
 
 def fast_lane_busy():
@@ -392,13 +462,15 @@ def forward(message, text, attachments):
             str(message["message_id"]),
         )
         return
-    busy = bool(FAST_LANE_FUNCTION) and worker_busy()
-    if FAST_LANE_FUNCTION and (busy or fast_lane_busy()):
-        # The worker is in a turn: the fast lane answers at once (status, scheduled tasks, settings) and hands the
-        # message over (or interrupts the worker) when it is for the worker, instead of it waiting for the next step.
-        # The fast lane still handles earlier messages: this one follows them, so a hand-over is never overtaken.
+    # The worker runs. The owner's decision (2026-11-16): every message goes to the fast lane, also while the worker
+    # is free, and the fast lane hands over only what concerns the worker's work, so a free worker goes idle and stops
+    # instead of staying up for the chat. Only an answer the worker waits for (a question, a permission prompt, a plan
+    # review) goes straight to it; an unreadable record routes as before (to the worker).
+    state = worker_routing_state() if FAST_LANE_FUNCTION else None
+    to_fast = (state is not None and not state["waits"]) or (state is None and fast_lane_busy())
+    if FAST_LANE_FUNCTION and to_fast:
         to_fast_lane(
-            {**message_body(message, text, attachments), "workerBusy": busy},
+            {**message_body(message, text, attachments), "workerBusy": bool(state and state["busy"])},
             str(message["chat"]["id"]),
             str(message["message_id"]),
         )
@@ -645,9 +717,13 @@ def task_stopped(event):
         # The worker said why it stops and that the context is saved; only now is the task really stopped. A new worker
         # may already be starting (a message while this one was stopping): then this is the previous one
         say("😴 Попередній робочий воркер зупинено" if worker_tasks() else "😴 Робочий воркер зупинено")
-    # A start requested while this task was saving its session
+    # No worker runs any more: a record that still says running or starting (the worker did not write `stopped`
+    # itself) says stopped, and the pinned status shows it
     if not worker_tasks():
-        start_pending()
+        mark_stopped()
+        # A start requested while this task was saving its session
+        if not worker_tasks():
+            start_pending()
     return {"statusCode": 200, "body": "handled"}
 
 
@@ -773,6 +849,14 @@ def hand_over(event):
         return {"handed_over": False, "error": "stale"}
     if "control" in request:
         return hand_over_control(request)
+    # A stop, or a command meant only for a running worker (`start: false`, e.g. /compact sent to it): never start a
+    # worker for it, and never leave it in the queue for a later one
+    only_running = request.get("interrupt") is True or request.get("start") is False
+    # One snapshot of the worker's tasks for both decisions (queue only for a running worker; start one or not)
+    tasks = worker_tasks()
+    if only_running and not tasks:
+        print(f"hand-over {key}: only for a running worker, none runs: dropped")
+        return {"handed_over": False, "running": False}
     message = request.get("message") or {}
     text = str(message.get("text") or "")[:20000]
     attachments = [a for a in (message.get("attachments") or []) if isinstance(a, dict) and a.get("file_id")]
@@ -800,8 +884,7 @@ def hand_over(event):
     )
     # Every hand-over is shown in the chat, so the owner sees each task the worker gets this way
     reason = str(request.get("reason") or "").strip()[:200] or "без назви"
-    tasks = worker_tasks()
-    if tasks:
+    if tasks or only_running:
         say(f"🛠 Передано робочому воркеру: {reason}")
         return {"handed_over": True, "running": True}
     if worker_stopping():

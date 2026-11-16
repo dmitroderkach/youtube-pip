@@ -40,7 +40,10 @@ resource "aws_lambda_function" "fast_lane" {
   image_uri     = "${aws_ecr_repository.dev_worker.repository_url}@${data.aws_ecr_image.fast_lane.image_digest}"
   architectures = ["x86_64"]
   timeout       = 900
-  memory_size   = 2048
+  # CPU scales with memory (the handler uses ~440 MB): Claude Code's start is CPU-bound and took 2-101 s at 2048 MB.
+  # 3008 MB (about 1.75 vCPU) is this account's limit: 4096 failed with "Member must have value less than or equal to
+  # 3008" (raising it is a Service Quotas request)
+  memory_size = 3008
   # One conversation, one session: never two invocations at once (a second wake waits as a throttled async event)
   reserved_concurrent_executions = 1
 
@@ -137,10 +140,12 @@ resource "aws_iam_role_policy" "fast_lane" {
       {
         Effect = "Allow"
         Action = "s3:PutObject"
-        # settings.json: both lanes' settings (settings.mjs); status.json: the pinned status of both lanes
+        # settings.json: both lanes' settings (settings.mjs); status.json: the pinned status of both lanes; memory/ and
+        # plans/: the worker's memory and plans, written by the fast lane only while the worker sleeps (memory_write,
+        # plan_write)
         Resource = [for key in [
           "state/chat-log.jsonl", "state/voice-transcripts.json", "state/voice-usage.json", "state/scheduled/*",
-          "state/settings.json", "state/status.json", "fast-lane/*",
+          "state/settings.json", "state/status.json", "fast-lane/*", "memory/*", "plans/*",
         ] : "${aws_s3_bucket.dev_worker_state.arn}/${key}"]
       },
       {
@@ -165,6 +170,20 @@ resource "aws_iam_role_policy" "fast_lane" {
         Effect   = "Allow"
         Action   = ["transcribe:StartTranscriptionJob", "transcribe:GetTranscriptionJob", "transcribe:DeleteTranscriptionJob"]
         Resource = "arn:aws:transcribe:${var.aws_region}:${data.aws_caller_identity.current.account_id}:transcription-job/${local.project_glob}"
+      },
+      {
+        # Logs the fast lane reads itself (assistant-tools.mjs log_groups / logs): listing groups is not resource-level
+        Effect   = "Allow"
+        Action   = "logs:DescribeLogGroups"
+        Resource = "*"
+      },
+      {
+        # Events of the project's log groups only (Lambdas, ECS tasks, CodeBuild projects); the permissions boundary
+        # already allows arn:aws:logs:*:*:log-group:/*/youtube-pip-* (no gate change)
+        Effect = "Allow"
+        Action = ["logs:FilterLogEvents", "logs:GetLogEvents"]
+        Resource = [for prefix in ["/aws/lambda/", "/ecs/", "/aws/codebuild/"] :
+        "arn:aws:logs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:log-group:${prefix}${local.project_glob}"]
       },
       {
         Effect   = "Allow"

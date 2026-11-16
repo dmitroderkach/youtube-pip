@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import { prefixCallbacks } from './fast-lane-core.mjs';
 import { createFastLaneCommands } from './fast-lane-commands.mjs';
 import { createSettingsCommands } from './settings-commands.mjs';
+import { parseCallback } from './telegram-format.mjs';
 import {
   controlText,
   describeControl,
@@ -53,7 +54,20 @@ function recordingTelegram() {
 
 const callbackOf = (markup, text) =>
   markup.inline_keyboard.flat().find((button) => button.text.includes(text))?.callback_data;
-const RUNNING = JSON.stringify({ worker: 'running', turnActive: true });
+
+/** Press the button labelled `text` of the last message with buttons (as dev-bot delivers it: data parsed). */
+async function pressButton(host, text, messageId = 77) {
+  const message = [...host.telegram.sent].reverse().find((item) => item.markup);
+  const data = callbackOf(message.markup, text);
+  assert.ok(data, `no button "${text}"`);
+  return host.commands.handleCallback(messageId, parseCallback(data));
+}
+// Fresh records (session-state.mjs workerLiveness: an old running record is a crashed worker)
+const RUNNING = JSON.stringify({
+  worker: 'running',
+  turnActive: true,
+  updatedAt: new Date().toISOString(),
+});
 const STOPPED = JSON.stringify({ worker: 'stopped', turnActive: false });
 
 function fastLane({ objects = {}, places = [] } = {}) {
@@ -62,6 +76,7 @@ function fastLane({ objects = {}, places = [] } = {}) {
   const toWorker = [];
   const applied = [];
   const voiceCalls = [];
+  const own = [];
   const commands = createFastLaneCommands({
     telegram,
     store,
@@ -73,8 +88,9 @@ function fastLane({ objects = {}, places = [] } = {}) {
     applyFastLane: async (value) => applied.push(value),
     searchPlaces: async () => places,
     download: async (key) => `/tmp/${key}`,
+    compactOwn: async (instructions) => own.push(instructions),
   });
-  return { commands, store, telegram, toWorker, applied, voiceCalls };
+  return { commands, store, telegram, toWorker, applied, voiceCalls, own };
 }
 
 /** The worker's side of the shared module, with its live session as a log of what it applied. */
@@ -346,16 +362,40 @@ test('/scheduled lists with cancel buttons; a button deletes the task and refres
 test('/stop only to a busy worker; /compact asks before starting a sleeping one', async () => {
   const busy = fastLane({ objects: { 'state/progress.json': RUNNING } });
   await busy.commands.handleCommand('/stop');
+  // start: false: dev-bot never starts a worker for a stop or for /compact sent to a running one
   assert.deepEqual(busy.toWorker, [
-    { text: '/stop', interrupt: true, reason: 'зупинити поточну задачу' },
+    { text: '/stop', interrupt: true, start: false, reason: 'зупинити поточну задачу' },
   ]);
+  // /compact asks whose context first (the lane switch), keeping the instructions for the press
   await busy.commands.handleCommand('/compact keep the PR list');
+  assert.match(busy.telegram.sent.at(-1).html, /Чий контекст стиснути/);
+  assert.match(busy.telegram.sent.at(-1).html, /keep the PR list/);
+  await pressButton(busy, 'Робочий воркер');
   assert.equal(busy.toWorker.at(-1).text, '/compact keep the PR list');
+  assert.equal(busy.toWorker.at(-1).start, false);
+
+  // A crashed worker's record (running, not refreshed for an hour): treated as asleep, nothing is sent to it
+  const crashed = fastLane({
+    objects: {
+      'state/progress.json': JSON.stringify({
+        worker: 'running',
+        turnActive: true,
+        updatedAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      }),
+    },
+  });
+  await crashed.commands.handleCommand('/stop');
+  assert.match(crashed.telegram.sent.at(-1).text, /нічого не виконує/);
+  await crashed.commands.handleCommand('/compact');
+  await pressButton(crashed, 'Робочий воркер');
+  assert.equal(crashed.toWorker.length, 0);
+  assert.equal(callbackOf(crashed.telegram.sent.at(-1).markup, 'Підняти'), 'compact:yes');
 
   const idle = fastLane({ objects: { 'state/progress.json': STOPPED } });
   await idle.commands.handleCommand('/stop');
   assert.match(idle.telegram.sent.at(-1).text, /нічого не виконує/);
   await idle.commands.handleCommand('/compact');
+  await pressButton(idle, 'Робочий воркер');
   assert.equal(idle.toWorker.length, 0);
   assert.equal(callbackOf(idle.telegram.sent.at(-1).markup, 'Підняти'), 'compact:yes');
   await idle.commands.handleCallback(6, { kind: 'compact', id: 'yes', value: '' });
@@ -364,12 +404,60 @@ test('/stop only to a busy worker; /compact asks before starting a sleeping one'
   assert.match(idle.telegram.sent.at(-1).text, /не знаю/);
 });
 
+test('/compact: the lane switch; the fast lane compacts its own session, the worker keeps the instructions', async () => {
+  const asleep = fastLane({ objects: { 'state/progress.json': STOPPED } });
+  // ⚡ Лямбда: the fast lane's own session, with the instructions; nothing goes to the worker
+  await asleep.commands.handleCommand('/compact keep the release notes');
+  const question = asleep.telegram.sent.at(-1);
+  assert.deepEqual(
+    question.markup.inline_keyboard[0].map((button) => button.text),
+    ['⚡ Лямбда', '🛠 Робочий воркер']
+  );
+  assert.match(callbackOf(question.markup, 'Лямбда'), /^cmp:f:[0-9a-f]{12}$/);
+  await pressButton(asleep, 'Лямбда');
+  assert.deepEqual(asleep.own, ['keep the release notes']);
+  assert.equal(asleep.toWorker.length, 0);
+  // The same question pressed again: its instructions are used up, so it is not run without them
+  await asleep.commands.handleCallback(78, parseCallback(callbackOf(question.markup, 'Лямбда')));
+  assert.match(asleep.telegram.sent.at(-1).text, /неактуальне/);
+  assert.equal(asleep.own.length, 1);
+
+  // Without instructions the buttons carry none (a press works in a later sandbox too)
+  await asleep.commands.handleCommand('/compact');
+  assert.equal(callbackOf(asleep.telegram.sent.at(-1).markup, 'Лямбда'), 'cmp:f');
+  await pressButton(asleep, 'Лямбда');
+  assert.deepEqual(asleep.own, ['keep the release notes', '']);
+
+  // 🛠 for a sleeping worker: started only after "✅ Підняти і стиснути", with the instructions kept
+  await asleep.commands.handleCommand('/compact keep the PR list');
+  await pressButton(asleep, 'Робочий воркер');
+  assert.equal(asleep.toWorker.length, 0);
+  assert.match(
+    callbackOf(asleep.telegram.sent.at(-1).markup, 'Підняти'),
+    /^compact:yes:[0-9a-f]{12}$/
+  );
+  await pressButton(asleep, 'Підняти');
+  assert.deepEqual(asleep.toWorker, [
+    { text: '/compact keep the PR list', reason: 'стиснути контекст' },
+  ]);
+
+  // A question from another sandbox (its instructions are not here): refused, never compacted without them
+  await asleep.commands.handleCallback(79, { kind: 'compact', id: 'yes', value: 'aaaaaaaaaaaa' });
+  assert.match(asleep.telegram.sent.at(-1).text, /неактуальне/);
+  await asleep.commands.handleCallback(80, { kind: 'cmp', id: 'w', value: 'bbbbbbbbbbbb' });
+  assert.match(asleep.telegram.sent.at(-1).text, /неактуальне/);
+  assert.equal(asleep.toWorker.length, 1);
+  // Every button the fast lane sends gets its prefix within Telegram's 64 bytes
+  assert.doesNotThrow(() => prefixCallbacks(question.markup));
+});
+
 test("/background, /context, /agents from the worker's records in S3", async () => {
   const running = fastLane({
     objects: {
       'state/progress.json': JSON.stringify({
         worker: 'running',
         turnActive: true,
+        updatedAt: new Date().toISOString(),
         backgroundTasks: [
           { id: 'b7x2k', type: 'bash', description: 'Wait for CI', since: '2026-11-16T18:00:00Z' },
         ],
@@ -430,6 +518,7 @@ test('/background stop button: the running worker gets a stopTask control messag
   const progress = {
     worker: 'running',
     turnActive: false,
+    updatedAt: new Date().toISOString(),
     backgroundTasks: [
       { id: 'b7x2k', type: 'bash', description: 'Wait for CI', since: '2026-11-16T18:00:00Z' },
       { type: 'bash', description: 'An old record without an id', since: '2026-11-16T18:01:00Z' },
@@ -474,4 +563,37 @@ test('stopTask control: validated, split apart from the settings, shown as /back
   });
   assert.equal(splitControl({ model: 'opus' }).stopTask, null);
   assert.equal(controlText({ stopTask: 'b7x2k' }), '/background');
+});
+
+test('changedSettings: only the keys that differ, so the worker never writes back a whole section', async () => {
+  const { changedSettings } = await import('./settings.mjs');
+  const previous = {
+    worker: { model: 'opus', effort: 'high', mode: 'bypass' },
+    shared: { timeZone: 'Europe/Warsaw' },
+  };
+  assert.deepEqual(changedSettings(previous, previous), {});
+  // The fast lane set the worker's model to sonnet meanwhile: the worker changed only its mode, so only mode is written
+  assert.deepEqual(
+    changedSettings(
+      {
+        worker: { model: 'opus', effort: 'high', mode: 'auto' },
+        shared: { timeZone: 'Europe/Warsaw' },
+      },
+      previous
+    ),
+    { worker: { mode: 'auto' } }
+  );
+  assert.deepEqual(
+    changedSettings({ worker: { effort: null }, shared: {} }, { worker: { effort: 'low' } }),
+    {
+      worker: { effort: null },
+    }
+  );
+  assert.deepEqual(
+    changedSettings({ worker: { model: 'opus' }, shared: { voiceMode: 'on' } }, null),
+    {
+      worker: { model: 'opus' },
+      shared: { voiceMode: 'on' },
+    }
+  );
 });

@@ -373,6 +373,12 @@ resource "aws_iam_role_policy" "dev_bot" {
         ]
       },
       {
+        # A worker task started here: the progress record says it is being started (the pinned status shows it)
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/progress.json"
+      },
+      {
         # Idle watchdog: the worker's activity, and the last answer already warned about
         Effect   = "Allow"
         Action   = ["s3:GetObject"]

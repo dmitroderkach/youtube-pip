@@ -6,7 +6,8 @@
  *
  * createVoice({ env, log, telegram, settings, store, aws, upload, bucket, onUsageChanged, formatTime }):
  * - settings: { get() -> { voiceMode, voiceName, voiceModel }, set(patch) } (kept by the host, e.g. meta.json);
- * - store: { getJson(key) -> object | null (null only when missing), putJson(key, object) } on the state bucket;
+ * - store: { getJson(key) -> object | null (null only when missing), updateJson(key, (current) -> next) } on the state
+ *   bucket (updateJson: a conditional read-modify-write retried on a conflict, as both lanes write the same objects);
  * - aws(...args): the AWS CLI (Transcribe); upload(path, s3Uri): put a local audio file into the bucket;
  * - onUsageChanged(): the Gemini figure changed (e.g. refresh the pinned status); formatTime(date, withDay).
  */
@@ -21,6 +22,7 @@ import {
   budgetLevel,
   budgetStates,
   latestBudgetState,
+  mergeSpeechUsage,
   SPEECH_BUDGET_NAME,
 } from './session-state.mjs';
 import { VOICE_MODELS, voiceKeyboard, voiceText } from './telegram-format.mjs';
@@ -330,10 +332,14 @@ export function createVoice({
     return usage?.period ? usage : { waitingSince: usage?.waitingSince ?? null };
   }
 
+  /**
+   * Save the budget state, merged with what the other lane may have saved meanwhile (mergeSpeechUsage: the newest
+   * Google figure, the flags of both), with a conditional write.
+   */
   async function saveSpeechUsage(usage) {
     onUsageChanged();
     await store
-      .putJson(SPEECH_USAGE_KEY, usage)
+      .updateJson(SPEECH_USAGE_KEY, (current) => mergeSpeechUsage(current, usage))
       .catch((error) => log('save speech usage failed', error));
   }
 
