@@ -20,9 +20,6 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import {
   apiErrorKind,
   budgetLevel,
-  budgetStates,
-  latestBudgetState,
-  SPEECH_BUDGET_NAME,
   backgroundRecord,
   isTimeZone,
   restoreNote,
@@ -49,17 +46,11 @@ import {
   modelKeyboard,
   modelText,
   parseCallback,
-  permissionHtml,
-  permissionKeyboard,
   planKeyboard,
   planMessages,
   planSlug,
   planTitle,
-  questionHtml,
-  questionKeyboard,
   VOICE_MODELS,
-  voiceKeyboard,
-  voiceText,
 } from './telegram-format.mjs';
 import { execFile } from 'node:child_process';
 import {
@@ -67,12 +58,15 @@ import {
   CLAUDE_HOME,
   CLAUDE_USER,
   claudeEnv,
-  isPlainFile,
   readPlainFile,
   spawnClaudeCode,
 } from './isolation.mjs';
 import { startAnthropicProxy } from './anthropic-proxy.mjs';
-import { createSign } from 'node:crypto';
+import { createTelegram } from './telegram.mjs';
+import { createVoice } from './voice.mjs';
+import { createIncoming } from './incoming.mjs';
+import { createInteractions } from './interactions.mjs';
+import { createPinnedStatus } from './status.mjs';
 import {
   chmodSync,
   existsSync,
@@ -114,11 +108,7 @@ const UP_AT = Number(env.UP_AT ?? 0);
 const REPORTED_EXIT_CODE = 10;
 /** SQS long poll per receive: short enough to notice SIGTERM / idle quickly. */
 const RECEIVE_WAIT_SECONDS = 10;
-const TELEGRAM_MAX_LENGTH = 4000;
 const PROGRESS_EDIT_INTERVAL_MS = 4000;
-/** Telegram Bot API calls: attempts and pause between them (the network to Telegram drops now and then). */
-const TELEGRAM_ATTEMPTS = 3;
-const TELEGRAM_RETRY_DELAY_MS = 2000;
 /** SIGTERM from ECS leaves stopTimeout (120 s) to save; Claude gets this long to stop its turn first. */
 const CLAUDE_STOP_GRACE_MS = 10000;
 /** How often the idle limit is checked. */
@@ -165,27 +155,11 @@ const CLAUDE_PLANS_DIR = join(CLAUDE_HOME, '.claude', 'plans');
 const PLANS_DIR = join(CLAUDE_HOME, 'plans');
 /** `/plans` lists this many of the newest plans. */
 const PLANS_LIST_MAX = 10;
-/** A question / plan / permission prompt nobody answers is given up after this long (the turn ends, idle follows). */
-const ANSWER_TIMEOUT_MS = 60 * 60 * 1000;
-/** Voice / audio uploaded for AWS Transcribe (deleted after; the bucket lifecycle covers leftovers). */
-const INBOX_PREFIX = 'inbox/';
 /** Photos and files from the chat, for Claude's Read tool (outside the repository). */
 const INBOX_DIR = join(CLAUDE_HOME, 'inbox');
-/**
- * Transcripts of the owner's voice / audio messages by Telegram message id ({ id: text }, the newest
- * VOICE_TRANSCRIPTS_KEPT): a reply to a voice message gets its text without transcribing it again.
- */
-const VOICE_TRANSCRIPTS_KEY = 'state/voice-transcripts.json';
-// The worker's own voice replies are kept there too, with the text they spoke
-const VOICE_TRANSCRIPTS_KEPT = 500;
 /** Files Claude puts here are sent to the chat after its answer, then moved to OUTBOX_SENT_DIR. */
 const OUTBOX_DIR = join(CLAUDE_HOME, 'outbox');
 const OUTBOX_SENT_DIR = join(OUTBOX_DIR, 'sent');
-const PHOTO_EXTENSIONS = /\.(png|jpe?g|webp|gif)$/i;
-/** Bot API upload limits: photos up to 10 MB, other files up to 50 MB. */
-const TELEGRAM_PHOTO_MAX_BYTES = 10 * 1024 * 1024;
-const TELEGRAM_FILE_MAX_BYTES = 50 * 1024 * 1024;
-const TRANSCRIBE_LANGUAGE = env.TRANSCRIBE_LANGUAGE ?? 'uk-UA';
 /** On-call reports (docs/ONCALL.md) younger than this are loaded into the session with the owner's next message. */
 const ONCALL_WORKFLOW = 'e2e-manual.yml';
 const ONCALL_MAX_AGE_MS = 48 * 3600 * 1000;
@@ -196,49 +170,12 @@ const ONCALL_MESSAGE_MAX_CHARS = 6000;
 /** At most this many (the newest) unseen reports go into one note; older ones stay in their run artifacts. */
 const ONCALL_REPORTS_MAX = 3;
 const ONCALL_DIR = join(CLAUDE_HOME, 'oncall');
-/** Voice replies (Google Cloud Text-to-Speech, Chirp 3 HD voices): OGG/Opus, sent as Telegram voice messages. */
-const TTS_URL = 'https://texttospeech.googleapis.com/v1/text:synthesize';
-const TTS_LANGUAGE = 'uk-UA';
-const TTS_VOICE_PREFIX = 'uk-UA-Chirp3-HD-';
-const TTS_DEFAULT_VOICE = env.TTS_VOICE ?? 'Aoede';
-/**
- * Gemini-TTS style instructions (VOICE_MODELS): Chirp 3 HD takes none, and its Ukrainian word stress and intonation
- * were often off.
- */
-const TTS_STYLE_PROMPT =
-  'Read this Ukrainian text aloud the way a calm, friendly colleague talks: natural Ukrainian word stress and ' +
-  'intonation, clear sentence structure, an even pace, no dramatising.';
-/** Female voices for `/voice samples` (Chirp 3 HD and Gemini-TTS share these names). */
-const TTS_SAMPLE_VOICES = ['Aoede', 'Kore', 'Leda', 'Zephyr', 'Despina', 'Sulafat'];
-const TTS_SAMPLE_TEXT =
-  'Привіт! Це голос воркера youtube-pip. PR змерджено, перевірки зелені, можна релізити.';
-/** Spoken text cap (a summary of 20–40 s; a fallback cut of a long answer stays short). */
-const TTS_MAX_CHARS = 900;
-/** Voice reply modes: auto = only to the owner's voice messages, on = to every message, off = never. */
-const VOICE_MODES = ['auto', 'on', 'off'];
-const VOICE_BLOCK_RE = /<voice>([\s\S]*?)<\/voice>/i;
 /**
  * The owner's working time zone (`/timezone`, kept in meta.json): times shown in the chat (session save time, limit
  * resets, background tasks, plans), and Claude is told when it changes.
  */
 const DEFAULT_TIME_ZONE = 'Europe/Warsaw';
 const ownerTimeZone = () => (isTimeZone(meta?.timeZone) ? meta.timeZone : DEFAULT_TIME_ZONE);
-const TRANSCRIBE_POLL_MS = 2000;
-const TRANSCRIBE_TIMEOUT_MS = 180000;
-/** Telegram MIME type → AWS Transcribe media format. */
-const TRANSCRIBE_FORMATS = {
-  'audio/ogg': 'ogg',
-  'audio/opus': 'ogg',
-  'audio/mpeg': 'mp3',
-  'audio/mp3': 'mp3',
-  'audio/mp4': 'mp4',
-  'audio/x-m4a': 'mp4',
-  'audio/m4a': 'mp4',
-  'audio/wav': 'wav',
-  'audio/x-wav': 'wav',
-  'audio/flac': 'flac',
-  'audio/webm': 'webm',
-};
 /** Rebuilt / reinstalled on start or on demand: not worth saving (paths from the working copy's root). */
 // terraform/.terraform: providers from `terraform init -backend=false` (hundreds of MB, cached per run)
 // terraform/lambda/layer/python/* and the Lambda zips: `terraform/lambda/build-layer.sh` and plan builds; the tracked
@@ -263,157 +200,17 @@ const log = (...args) => console.log(new Date().toISOString(), ...args);
 
 // ---------------------------------------------------------------------------------------------- Telegram
 
-/**
- * POST to the Bot API with retries; never throws (a status that does not arrive must not stop the worker).
- * `makeBody` builds a fresh body per attempt (a FormData stream cannot be sent twice). Returns the parsed JSON.
- */
-async function telegramRequest(method, makeBody, headers = {}) {
-  let lastError = '';
-  for (let attempt = 1; attempt <= TELEGRAM_ATTEMPTS; attempt++) {
-    try {
-      const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
-        method: 'POST',
-        headers,
-        body: makeBody(),
-      });
-      const json = await res.json().catch(() => ({ ok: false, description: `HTTP ${res.status}` }));
-      // 4xx (bad request, message not modified, too big) will not get better with a retry
-      if (json.ok || (res.status >= 400 && res.status < 500 && res.status !== 429)) return json;
-      lastError = `${json.error_code ?? res.status} ${json.description ?? ''}`;
-    } catch (error) {
-      lastError = String(error?.cause?.code ?? error?.message ?? error);
-    }
-    if (attempt < TELEGRAM_ATTEMPTS) {
-      await new Promise((resolve) => setTimeout(resolve, TELEGRAM_RETRY_DELAY_MS * attempt));
-    }
-  }
-  log(`telegram ${method} failed after ${TELEGRAM_ATTEMPTS} attempts: ${lastError}`);
-  return { ok: false, description: lastError };
-}
-
-async function telegram(method, body) {
-  const json = await telegramRequest(
-    method,
-    () =>
-      JSON.stringify({ chat_id: env.TELEGRAM_CHAT_ID, disable_web_page_preview: true, ...body }),
-    { 'Content-Type': 'application/json' }
-  );
-  if (!json.ok) log(`telegram ${method} failed: ${json.error_code ?? ''} ${json.description}`);
-  return json.result;
-}
-
-function splitMessage(text) {
-  const chunks = [];
-  for (let rest = text.trim(); rest.length > 0; ) {
-    let cut =
-      rest.length <= TELEGRAM_MAX_LENGTH
-        ? rest.length
-        : rest.lastIndexOf('\n', TELEGRAM_MAX_LENGTH);
-    if (cut <= 0) cut = TELEGRAM_MAX_LENGTH;
-    chunks.push(rest.slice(0, cut));
-    rest = rest.slice(cut).trimStart();
-  }
-  return chunks;
-}
-
-/** Send text (split to Telegram's limit); `silent`: no sound or banner on the owner's phone. */
-async function say(text, { silent = false } = {}) {
-  let last;
-  for (const chunk of splitMessage(text || '(порожня відповідь)')) {
-    last = await telegram('sendMessage', {
-      text: chunk,
-      ...(silent ? { disable_notification: true } : {}),
-    });
-  }
-  return last;
-}
-
-/** Upload a local file to the chat: images as photos (viewable inline), the rest and big images as documents. */
-async function sendFile(path) {
-  const name = path.slice(path.lastIndexOf('/') + 1);
-  if (!isPlainFile(path)) {
-    await say(`⚠️ ${name}: не звичайний файл (посилання чи пристрій), не надсилаю`);
-    return;
-  }
-  const size = statSync(path).size;
-  if (size > TELEGRAM_FILE_MAX_BYTES) {
-    await say(`⚠️ ${name}: ${Math.round(size / 1048576)} МБ, більше ліміту Telegram (50 МБ)`);
-    return;
-  }
-  const asPhoto = PHOTO_EXTENSIONS.test(name) && size <= TELEGRAM_PHOTO_MAX_BYTES;
-  const content = await claudeRead(path);
-  const method = asPhoto ? 'sendPhoto' : 'sendDocument';
-  const json = await telegramRequest(method, () => {
-    const form = new FormData();
-    form.append('chat_id', String(env.TELEGRAM_CHAT_ID));
-    form.append('caption', name);
-    form.append(asPhoto ? 'photo' : 'document', new Blob([content]), name);
-    return form;
-  });
-  if (!json.ok) {
-    log(`telegram ${method} failed: ${json.error_code ?? ''} ${json.description}`);
-    await say(`⚠️ Не вдалося надіслати ${name}: ${json.description ?? 'помилка Telegram'}`);
-  }
-}
-
+// Bot API I/O (telegram.mjs, shared with the fast lane); files to send are read as Claude's user (claudeRead)
+const tg = createTelegram({
+  token: env.TELEGRAM_BOT_TOKEN,
+  chatId: env.TELEGRAM_CHAT_ID,
+  log,
+  readFile: (path) => claudeRead(path),
+  inboxDir: INBOX_DIR,
+});
+const { call: telegram, say, sayHtml, editHtml, edit, editButtons, sendVoice } = tg;
 /** Send the files Claude left in OUTBOX_DIR, oldest first; each is moved to OUTBOX_SENT_DIR afterwards. */
-async function flushOutbox() {
-  if (!existsSync(OUTBOX_DIR)) return;
-  const files = readdirSync(OUTBOX_DIR)
-    .map((name) => join(OUTBOX_DIR, name))
-    // Plain files only: a symlink there would be read with the worker's rights
-    .filter((path) => isPlainFile(path))
-    .sort((a, b) => statSync(a).mtimeMs - statSync(b).mtimeMs);
-  for (const path of files) {
-    try {
-      await sendFile(path);
-    } catch (error) {
-      log('outbox send failed', error);
-    }
-    mkdirSync(OUTBOX_SENT_DIR, { recursive: true });
-    renameSync(
-      path,
-      join(OUTBOX_SENT_DIR, `${Date.now()}-${path.slice(path.lastIndexOf('/') + 1)}`)
-    );
-  }
-}
-
-const edit = (messageId, text) =>
-  telegram('editMessageText', { message_id: messageId, text: text.slice(0, TELEGRAM_MAX_LENGTH) });
-
-/** Strip Telegram HTML to plain text (the fallback when Telegram refuses the markup). */
-const htmlToText = (html) =>
-  html
-    .replace(/<[^>]+>/g, '')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&');
-
-/** Send an HTML message (with buttons); falls back to plain text if Telegram cannot parse the markup. */
-async function sayHtml(html, replyMarkup) {
-  const extra = replyMarkup ? { reply_markup: replyMarkup } : {};
-  const sent = await telegram('sendMessage', { text: html, parse_mode: 'HTML', ...extra });
-  return (
-    sent ??
-    telegram('sendMessage', { text: htmlToText(html).slice(0, TELEGRAM_MAX_LENGTH), ...extra })
-  );
-}
-
-/** Replace an HTML message's text (and its buttons: none unless given). */
-async function editHtml(messageId, html, replyMarkup) {
-  const body = { message_id: messageId, reply_markup: replyMarkup ?? { inline_keyboard: [] } };
-  const edited = await telegram('editMessageText', { ...body, text: html, parse_mode: 'HTML' });
-  return (
-    edited ??
-    telegram('editMessageText', { ...body, text: htmlToText(html).slice(0, TELEGRAM_MAX_LENGTH) })
-  );
-}
-
-const editButtons = (messageId, replyMarkup) =>
-  telegram('editMessageReplyMarkup', {
-    message_id: messageId,
-    reply_markup: replyMarkup ?? { inline_keyboard: [] },
-  });
+const flushOutbox = () => tg.flushOutbox(OUTBOX_DIR, OUTBOX_SENT_DIR);
 
 // ---------------------------------------------------------------------------------------------- shell / AWS
 
@@ -787,310 +584,69 @@ async function saveMeta() {
 
 // ---------------------------------------------------------------------------------------------- attachments
 
-/** Download a file the owner sent (Bot API getFile, up to 20 MB) to INBOX_DIR; returns its local path. */
-async function downloadTelegramFile(fileId, name) {
-  const file = await telegram('getFile', { file_id: fileId });
-  if (!file?.file_path) throw new Error('Telegram не віддав файл (більше 20 МБ?)');
-  // Retried like the Bot API calls: a dropped connection to Telegram (seen live: ETIMEDOUT) must not lose the message
-  let res = null;
-  let lastError = null;
-  for (let attempt = 1; attempt <= 3 && !res?.ok; attempt++) {
-    if (attempt > 1) await new Promise((resolve) => setTimeout(resolve, 2000 * attempt));
-    res = await fetch(
-      `https://api.telegram.org/file/bot${env.TELEGRAM_BOT_TOKEN}/${file.file_path}`,
-      {
-        signal: AbortSignal.timeout(60_000),
-      }
-    ).catch((error) => {
-      lastError = error;
+/**
+ * JSON objects of the state bucket for the shared modules (voice usage, voice transcripts): `getJson` gives null only
+ * when the object is missing; any other failure (network, throttling) throws, so a failed read is never saved over
+ * the kept data.
+ */
+const stateStore = {
+  async getJson(key) {
+    const local = join(WORKER_TMP, `${key.replace(/[^\w.-]+/g, '_')}-read`);
+    try {
+      await aws('s3api', 'get-object', '--bucket', BUCKET, '--key', key, local);
+      return JSON.parse(readFileSync(local, 'utf8'));
+    } catch (error) {
+      if (!/NoSuchKey/.test(`${error?.stderr ?? ''} ${error?.message ?? ''}`)) throw error;
       return null;
-    });
-  }
-  if (!res)
-    throw new Error(
-      `завантаження файлу: ${lastError?.cause?.code ?? lastError?.message ?? 'збій мережі'}`
-    );
-  if (!res.ok) throw new Error(`завантаження файлу: HTTP ${res.status}`);
-  mkdirSync(INBOX_DIR, { recursive: true });
-  const ext = file.file_path.includes('.')
-    ? file.file_path.slice(file.file_path.lastIndexOf('.'))
-    : '';
-  const safeName = (name || `${Date.now()}${ext}`).replace(/[^\w.-]+/g, '_');
-  const path = join(INBOX_DIR, `${Date.now()}-${safeName}`);
-  // A new file only (wx): never written through a symlink planted at the name
-  writeFileSync(path, Buffer.from(await res.arrayBuffer()), { flag: 'wx' });
-  return path;
-}
-
-/** Speech to text with AWS Transcribe (batch job on the file uploaded to the state bucket). */
-/**
- * Speech to text with Gemini 3.5 Flash on Vertex AI (GA, `global`; the service account of the speech models,
- * GOOGLE_TTS_API_KEY): one synchronous request, ~1–3 s for a voice message, ~$0.005 per minute of audio (32 audio
- * tokens per second at $1.50 / 1M, text output $9 / 1M). Flash-Lite was cheaper but put in words the owner never
- * said. AWS Transcribe (a batch job, ~10 s, $0.024 / min) is the fallback.
- */
-const TRANSCRIBE_MODEL = 'gemini-3.5-flash';
-const TRANSCRIBE_PROMPT =
-  'Transcribe this voice message word for word, exactly as spoken. It is mostly Ukrainian and may contain English ' +
-  'technical terms (PR, CI, merge, Terraform, Docker, Claude, Gemini, youtube-pip, Telegram). Strict rules: never ' +
-  'add, drop, reorder, replace or "improve" words; never guess what the speaker meant; keep repetitions, slang, ' +
-  'surzhyk and unfinished sentences as they are; do not translate; write English terms in Latin script; when a ' +
-  'word is not clear, write [нерозбірливо] instead of guessing. Output only the transcript text: no comments, ' +
-  'quotes, labels or timestamps. If there is no speech, output nothing.';
-
-async function transcribeGemini(path, mimeType) {
-  const { token, project } = await gcpAccessToken();
-  const url =
-    `https://aiplatform.googleapis.com/v1/projects/${project}/locations/global/publishers/google/models/` +
-    `${TRANSCRIBE_MODEL}:generateContent`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            {
-              inlineData: {
-                mimeType: mimeType || 'audio/ogg',
-                data: readPlainFile(path).toString('base64'),
-              },
-            },
-            { text: TRANSCRIBE_PROMPT },
-          ],
-        },
-      ],
-      generationConfig: { temperature: 0 },
-    }),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Gemini ${res.status}: ${json.error?.message ?? 'no transcript'}`);
-  return (json.candidates?.[0]?.content?.parts ?? [])
-    .map((part) => part.text ?? '')
-    .join('')
-    .trim();
-}
-
-/** Text of a voice message or audio file: Gemini when the service account is there, AWS Transcribe otherwise. */
-async function transcribe(path, mimeType) {
-  if (ttsServiceAccount()) {
-    try {
-      return await transcribeGemini(path, mimeType);
-    } catch (error) {
-      log('Gemini transcription failed, falling back to AWS Transcribe', error);
     }
-  }
-  return transcribeAws(path, mimeType);
-}
+  },
+  async putJson(key, value) {
+    const local = join(WORKER_TMP, key.replace(/[^\w.-]+/g, '_'));
+    writeFileSync(local, JSON.stringify(value));
+    await aws('s3', 'cp', local, `s3://${BUCKET}/${key}`, '--quiet');
+  },
+};
 
-async function transcribeAws(path, mimeType) {
-  const format = TRANSCRIBE_FORMATS[mimeType] ?? 'ogg';
-  const key = `${INBOX_PREFIX}${path.slice(path.lastIndexOf('/') + 1)}`;
-  const job = `dev-worker-${Date.now()}`;
+// Voice in and out, the /voice menu (voice.mjs); settings in meta.json
+const voice = createVoice({
+  env,
+  log,
+  telegram: tg,
+  settings: {
+    get: () => meta,
+    set: (patch) => {
+      meta = { ...(meta ?? {}), ...patch };
+      scheduleStatusUpdate();
+      save().catch((error) => log('save failed', error));
+    },
+  },
+  store: stateStore,
+  aws: (...args) => aws(...args),
   // Uploaded by Claude's user: the file is in Claude's inbox (never read with the worker's rights)
-  await awsClaude('s3', 'cp', path, `s3://${BUCKET}/${key}`, '--quiet');
-  try {
-    await aws(
-      'transcribe',
-      'start-transcription-job',
-      '--transcription-job-name',
-      job,
-      '--media',
-      `MediaFileUri=s3://${BUCKET}/${key}`,
-      '--media-format',
-      format,
-      '--language-code',
-      TRANSCRIBE_LANGUAGE
-    );
-    const started = Date.now();
-    for (;;) {
-      const out = JSON.parse(
-        await aws(
-          'transcribe',
-          'get-transcription-job',
-          '--transcription-job-name',
-          job,
-          '--output',
-          'json'
-        )
-      ).TranscriptionJob;
-      if (out.TranscriptionJobStatus === 'COMPLETED') {
-        const transcript = await (await fetch(out.Transcript.TranscriptFileUri)).json();
-        return (transcript.results?.transcripts ?? [])
-          .map((t) => t.transcript)
-          .join(' ')
-          .trim();
-      }
-      if (out.TranscriptionJobStatus === 'FAILED')
-        throw new Error(out.FailureReason ?? 'Transcribe failed');
-      if (Date.now() - started > TRANSCRIBE_TIMEOUT_MS) throw new Error('Transcribe: таймаут');
-      await new Promise((resolve) => setTimeout(resolve, TRANSCRIBE_POLL_MS));
-    }
-  } finally {
-    await aws('transcribe', 'delete-transcription-job', '--transcription-job-name', job).catch(
-      () => {}
-    );
-    await aws('s3', 'rm', `s3://${BUCKET}/${key}`, '--quiet').catch(() => {});
-  }
-}
+  upload: (file, uri) => awsClaude('s3', 'cp', file, uri, '--quiet'),
+  bucket: BUCKET,
+  onUsageChanged: () => scheduleStatusUpdate(),
+  formatTime: (date, withDay) => shortTime(date, withDay),
+});
+const {
+  VOICE_NOTE,
+  TTS_MAX_CHARS,
+  voiceMode,
+  voiceName,
+  voiceModel,
+  speakable,
+  splitVoiceBlock,
+  speechUsage,
+  synthesizeWithFallback,
+  pullSpeechBudget,
+  BUDGET_PULL_MS,
+  voiceCommand,
+  onVoiceButton,
+} = voice;
 
-/**
- * The prompt for Claude from a queued message: text / caption, transcribed voice and audio, and the local paths of
- * photos and files (Claude Code reads images and PDFs with its Read tool).
- */
-/** The replied-to message (with the quoted part) and a forward's origin, passed by the dev-bot Lambda. */
-function contextLines(message) {
-  const lines = [];
-  if (message.forwarded_from) {
-    lines.push(`[The owner forwarded this message from ${message.forwarded_from}.]`);
-  }
-  const reply = message.reply_to;
-  if (reply) {
-    const author = reply.from_bot
-      ? 'the bot (your earlier answer, a worker status or an on-call report)'
-      : 'the owner';
-    const when = reply.date ? ` at ${new Date(reply.date * 1000).toISOString()}` : '';
-    const attached = reply.attachments?.length ? ` (it had: ${reply.attachments.join(', ')})` : '';
-    lines.push(
-      `[The owner's message below is a reply to an earlier message from ${author}${when}${attached}:`,
-      reply.text
-        ? reply.text
-            .split('\n')
-            .map((line) => `> ${line}`)
-            .join('\n')
-        : '> (no text)',
-      ...(reply.quote ? [`The owner quoted this part of it: "${reply.quote}"`] : []),
-      ']'
-    );
-  }
-  return lines.join('\n');
-}
-
-/**
- * The kept transcripts ({ id: text }). Only a missing object means "none yet": any other failure (network,
- * throttling) throws, so a failed read is never saved over the kept transcripts as an empty store.
- */
-async function voiceTranscripts() {
-  try {
-    await aws(
-      's3api',
-      'get-object',
-      '--bucket',
-      BUCKET,
-      '--key',
-      VOICE_TRANSCRIPTS_KEY,
-      join(WORKER_TMP, 'voice-transcripts-read.json')
-    );
-    return JSON.parse(readFileSync(join(WORKER_TMP, 'voice-transcripts-read.json'), 'utf8'));
-  } catch (error) {
-    if (!/NoSuchKey/.test(`${error?.stderr ?? ''} ${error?.message ?? ''}`)) throw error;
-    return {};
-  }
-}
-
-/** Keep a voice message's transcript under its message id (a failure only loses the shortcut). */
-async function keepVoiceTranscript(messageId, text) {
-  if (!messageId || !text) return;
-  let stored;
-  try {
-    stored = await voiceTranscripts();
-  } catch (error) {
-    log('keep voice transcript: read failed, not kept', error);
-    return;
-  }
-  const all = { ...stored, [messageId]: text };
-  const kept = Object.fromEntries(
-    Object.entries(all)
-      .sort(([a], [b]) => Number(b) - Number(a))
-      .slice(0, VOICE_TRANSCRIPTS_KEPT)
-  );
-  writeFileSync(join(WORKER_TMP, 'voice-transcripts.json'), JSON.stringify(kept));
-  await aws(
-    's3',
-    'cp',
-    join(WORKER_TMP, 'voice-transcripts.json'),
-    `s3://${BUCKET}/${VOICE_TRANSCRIPTS_KEY}`,
-    '--quiet'
-  ).catch((error) => log('keep voice transcript failed', error));
-}
-
-async function buildPrompt(message, setStatus) {
-  const parts = [];
-  const files = [];
-  for (const attachment of message.attachments ?? []) {
-    let path;
-    try {
-      path = await downloadTelegramFile(attachment.file_id, attachment.file_name);
-    } catch (error) {
-      // The text still goes to Claude; the owner is told the file did not come through
-      log('attachment download failed', error);
-      await say(
-        `⚠️ Не вдалося завантажити ${attachment.kind === 'photo' ? 'фото' : 'файл'} з Telegram (${error.message}): надішли його ще раз`
-      );
-      files.push(
-        `a ${attachment.kind} that could not be downloaded (${error.message}); the owner was asked to send it again`
-      );
-      continue;
-    }
-    if (attachment.kind === 'voice' || attachment.kind === 'audio') {
-      await setStatus('🎙 Розпізнаю аудіо…');
-      const text = await transcribe(path, attachment.mime_type);
-      await say(text ? `🎙 Розпізнав: «${text}»` : '🎙 У аудіо не знайшов мови');
-      if (text) parts.push(text);
-      await keepVoiceTranscript(message.message_id, text);
-    } else {
-      files.push(
-        `${attachment.kind === 'photo' ? 'an image' : `a file (${attachment.mime_type ?? 'unknown type'})`}: ${path}`
-      );
-    }
-  }
-  // Photos and files of the replied-to message (dev-bot passes their file ids): downloaded again, so Claude can
-  // look at them even after a restart (~/inbox does not survive one)
-  const replyFiles = [];
-  for (const attachment of message.reply_to?.files ?? []) {
-    if (attachment.kind === 'voice' || attachment.kind === 'audio') {
-      // Not transcribed again (it costs a request): the transcript kept when it arrived, if any
-      const kept = message.reply_to.message_id
-        ? ((await voiceTranscripts().catch((error) =>
-            log('read voice transcripts failed', error)
-          )) ?? {})[message.reply_to.message_id]
-        : null;
-      replyFiles.push(
-        kept
-          ? message.reply_to.from_bot
-            ? `your own voice reply; it said: «${kept}»`
-            : `a ${attachment.kind} message; its transcript: «${kept}»`
-          : message.reply_to.from_bot
-            ? `your own voice reply (it spoke a summary of your answer sent just before it)`
-            : `a ${attachment.kind} message whose transcript was not kept (it was shown in the chat as "🎙 Розпізнав: …" right after it)`
-      );
-      continue;
-    }
-    try {
-      const path = await downloadTelegramFile(attachment.file_id, attachment.file_name);
-      replyFiles.push(
-        `${attachment.kind === 'photo' ? 'an image' : `a file (${attachment.mime_type ?? 'unknown type'})`}: ${path}`
-      );
-    } catch (error) {
-      replyFiles.push(
-        `a ${attachment.kind} that could not be downloaded (${error.message ?? error})`
-      );
-    }
-  }
-  if (message.text) parts.push(message.text);
-  const context = contextLines(message);
-  if (context) parts.unshift(context);
-  if (files.length) {
-    parts.push(`[The owner attached ${files.join('; ')}. Open it with the Read tool.]`);
-  }
-  if (replyFiles.length) {
-    parts.push(
-      `[The replied-to message had ${replyFiles.join('; ')}. Open a file with the Read tool when it matters.]`
-    );
-  }
-  return parts.join('\n\n');
-}
+// The prompt from a queued message: transcripts, photos, files, replies and forwards (incoming.mjs)
+const incoming = createIncoming({ log, telegram: tg, voice, store: stateStore });
+const { keepVoiceTranscript, buildPrompt } = incoming;
 
 // ---------------------------------------------------------------------------------------------- Claude session
 
@@ -1649,7 +1205,7 @@ async function keepSession() {
           lost,
           lost.map((record) => record.taskId)
         );
-      for (const entry of [...pending.values()]) entry.resolve({ aborted: true });
+      interactions.abortAll();
       compacting = null;
       agents.clear();
       if (viewing) await switchView(null);
@@ -1684,348 +1240,6 @@ async function keepSession() {
  */
 let voiceTrigger = null;
 
-const voiceMode = () => (VOICE_MODES.includes(meta?.voiceMode) ? meta.voiceMode : 'auto');
-const voiceName = () => meta?.voiceName ?? TTS_DEFAULT_VOICE;
-const voiceModel = () => (VOICE_MODELS[meta?.voiceModel] ? meta.voiceModel : 'chirp3');
-
-/**
- * GOOGLE_TTS_API_KEY holds either a plain API key (Chirp 3 HD only) or the JSON key of a GCP service account (with
- * Vertex AI User and Service Usage Consumer): Gemini-TTS takes only OAuth, and Google cannot put its API and
- * Text-to-Speech in one API key. With the JSON, every request uses the account's token.
- */
-const ttsServiceAccount = () =>
-  env.GOOGLE_TTS_API_KEY?.trim().startsWith('{') ? JSON.parse(env.GOOGLE_TTS_API_KEY) : null;
-
-/** OAuth access token of the service account in GOOGLE_TTS_API_KEY, cached. */
-let gcpToken = null;
-
-async function gcpAccessToken() {
-  if (gcpToken && gcpToken.expires > Date.now() + 60_000) return gcpToken;
-  const account = ttsServiceAccount();
-  const base64url = (value) => Buffer.from(value).toString('base64url');
-  const now = Math.floor(Date.now() / 1000);
-  const unsigned = `${base64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }))}.${base64url(
-    JSON.stringify({
-      iss: account.client_email,
-      scope: 'https://www.googleapis.com/auth/cloud-platform',
-      aud: account.token_uri,
-      iat: now,
-      exp: now + 3600,
-    })
-  )}`;
-  const signature = createSign('RSA-SHA256')
-    .update(unsigned)
-    .sign(account.private_key, 'base64url');
-  const res = await fetch(account.token_uri, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
-      assertion: `${unsigned}.${signature}`,
-    }),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || !json.access_token) {
-    throw new Error(
-      `Google OAuth ${res.status}: ${json.error_description ?? json.error ?? 'no token'}`
-    );
-  }
-  gcpToken = {
-    token: json.access_token,
-    project: account.project_id,
-    expires: Date.now() + (json.expires_in ?? 3600) * 1000,
-  };
-  return gcpToken;
-}
-
-/** Credentials of a Text-to-Speech request: the service account's token, else the API key (Chirp 3 HD only). */
-async function ttsHeaders(gemini) {
-  if (!env.GOOGLE_TTS_API_KEY) throw new Error('GOOGLE_TTS_API_KEY is not set');
-  if (ttsServiceAccount()) {
-    const { token, project } = await gcpAccessToken();
-    return { Authorization: `Bearer ${token}`, 'x-goog-user-project': project };
-  }
-  if (gemini) {
-    throw new Error(
-      'Gemini voices need a service account JSON key in google_tts_api_key, not an API key'
-    );
-  }
-  // The key in a header, never in the URL (URLs end up in error messages and logs)
-  return { 'X-Goog-Api-Key': env.GOOGLE_TTS_API_KEY };
-}
-
-/**
- * Gemini speech budget from Google's own figures: the Cloud Billing budget `tts-voice-monthly` (Text-to-Speech of the
- * project; Gemini-TTS is billed there and Google's spend caps do not cover it) publishes its state to the Pub/Sub
- * topic `tts-budget` several times a day; the worker pulls the subscription BUDGET_SUBSCRIPTION_ID with the service
- * account in GOOGLE_TTS_API_KEY and keeps the newest figure in SPEECH_USAGE_KEY. No price formulas: the spend, the
- * budget and the period are Google's. At 80% a silent warning, at 100% Gemini is skipped (Chirp 3 HD) until the
- * period ends. TTS_MONTHLY_BUDGET_USD (Terraform `dev_worker_tts_monthly_budget_usd`) is only the off switch: 0 = no
- * Gemini speech.
- */
-const GEMINI_SPEECH_OFF = Number.parseFloat(env.TTS_MONTHLY_BUDGET_USD ?? '') === 0;
-const BUDGET_SUBSCRIPTION_ID = 'tts-budget-worker';
-/** Pull Google's budget figure this often while running (and before a Gemini reply when the last pull is older). */
-const BUDGET_PULL_MS = 15 * 60 * 1000;
-/** At most this many pulls in a row to empty the subscription's backlog (100 messages each). */
-const BUDGET_PULL_ROUNDS = 10;
-/** No figure from Google for this long while Gemini speech is in use: say so (the topic or the role may be missing). */
-const BUDGET_STALE_MS = 48 * 60 * 60 * 1000;
-
-class SpeechBudgetError extends Error {}
-
-const SPEECH_USAGE_KEY = 'state/voice-usage.json';
-
-/**
- * The saved budget state ({ period, usd, budget, currency, updatedAt, …flags }) or null. Only a missing object means
- * "none yet": any other failure (network, throttling) throws, so a failed read never replaces Google's figure.
- */
-async function speechUsage() {
-  try {
-    await aws(
-      's3api',
-      'get-object',
-      '--bucket',
-      BUCKET,
-      '--key',
-      SPEECH_USAGE_KEY,
-      join(WORKER_TMP, 'voice-usage-read.json')
-    );
-    const usage = JSON.parse(readFileSync(join(WORKER_TMP, 'voice-usage-read.json'), 'utf8'));
-    // The earlier estimate (`month`, `seconds`) is not Google's figure: ignored, replaced by the first pull
-    return usage?.period ? usage : { waitingSince: usage?.waitingSince ?? null };
-  } catch (error) {
-    if (!/NoSuchKey/.test(`${error?.stderr ?? ''} ${error?.message ?? ''}`)) throw error;
-  }
-  return null;
-}
-
-async function saveSpeechUsage(usage) {
-  scheduleStatusUpdate();
-  writeFileSync(join(WORKER_TMP, 'voice-usage.json'), JSON.stringify(usage));
-  await aws(
-    's3',
-    'cp',
-    join(WORKER_TMP, 'voice-usage.json'),
-    `s3://${BUCKET}/${SPEECH_USAGE_KEY}`,
-    '--quiet'
-  ).catch((error) => log('save speech usage failed', error));
-}
-
-const usd = (value) => `$${Number(value).toFixed(2)}`;
-
-let lastBudgetPull = 0;
-let lastBudgetError = '';
-
-/**
- * Pull Google's budget notifications, keep the newest figure and acknowledge everything pulled (test messages too);
- * the 80% warning and the stale-data note are sent from here.
- */
-async function pullSpeechBudget() {
-  const account = ttsServiceAccount();
-  if (!account || GEMINI_SPEECH_OFF) return;
-  lastBudgetPull = Date.now();
-  const subscription = `projects/${account.project_id}/subscriptions/${BUDGET_SUBSCRIPTION_ID}`;
-  let received = [];
-  try {
-    const { token, project } = await gcpAccessToken();
-    const headers = {
-      Authorization: `Bearer ${token}`,
-      'x-goog-user-project': project,
-      'Content-Type': 'application/json',
-    };
-    // One pull returns only part of the backlog (Google publishes every ~20 min, the worker may have slept for
-    // days): pull until the subscription is empty, then keep the newest figure
-    for (let round = 0; round < BUDGET_PULL_ROUNDS; round++) {
-      const res = await fetch(`https://pubsub.googleapis.com/v1/${subscription}:pull`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ maxMessages: 100 }),
-        // A pull with nothing queued may wait: an empty answer is fine
-        signal: AbortSignal.timeout(10_000),
-      }).catch((error) => {
-        if (error?.name === 'TimeoutError') return null;
-        throw error;
-      });
-      if (!res) break;
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok)
-        throw new Error(`Pub/Sub ${res.status}: ${json.error?.message ?? 'pull failed'}`);
-      const batch = json.receivedMessages ?? [];
-      if (!batch.length) break;
-      received.push(...batch);
-    }
-    lastBudgetError = '';
-    const states = budgetStates(received);
-    const saved = await speechUsage();
-    let usage = latestBudgetState(saved?.period ? saved : null, states) ?? {
-      waitingSince: saved?.waitingSince ?? new Date().toISOString(),
-    };
-    const level = budgetLevel(usage);
-    const warn = level === 'warn' && usage.warned !== usage.period;
-    if (warn) usage = { ...usage, warned: usage.period };
-    const stale = budgetStale(usage);
-    if (stale) usage = { ...usage, staleNoted: usage.updatedAt ?? usage.waitingSince };
-    if (states.length || warn || stale || !saved) await saveSpeechUsage(usage);
-    // Acknowledged only once saved, so a failed save gets the figures again next time
-    if (received.length) {
-      await fetch(`https://pubsub.googleapis.com/v1/${subscription}:acknowledge`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ ackIds: received.map((item) => item.ackId) }),
-      }).catch((error) => log('budget acknowledge failed', error));
-    }
-    if (warn) {
-      await say(
-        `🟡 Gemini-озвучка: за даними Google витрачено ${usd(usage.usd)} з ${usd(usage.budget)} цього місяця.`,
-        { silent: true }
-      ).catch(() => {});
-    }
-    if (stale) await sayBudgetStale(usage);
-  } catch (error) {
-    lastBudgetError = String(error?.message ?? error).slice(0, 300);
-    log('budget pull failed', error);
-  }
-}
-
-/** Gemini speech is in use, but Google's figure is older than BUDGET_STALE_MS (said once per figure). */
-function budgetStale(usage) {
-  if (!VOICE_MODELS[voiceModel()]?.model) return false;
-  const since = usage.updatedAt ?? usage.waitingSince;
-  return (
-    Boolean(since) && Date.now() - Date.parse(since) > BUDGET_STALE_MS && usage.staleNoted !== since
-  );
-}
-
-async function sayBudgetStale(usage) {
-  await say(
-    `🟡 Google не надсилає суму бюджету ${SPEECH_BUDGET_NAME} понад 48 год` +
-      (usage.updatedAt
-        ? ` (остання: ${usd(usage.usd)}, ${shortTime(new Date(usage.updatedAt), true)})`
-        : '') +
-      `: перевір, що бюджет підключено до топіка tts-budget, підписку ${BUDGET_SUBSCRIPTION_ID} і роль Pub/Sub ` +
-      `Subscriber для сервісного акаунта.${lastBudgetError ? `\n${lastBudgetError}` : ''}`,
-    { silent: true }
-  ).catch(() => {});
-}
-
-async function speechUsageText() {
-  if (GEMINI_SPEECH_OFF) return 'Gemini-озвучку вимкнено (TTS_MONTHLY_BUDGET_USD = 0)';
-  const usage = await speechUsage().catch((error) => log('read speech usage failed', error));
-  if (budgetLevel(usage) === 'none')
-    return `Gemini: Google ще не надіслав суму бюджету ${SPEECH_BUDGET_NAME}`;
-  const age = Math.max(0, Math.round((Date.now() - Date.parse(usage.updatedAt)) / 3_600_000));
-  return `Gemini цього місяця: ${usd(usage.usd)} з ${usd(usage.budget)} (Google, ${age} год тому)`;
-}
-
-/** Throws SpeechBudgetError when Google's figure says the budget is spent (saying so once a period). */
-async function checkSpeechBudget() {
-  if (GEMINI_SPEECH_OFF) throw new SpeechBudgetError('Gemini-озвучку вимкнено');
-  if (Date.now() - lastBudgetPull > BUDGET_PULL_MS) await pullSpeechBudget();
-  // Unreadable usage does not block speech (the next request checks again)
-  const usage = await speechUsage().catch((error) => log('read speech usage failed', error));
-  if (budgetLevel(usage) !== 'exhausted') return;
-  if (usage.exhausted !== usage.period) {
-    await saveSpeechUsage({ ...usage, exhausted: usage.period });
-    await say(
-      `🔇 Ліміт Gemini-озвучки вичерпано: за даними Google ${usd(usage.usd)} з ${usd(usage.budget)}. ` +
-        'До кінця місяця відповідаю голосом Chirp 3 HD.'
-    );
-  }
-  throw new SpeechBudgetError('ліміт Gemini-озвучки на цей місяць вичерпано');
-}
-
-/** OGG/Opus audio of `text` in the voice `name` with the speech model `model` (VOICE_MODELS), or throws. */
-async function synthesize(text, name = voiceName(), model = voiceModel()) {
-  const gemini = Boolean(VOICE_MODELS[model]?.model);
-  if (gemini) await checkSpeechBudget();
-  const res = await fetch(TTS_URL, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(await ttsHeaders(gemini)) },
-    body: JSON.stringify(
-      gemini
-        ? {
-            input: { text, prompt: TTS_STYLE_PROMPT },
-            voice: { languageCode: TTS_LANGUAGE, name, modelName: VOICE_MODELS[model].model },
-            audioConfig: { audioEncoding: 'OGG_OPUS' },
-          }
-        : {
-            input: { text },
-            voice: { languageCode: TTS_LANGUAGE, name: `${TTS_VOICE_PREFIX}${name}` },
-            audioConfig: { audioEncoding: 'OGG_OPUS' },
-          }
-    ),
-  });
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || !json.audioContent) {
-    throw new Error(`Text-to-Speech ${res.status}: ${json.error?.message ?? 'no audio'}`);
-  }
-  const audio = Buffer.from(json.audioContent, 'base64');
-  return audio;
-}
-
-async function sendVoice(audio, caption) {
-  const json = await telegramRequest('sendVoice', () => {
-    const form = new FormData();
-    form.append('chat_id', String(env.TELEGRAM_CHAT_ID));
-    if (caption) form.append('caption', caption);
-    form.append('voice', new Blob([audio], { type: 'audio/ogg' }), 'voice.ogg');
-    return form;
-  });
-  if (!json.ok) throw new Error(`sendVoice: ${json.description ?? 'Telegram error'}`);
-  return json.result?.message_id ?? null;
-}
-
-/** Text to speak when Claude gave no <voice> block: the answer without links, code and markup, cut short. */
-function speakable(text) {
-  const plain = text
-    .replace(/```[\s\S]*?```/g, ' ')
-    .replace(/`[^`]*`/g, ' ')
-    .replace(/https?:\/\/\S+/g, ' ')
-    .replace(/[*_#>|]/g, ' ')
-    .replace(/[ \t]+/g, ' ')
-    .trim();
-  if (plain.length <= TTS_MAX_CHARS) return plain;
-  const cut = plain.slice(0, TTS_MAX_CHARS);
-  return cut.slice(0, Math.max(cut.lastIndexOf('. '), cut.lastIndexOf('\n'), 200) + 1);
-}
-
-/** Note for Claude on a message that gets a voice reply: end the answer with a spoken summary. */
-const VOICE_NOTE =
-  '[Voice reply: end your answer with <voice>…</voice>, a short spoken summary in Ukrainian for the owner to hear ' +
-  '(1–4 natural sentences, 20–40 s, no links, code, paths, ids or lists; short, simply built sentences, numbers ' +
-  'and abbreviations written out as words, so speech synthesis reads them naturally). The worker removes it from ' +
-  'the text and sends it as a voice message.]';
-
-/** Split the spoken summary off the answer: { text, spoken }. */
-function splitVoiceBlock(answer) {
-  const match = answer.match(VOICE_BLOCK_RE);
-  if (!match) return { text: answer, spoken: null };
-  return { text: answer.replace(VOICE_BLOCK_RE, '').trim(), spoken: match[1].trim() || null };
-}
-
-/**
- * Audio of a voice reply: with a Gemini model chosen, a failed synthesis (quota, spend cap, a refused token, an
- * outage) falls back to Chirp 3 HD, so the reply still gets its voice; the fallback is logged and noted silently.
- */
-async function synthesizeWithFallback(text) {
-  const model = voiceModel();
-  try {
-    return await synthesize(text, voiceName(), model);
-  } catch (error) {
-    if (!VOICE_MODELS[model]?.model) throw error;
-    // The budget is spent: Chirp without a note each time (the chat was told once)
-    if (error instanceof SpeechBudgetError) return synthesize(text, voiceName(), 'chirp3');
-    log(`voice reply: ${model} failed, falling back to chirp3`, error);
-    const audio = await synthesize(text, voiceName(), 'chirp3');
-    await say(
-      `ℹ️ ${VOICE_MODELS[model].label} не озвучив (${String(error.message ?? error).slice(0, 200)}), озвучено Chirp 3 HD`,
-      { silent: true }
-    ).catch(() => {});
-    return audio;
-  }
-}
-
 /** After the text answer: the voice message, when the voice mode of this moment wants one (voiceReplyWanted). */
 async function replyByVoice(text, spoken) {
   const trigger = voiceTrigger;
@@ -2050,22 +1264,24 @@ const VOICE_COMMAND = /^\/voice(@\w+)?(\s+(.+))?$/i;
 
 // ---------------------------------------------------------------------------------------------- pinned status
 
-/**
- * A message pinned at the top of the chat with the session's settings and limits, edited in place (silently) when
- * they change; its id is kept in meta.json (`statusMessageId`). A lost or unpinned one is replaced.
- */
-let statusTimer = null;
-let lastStatusBody = null;
-let statusUpdating = Promise.resolve();
-
-function scheduleStatusUpdate() {
-  if (statusTimer || stopping) return;
-  statusTimer = setTimeout(() => {
-    statusTimer = null;
-    void updateStatus();
-  }, 3000);
-  statusTimer.unref?.();
-}
+// The pinned status (status.mjs); its text is statusBody below, its id in meta.json
+const pinned = createPinnedStatus({
+  log,
+  telegram: tg,
+  chatId: env.TELEGRAM_CHAT_ID,
+  getMeta: () => meta,
+  setMeta: (value) => {
+    meta = value;
+  },
+  persistMeta: async () => {
+    writeFileSync(join(WORKER_TMP, 'meta.json'), JSON.stringify(meta));
+    await aws('s3', 'cp', join(WORKER_TMP, 'meta.json'), `s3://${BUCKET}/${META_KEY}`, '--quiet');
+  },
+  body: (options) => statusBody(options),
+  isStopping: () => stopping,
+  formatTime: (date) => shortTime(date),
+});
+const { scheduleStatusUpdate, updateStatus } = pinned;
 
 const percent = (value) => `${Math.round(value * 100)}%`;
 const shortTime = (date, withDay = false) =>
@@ -2110,50 +1326,6 @@ async function statusBody({ sleeping }) {
 }
 
 const STATUS_COMMAND = /^\/status(@\w+)?$/i;
-
-/**
- * Edit the pinned status (or send and pin a new one). `sleeping`: the worker is stopping; `fresh` (`/status`): a new
- * message at the bottom of the chat, pinned instead of the old one.
- */
-function updateStatus({ sleeping = false, fresh = false } = {}) {
-  statusUpdating = statusUpdating.then(async () => {
-    try {
-      const body = await statusBody({ sleeping });
-      if (fresh && meta?.statusMessageId) {
-        await telegram('unpinChatMessage', { message_id: meta.statusMessageId });
-        meta = { ...meta, statusMessageId: null };
-      }
-      if (body === lastStatusBody && meta?.statusMessageId) return;
-      const text = `${body}\n\nоновлено ${shortTime(new Date())}`;
-      if (meta?.statusMessageId) {
-        const edited = await telegramRequest(
-          'editMessageText',
-          () =>
-            JSON.stringify({
-              chat_id: env.TELEGRAM_CHAT_ID,
-              message_id: meta.statusMessageId,
-              text,
-            }),
-          { 'Content-Type': 'application/json' }
-        );
-        if (edited.ok || /not modified/i.test(edited.description ?? '')) {
-          lastStatusBody = body;
-          return;
-        }
-      }
-      const sent = await telegram('sendMessage', { text, disable_notification: true });
-      if (!sent?.message_id) return;
-      await telegram('pinChatMessage', { message_id: sent.message_id, disable_notification: true });
-      lastStatusBody = body;
-      meta = { ...(meta ?? {}), statusMessageId: sent.message_id };
-      writeFileSync(join(WORKER_TMP, 'meta.json'), JSON.stringify(meta));
-      await aws('s3', 'cp', join(WORKER_TMP, 'meta.json'), `s3://${BUCKET}/${META_KEY}`, '--quiet');
-    } catch (error) {
-      log('status update failed', error);
-    }
-  });
-  return statusUpdating;
-}
 
 // ---------------------------------------------------------------------------------------------- /scheduled
 
@@ -2356,106 +1528,6 @@ async function onTimeZoneButton(messageId, id, value) {
   await setTimeZone(choice.timeZone, choice.label);
 }
 
-/** The `/voice` message: settings and buttons (`messageId`: edit that message instead of sending one). */
-async function voiceMenu(messageId) {
-  const keyboard = voiceKeyboard(TTS_SAMPLE_VOICES, voiceMode(), voiceName(), voiceModel());
-  const html = voiceText(voiceMode(), voiceName(), voiceModel(), await speechUsageText());
-  if (messageId) await editHtml(messageId, html, keyboard);
-  else await sayHtml(html, keyboard);
-}
-
-function setVoiceMode(mode) {
-  meta = { ...(meta ?? {}), voiceMode: mode };
-  scheduleStatusUpdate();
-  save().catch((error) => log('save failed', error));
-}
-
-async function voiceSamples() {
-  for (const name of TTS_SAMPLE_VOICES) {
-    try {
-      await sendVoice(
-        await synthesize(TTS_SAMPLE_TEXT, name),
-        `${VOICE_MODELS[voiceModel()].label} · ${name} — /voice ${name}`
-      );
-    } catch (error) {
-      await say(`⚠️ ${name}: ${String(error.message ?? error).slice(0, 300)}`);
-      return;
-    }
-  }
-}
-
-/** The same sentence in the current voice with every speech model, to compare them by ear. */
-async function voiceCompare() {
-  for (const [key, { label }] of Object.entries(VOICE_MODELS)) {
-    try {
-      await sendVoice(
-        await synthesize(TTS_SAMPLE_TEXT, voiceName(), key),
-        `${label} · ${voiceName()}`
-      );
-    } catch (error) {
-      await say(`⚠️ ${label}: ${String(error.message ?? error).slice(0, 300)}`);
-    }
-  }
-}
-
-/** Switch to the speech model `key` after a sample of it; false when it does not work. */
-async function setVoiceModel(key) {
-  const { label } = VOICE_MODELS[key];
-  try {
-    await sendVoice(await synthesize(`Тепер я говорю моделлю ${label}.`, voiceName(), key), label);
-  } catch (error) {
-    await say(`⚠️ Модель ${label} не працює: ${String(error.message ?? error).slice(0, 300)}`);
-    return false;
-  }
-  meta = { ...(meta ?? {}), voiceModel: key };
-  scheduleStatusUpdate();
-  save().catch((error) => log('save failed', error));
-  return true;
-}
-
-/** Switch to the voice `name` after a sample of it; false when it does not work. */
-async function setVoice(name) {
-  try {
-    await sendVoice(await synthesize(`Тепер я говорю голосом ${name}.`, name), name);
-  } catch (error) {
-    await say(`⚠️ Голос ${name} не працює: ${String(error.message ?? error).slice(0, 300)}`);
-    return false;
-  }
-  meta = { ...(meta ?? {}), voiceName: name };
-  scheduleStatusUpdate();
-  save().catch((error) => log('save failed', error));
-  return true;
-}
-
-/** `/voice` [auto | on | off | samples | compare | <voice name>]: voice reply settings, answered without a Claude turn. */
-async function voiceCommand(argument) {
-  const arg = (argument ?? '').trim();
-  if (!arg) return voiceMenu();
-  if (VOICE_MODES.includes(arg.toLowerCase())) {
-    setVoiceMode(arg.toLowerCase());
-    return voiceMenu();
-  }
-  if (arg.toLowerCase() === 'samples') return voiceSamples();
-  if (arg.toLowerCase() === 'compare') return voiceCompare();
-  const name = arg.charAt(0).toUpperCase() + arg.slice(1).toLowerCase();
-  if (!/^[A-Z][a-z]+$/.test(name)) {
-    await say('ℹ️ /voice auto | on | off | samples | <імʼя голосу>');
-    return;
-  }
-  if (await setVoice(name)) await voiceMenu();
-}
-
-/** A `/voice` button: `mode:<auto|on|off>`, `name:<voice>` or `samples`; the menu is updated in place. */
-async function onVoiceButton(messageId, id, value) {
-  if (id === 'samples') return voiceSamples();
-  if (id === 'compare') return voiceCompare();
-  if (id === 'model' && VOICE_MODELS[value] && value !== voiceModel()) await setVoiceModel(value);
-  if (id === 'mode' && VOICE_MODES.includes(value) && value !== voiceMode()) setVoiceMode(value);
-  if (id === 'name' && TTS_SAMPLE_VOICES.includes(value) && value !== voiceName())
-    await setVoice(value);
-  await voiceMenu(messageId);
-}
-
 // ---------------------------------------------------------------------------------------------- modes, questions, plans
 
 /** The worker mode (MODES): bypass (default), auto, manual, plan. Kept in meta.json across runs. */
@@ -2468,40 +1540,24 @@ const currentMode = () => (MODES[meta?.mode] ? meta.mode : DEFAULT_MODE);
  */
 const SDK_MODES = { bypass: 'default', auto: 'auto', manual: 'default', plan: 'plan' };
 
-/** Questions, plans and permission prompts waiting for the owner: id → { kind, messageId, resolve, ... }. */
-const pending = new Map();
-let pendingSeq = 0;
-/** The interaction a text message from the owner answers (the newest one that takes text). */
-let textTarget = null;
+// Questions, permission prompts and the registry of what waits for the owner (interactions.mjs)
+const interactions = createInteractions({
+  telegram: tg,
+  onWaiting: () => {
+    if (turn?.progress) void edit(turn.progress.message_id, '⏳ Чекаю на твою відповідь (вище)…');
+  },
+});
+const {
+  newPendingId,
+  waitForOwner,
+  giveUpText,
+  askQuestions,
+  onQuestionButton,
+  askPermission,
+  answersPending,
+} = interactions;
 /** ExitPlanMode / EnterPlanMode tool calls whose result sets the mode: tool_use_id → mode. */
 const modeAfterTool = new Map();
-
-const newPendingId = () =>
-  `${(++pendingSeq).toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-
-/** Wait for the owner (a button or a text message) with a timeout and the tool call's abort signal. */
-function waitForOwner(entry, signal) {
-  return new Promise((resolve) => {
-    const done = (value) => {
-      clearTimeout(timer);
-      signal?.removeEventListener('abort', onAbort);
-      pending.delete(entry.id);
-      if (textTarget === entry)
-        textTarget = [...pending.values()].reverse().find((e) => e.takesText) ?? null;
-      resolve(value);
-    };
-    const onAbort = () => done({ aborted: true });
-    const timer = setTimeout(() => done({ timeout: true }), ANSWER_TIMEOUT_MS);
-    signal?.addEventListener('abort', onAbort, { once: true });
-    entry.resolve = done;
-    pending.set(entry.id, entry);
-    if (entry.takesText) textTarget = entry;
-    if (turn?.progress) void edit(turn.progress.message_id, '⏳ Чекаю на твою відповідь (вище)…');
-  });
-}
-
-const giveUpText = (result) =>
-  result.aborted ? '⌛ Скасовано' : `⌛ Без відповіді ${ANSWER_TIMEOUT_MS / 60000} хв`;
 
 /** Mode tool calls Claude made on its own (EnterPlanMode): the chat says Claude switched itself. */
 const selfModeTools = new Set();
@@ -2573,74 +1629,6 @@ async function modeCommand(argument) {
     return;
   }
   await setMode(name);
-}
-
-/** AskUserQuestion: every question as a message with buttons; returns the tool's updated input with answers. */
-async function askQuestions(input, signal) {
-  const questions = Array.isArray(input.questions) ? input.questions : [];
-  const answers = {};
-  for (const [index, question] of questions.entries()) {
-    const id = newPendingId();
-    const html = questionHtml(question, index, questions.length);
-    const sent = await sayHtml(html, questionKeyboard(id, index, question));
-    const entry = {
-      id,
-      kind: 'q',
-      question,
-      index,
-      html,
-      messageId: sent?.message_id,
-      picked: new Set(),
-      takesText: true,
-    };
-    const result = await waitForOwner(entry, signal);
-    if (result.aborted || result.timeout) {
-      if (entry.messageId) await editHtml(entry.messageId, `${html}\n\n${giveUpText(result)}`);
-      return {
-        behavior: 'deny',
-        message: result.aborted
-          ? 'Cancelled.'
-          : 'The owner did not answer in time; ask again later.',
-      };
-    }
-    answers[question.question] = result.answer;
-    if (entry.messageId)
-      await editHtml(entry.messageId, `${html}\n\n✅ <b>${escapeHtml(result.answer)}</b>`);
-  }
-  return { behavior: 'allow', updatedInput: { ...input, answers } };
-}
-
-/** A question's button: an option (single choice answers, multi-select toggles), "done" or "own answer". */
-async function onQuestionButton(entry, value) {
-  const [, choice] = value.split('.');
-  const { question } = entry;
-  if (choice === 'own') {
-    textTarget = entry;
-    if (entry.messageId)
-      await editHtml(entry.messageId, `${entry.html}\n\n✏️ <i>Напиши відповідь текстом</i>`);
-    return;
-  }
-  if (choice === 'done') {
-    const labels = question.options.filter((_, i) => entry.picked.has(i)).map((o) => o.label);
-    if (!labels.length) return;
-    entry.resolve({ answer: labels.join(', ') });
-    return;
-  }
-  const option = question.options[Number(choice)];
-  if (!option) return;
-  if (!question.multiSelect) {
-    entry.resolve({ answer: option.label });
-    return;
-  }
-  const i = Number(choice);
-  if (entry.picked.has(i)) entry.picked.delete(i);
-  else entry.picked.add(i);
-  if (entry.messageId) {
-    await editButtons(
-      entry.messageId,
-      questionKeyboard(entry.id, entry.index, question, entry.picked)
-    );
-  }
 }
 
 /** The plan Claude submits with ExitPlanMode: its input, else the newest plan file Claude Code wrote. */
@@ -2736,54 +1724,10 @@ async function onPlanButton(entry, value) {
     return;
   }
   if (value === 'revise') {
-    textTarget = entry;
+    interactions.setTextTarget(entry);
     if (entry.messageId)
       await editHtml(entry.messageId, `${entry.html}\n\n✏️ <i>Напиши, що змінити</i>`);
   }
-}
-
-/** A permission prompt (manual mode, auto's undecided calls, plan mode): the action with allow / deny buttons. */
-async function askPermission(toolName, input, options) {
-  const id = newPendingId();
-  const html = permissionHtml(toolName, input, options);
-  const canAlways = !options.suppressAlwaysAllowRule && Boolean(options.suggestions?.length);
-  const sent = await sayHtml(html, permissionKeyboard(id, canAlways));
-  const entry = { id, kind: 'perm', html, messageId: sent?.message_id, takesText: true };
-  const result = await waitForOwner(entry, options.signal);
-  const close = (status) => entry.messageId && editHtml(entry.messageId, `${html}\n\n${status}`);
-  if (result.aborted || result.timeout) {
-    await close(giveUpText(result));
-    return {
-      behavior: 'deny',
-      message: 'The owner did not answer the permission prompt.',
-      interrupt: result.timeout,
-    };
-  }
-  if (result.decision === 'allow' || result.decision === 'always') {
-    await close(
-      result.decision === 'always' ? '♾ <b>Дозволено до кінця сесії</b>' : '✅ <b>Дозволено</b>'
-    );
-    return {
-      behavior: 'allow',
-      updatedInput: input,
-      // Claude Code's suggestions usually target localSettings (.claude/settings.local.json in the working copy,
-      // which is saved to S3 and not git-ignored here): kept for this session only, as the button says
-      ...(result.decision === 'always'
-        ? {
-            updatedPermissions: options.suggestions.map((rule) => ({
-              ...rule,
-              destination: 'session',
-            })),
-          }
-        : {}),
-    };
-  }
-  if (result.answer) {
-    await close(`❌ <b>Відхилено:</b> ${escapeHtml(result.answer)}`);
-    return { behavior: 'deny', message: `The owner declined this and said: ${result.answer}` };
-  }
-  await close('❌ <b>Відхилено</b>');
-  return { behavior: 'deny', message: 'The owner declined this action.' };
 }
 
 /** Claude Code's permission callback: questions and plans go to the owner in every mode; other prompts by mode. */
@@ -2868,7 +1812,7 @@ async function onCallback(callback) {
     await sendPlan(Number(id));
     return;
   }
-  const entry = pending.get(id);
+  const entry = interactions.getPending(id);
   if (!entry || entry.kind !== kind) {
     await editButtons(callback.message_id);
     await say('ℹ️ Це питання вже неактуальне');
@@ -2881,24 +1825,8 @@ async function onCallback(callback) {
 
 /** A text (or voice) message from the owner while a question / plan / prompt waits: it is the answer. */
 async function answerPending(message) {
-  const entry = textTarget;
-  let text = message.text?.trim() ?? '';
-  for (const attachment of message.attachments ?? []) {
-    if (attachment.kind !== 'voice' && attachment.kind !== 'audio') continue;
-    const path = await downloadTelegramFile(attachment.file_id, attachment.file_name);
-    const spoken = await transcribe(path, attachment.mime_type);
-    await say(spoken ? `🎙 Розпізнав: «${spoken}»` : '🎙 У аудіо не знайшов мови');
-    await keepVoiceTranscript(message.message_id, spoken);
-    text = [text, spoken].filter(Boolean).join('\n');
-  }
-  if (!text) return;
-  entry.resolve(entry.kind === 'perm' ? { decision: 'deny', answer: text } : { answer: text });
+  interactions.answerText(await incoming.spokenText(message));
 }
-
-/** Text answers go to a pending question only without photos / files (those are delivered as a message). */
-const answersPending = (message) =>
-  Boolean(textTarget) &&
-  (message.attachments ?? []).every((a) => a.kind === 'voice' || a.kind === 'audio');
 
 // ---------------------------------------------------------------------------------------------- /model, /effort
 
@@ -3310,7 +2238,7 @@ async function sendPlan(index) {
     await say('ℹ️ Цього плану вже немає в списку: /plans');
     return;
   }
-  await sendFile(join(PLANS_DIR, plan.name));
+  await tg.sendFile(join(PLANS_DIR, plan.name));
 }
 
 /** The index of saved plans for the system prompt of every session (the files are in PLANS_DIR). */
@@ -3812,7 +2740,7 @@ async function stop() {
     crash: shuttingDown,
   }[reason];
   await say(text);
-  if (statusTimer) clearTimeout(statusTimer);
+  pinned.cancelScheduled();
   await Promise.race([updateStatus({ sleeping: true }), new Promise((r) => setTimeout(r, 5000))]);
   process.exit(0);
 }
