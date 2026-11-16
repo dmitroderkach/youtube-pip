@@ -333,7 +333,7 @@ export const LEGACY_STALE_MS = 15 * 60 * 1000;
 
 /**
  * What the progress record says about the worker, with its age taken into account (one rule for every reader: the
- * pinned status, the fast lane's note and its commands): `busy` (running, in a turn), `running` (idle between turns),
+ * pinned status, the fast lane's note and its commands): `busy` (running, in a turn), `running` (free, between turns),
  * `starting`, `stopping` (its final save is still to come), `stopped`, `stale` (a running / starting / stopping record nobody
  * refreshed: crashed or killed, treat as not
  * running) or `unknown` (a fresh record of an older image without the state).
@@ -604,8 +604,9 @@ export function workerStateLine(progress, now = Date.now()) {
     if (progress.purpose)
       parts.push(`request: "${clip(String(progress.purpose).replace(/\s+/g, ' '), 300)}"`);
     if (progress.step) parts.push(`step ${progress.steps ?? '?'}: ${clip(progress.step, 200)}`);
-  } else if (progress.worker !== 'stopped') {
-    parts.push('idle between turns');
+  } else if (progress.worker === 'running') {
+    // Running and free: the owner's follow-ups to its work are still handed over to it (fast-lane-prompt.md)
+    parts.push('free, between turns');
   }
   const tasks = progress.backgroundTasks ?? [];
   if (progress.worker !== 'stopped' && tasks.length)

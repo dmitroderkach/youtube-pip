@@ -1,0 +1,345 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        margin: 0;
+        background: #0f1419;
+        font-family: -apple-system, 'Segoe UI', Roboto, 'Noto Sans', sans-serif;
+      }
+      #card {
+        width: 1560px;
+        padding: 24px 20px 20px;
+      }
+      h1 {
+        color: #e6e6e6;
+        font-size: 30px;
+        margin: 0 0 2px 20px;
+      }
+      .sub {
+        color: #9aa4ad;
+        font-size: 17px;
+        margin: 0 0 6px 20px;
+      }
+      svg text {
+        fill: #e6e6e6;
+        font-size: 17px;
+      }
+      .t-small {
+        font-size: 14.5px;
+        fill: #b9c2ca;
+      }
+      .t-title {
+        font-weight: 700;
+        font-size: 18px;
+      }
+      .yes {
+        fill: #7fd1a6;
+        font-weight: 700;
+        font-size: 15px;
+      }
+      .no {
+        fill: #f08a7e;
+        font-weight: 700;
+        font-size: 15px;
+      }
+      .lbl {
+        fill: #9aa4ad;
+        font-size: 14px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="card">
+      <h1>Message flow: from the owner's message to the answer</h1>
+      <div class="sub">
+        Diamonds are decisions: green "yes", red "no". Every message reaches ⚡ the fast lane
+        (Lambda) first; it answers in seconds and hands 🛠 the worker (ECS) its work.
+      </div>
+      <svg width="1540" height="1640" viewBox="-40 0 1540 1640" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker
+            id="a"
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="8"
+            markerHeight="8"
+            orient="auto"
+          >
+            <path d="M0,0 L10,5 L0,10 z" fill="#8a96a1" />
+          </marker>
+          <marker
+            id="ay"
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="8"
+            markerHeight="8"
+            orient="auto"
+          >
+            <path d="M0,0 L10,5 L0,10 z" fill="#7fd1a6" />
+          </marker>
+          <marker
+            id="an"
+            viewBox="0 0 10 10"
+            refX="9"
+            refY="5"
+            markerWidth="8"
+            markerHeight="8"
+            orient="auto"
+          >
+            <path d="M0,0 L10,5 L0,10 z" fill="#f08a7e" />
+          </marker>
+        </defs>
+        <style>
+          .box {
+            fill: #1a222b;
+            stroke: #2c3742;
+            stroke-width: 2;
+            rx: 12;
+          }
+          .owner {
+            fill: #3a3220;
+            stroke: #e0b84f;
+          }
+          .bot {
+            fill: #1c2a38;
+            stroke: #8fb3d9;
+          }
+          .fast {
+            fill: #18302a;
+            stroke: #7fd1a6;
+          }
+          .worker {
+            fill: #2a2236;
+            stroke: #c79bf2;
+          }
+          .gate {
+            fill: #3a2220;
+            stroke: #f08a7e;
+          }
+          .s3 {
+            fill: #1e252c;
+            stroke: #9aa4ad;
+            stroke-dasharray: 8 6;
+          }
+          .dia {
+            fill: #222a33;
+            stroke: #8fb3d9;
+            stroke-width: 2;
+          }
+          .dia-f {
+            fill: #1d2b27;
+            stroke: #7fd1a6;
+            stroke-width: 2;
+          }
+          .dia-w {
+            fill: #261f30;
+            stroke: #c79bf2;
+            stroke-width: 2;
+          }
+          .ln {
+            stroke: #8a96a1;
+            stroke-width: 2.2;
+            fill: none;
+          }
+          .ly {
+            stroke: #7fd1a6;
+            stroke-width: 2.2;
+            fill: none;
+          }
+          .lnn {
+            stroke: #f08a7e;
+            stroke-width: 2.2;
+            fill: none;
+          }
+          .ld {
+            stroke: #6b7782;
+            stroke-width: 2;
+            fill: none;
+            stroke-dasharray: 7 6;
+          }
+        </style>
+
+        <!-- 1. Owner -->
+        <rect class="box owner" x="530" y="10" width="400" height="66" />
+        <text x="730" y="40" text-anchor="middle" class="t-title">
+          👤 The owner writes in Telegram
+        </text>
+        <text x="730" y="63" text-anchor="middle" class="t-small">
+          text · voice · photo / file · a button
+        </text>
+        <path class="ln" d="M730,76 L730,118" marker-end="url(#a)" />
+        <text x="742" y="103" class="lbl">webhook</text>
+
+        <!-- 2. dev-bot -->
+        <rect class="box bot" x="530" y="120" width="400" height="66" />
+        <text x="730" y="150" text-anchor="middle" class="t-title">dev-bot: the router</text>
+        <text x="730" y="173" text-anchor="middle" class="t-small">
+          no model, milliseconds; checks it is the owner
+        </text>
+        <path class="ln" d="M730,186 L730,214" marker-end="url(#a)" />
+
+        <!-- D1 -->
+        <polygon class="dia" points="730,216 880,266 730,316 580,266" />
+        <text x="730" y="271" text-anchor="middle">/up · /down · /start ?</text>
+        <path class="ly" d="M880,266 L1058,266" marker-end="url(#ay)" />
+        <text x="900" y="256" class="yes">yes</text>
+        <rect class="box bot" x="1060" y="236" width="370" height="60" />
+        <text x="1245" y="262" text-anchor="middle">dev-bot itself: starts / stops</text>
+        <text x="1245" y="284" text-anchor="middle" class="t-small">the worker (ECS task)</text>
+        <path class="lnn" d="M730,316 L730,344" marker-end="url(#an)" />
+        <text x="742" y="336" class="no">no</text>
+
+        <!-- D2 -->
+        <polygon class="dia" points="730,346 900,401 730,456 560,401" />
+        <text x="730" y="396" text-anchor="middle">a fast lane button, or</text>
+        <text x="730" y="418" text-anchor="middle">/model, /voice, /status… ?</text>
+        <path class="lnn" d="M730,456 L730,614" marker-end="url(#an)" />
+        <text x="742" y="540" class="no">no</text>
+
+        <!-- D3 -->
+        <polygon class="dia" points="730,616 910,676 730,736 550,676" />
+        <text x="730" y="666" text-anchor="middle">the worker waits for your</text>
+        <text x="730" y="688" text-anchor="middle">answer, or its own button?</text>
+        <path class="ly" d="M730,736 L730,812" marker-end="url(#ay)" />
+        <text x="742" y="770" class="yes">yes</text>
+        <text x="742" y="790" class="lbl">
+          (an answer it waits for, or a press of its own button: only these go straight to the
+          worker)
+        </text>
+
+        <!-- to the fast lane: D2 yes, D3 no (everything else, whatever the worker is doing) -->
+        <path class="lnn" d="M550,676 L470,676 L470,404" />
+        <path class="ly" d="M560,401 L470,401 L470,342 L362,342" marker-end="url(#ay)" />
+        <text x="490" y="392" class="yes">yes</text>
+        <text x="490" y="667" class="no">no</text>
+        <text x="460" y="704" class="lbl" transform="rotate(-90 460,704)">
+          everything else: asleep · starting · busy · free
+        </text>
+
+        <!-- Fast lane column -->
+        <rect class="box fast" x="40" y="312" width="320" height="60" />
+        <text x="200" y="339" text-anchor="middle" class="t-title">fast lane queue</text>
+        <text x="200" y="361" text-anchor="middle" class="t-small">
+          FIFO: in order, one at a time
+        </text>
+        <path class="ln" d="M200,372 L200,408" marker-end="url(#a)" />
+
+        <rect class="box fast" x="20" y="410" width="360" height="176" />
+        <text x="200" y="440" text-anchor="middle" class="t-title">
+          ⚡ Fast lane (sonnet), seconds
+        </text>
+        <text x="40" y="468" class="t-small">• "typing…" at once, until the answer</text>
+        <text x="40" y="492" class="t-small">• voice → text (Gemini / AWS Transcribe)</text>
+        <text x="40" y="516" class="t-small">• commands: answered by code, with buttons</text>
+        <text x="40" y="540" class="t-small">• a note built by code: the worker's state,</text>
+        <text x="52" y="562" class="t-small">its messages, new on-call reports</text>
+
+        <!-- untrusted side branch -->
+        <rect class="box s3" x="20" y="630" width="360" height="84" style="stroke: #e0b84f" />
+        <text x="200" y="658" text-anchor="middle">logs · web · on-call reports</text>
+        <text x="200" y="680" text-anchor="middle" class="t-small">
+          an isolated analyst reads them → a summary
+        </text>
+        <text x="200" y="700" text-anchor="middle" class="t-small">
+          then actions only with the owner's button
+        </text>
+        <path class="ld" d="M150,586 L150,628" marker-end="url(#a)" />
+        <path class="ld" d="M250,630 L250,588" marker-end="url(#a)" />
+
+        <path class="ln" d="M350,586 Q470,690 322,792" marker-end="url(#a)" />
+
+        <!-- D5 -->
+        <polygon class="dia-f" points="200,750 360,810 200,870 40,810" />
+        <text x="200" y="804" text-anchor="middle">the worker's work, a</text>
+        <text x="200" y="826" text-anchor="middle">change or a long task?</text>
+        <path class="lnn" d="M200,870 L200,1440 L438,1440" marker-end="url(#an)" />
+        <text x="212" y="900" class="no">no: answers itself</text>
+        <text x="212" y="922" class="t-small">
+          code and repo search, PRs and CI, memory, plans,
+        </text>
+        <text x="212" y="942" class="t-small">reminders, settings</text>
+        <path class="ly" d="M360,810 L470,810 L470,842 L588,842" marker-end="url(#ay)" />
+        <text x="372" y="800" class="yes">yes</text>
+        <text x="380" y="866" class="lbl">hand-over through dev-bot</text>
+        <text x="380" y="884" class="lbl">(one line: "🛠 Передано…")</text>
+
+        <!-- Worker column -->
+        <rect class="box worker" x="590" y="814" width="280" height="56" />
+        <text x="730" y="848" text-anchor="middle" class="t-title">worker queue</text>
+        <path class="ln" d="M730,870 L730,898" marker-end="url(#a)" />
+
+        <!-- D6 -->
+        <polygon class="dia-w" points="730,900 860,948 730,996 600,948" />
+        <text x="730" y="953" text-anchor="middle">worker asleep?</text>
+        <path class="ly" d="M860,948 L1058,948" marker-end="url(#ay)" />
+        <text x="878" y="938" class="yes">yes</text>
+        <rect class="box bot" x="1060" y="918" width="370" height="60" />
+        <text x="1245" y="944" text-anchor="middle">dev-bot starts the worker (~30 s)</text>
+        <text x="1245" y="966" text-anchor="middle" class="t-small">
+          pinned status: "⏳ піднімається"
+        </text>
+        <path class="ln" d="M1245,978 L1245,1010 L872,1010 L872,1026" marker-end="url(#a)" />
+        <path class="lnn" d="M730,996 L730,1024" marker-end="url(#an)" />
+        <text x="742" y="1016" class="no">no</text>
+
+        <rect class="box worker" x="560" y="1026" width="340" height="120" />
+        <text x="730" y="1056" text-anchor="middle" class="t-title">🛠 Worker (opus)</text>
+        <text x="580" y="1084" class="t-small">
+          • code, tests, browser, branches, PRs, Terraform
+        </text>
+        <text x="580" y="1108" class="t-small">• a note by code: what the fast lane said, did</text>
+        <text x="580" y="1132" class="t-small">• /stop ends a turn at once</text>
+        <path class="ln" d="M730,1146 L730,1184" marker-end="url(#a)" />
+
+        <!-- D7 -->
+        <polygon class="dia-w" points="730,1186 900,1246 730,1306 560,1246" />
+        <text x="730" y="1240" text-anchor="middle">merge, release,</text>
+        <text x="730" y="1262" text-anchor="middle">publish, apply?</text>
+        <path class="ly" d="M900,1246 L1058,1246" marker-end="url(#ay)" />
+        <text x="916" y="1236" class="yes">yes</text>
+        <rect class="box gate" x="1060" y="1206" width="370" height="80" />
+        <text x="1245" y="1236" text-anchor="middle" class="t-title">
+          A request with a ✅ button
+        </text>
+        <text x="1245" y="1260" text-anchor="middle" class="t-small">
+          after ✅ the gate does exactly one action
+        </text>
+        <text x="1245" y="1278" text-anchor="middle" class="t-small">with its own rights</text>
+        <path class="ln" d="M1245,1286 L1245,1440 L1024,1440" marker-end="url(#a)" />
+        <path class="lnn" d="M730,1306 L730,1408" marker-end="url(#an)" />
+        <text x="742" y="1360" class="no">no</text>
+
+        <!-- Answer -->
+        <rect class="box owner" x="440" y="1410" width="580" height="60" />
+        <text x="730" y="1438" text-anchor="middle" class="t-title">The answer in the chat</text>
+        <text x="730" y="1460" text-anchor="middle" class="t-small">
+          text, and voice when wanted; one answer per message
+        </text>
+
+        <!-- S3 shared state -->
+        <rect class="box s3" x="-30" y="1520" width="1520" height="96" />
+        <text x="730" y="1552" text-anchor="middle" class="t-title">
+          S3: the state both parts share (conditional writes)
+        </text>
+        <text x="730" y="1578" text-anchor="middle" class="t-small">
+          chat log · the worker's state (starting / free / busy / stopping / asleep) · settings ·
+          reminders · the pinned status of both
+        </text>
+        <text x="730" y="1600" text-anchor="middle" class="t-small">
+          memory and plans: the worker's; the fast lane writes them only while the worker is stopped
+          (otherwise it hands the change over)
+        </text>
+        <path class="ld" d="M20,470 L-10,470 L-10,1518" marker-end="url(#a)" />
+        <path class="ld" d="M-24,1518 L-24,520 L18,520" marker-end="url(#a)" />
+        <text x="-30" y="1150" class="lbl" transform="rotate(-90 -30,1150)">writes / reads</text>
+        <path class="ld" d="M1475,1518 L1475,1040 L902,1040" marker-end="url(#a)" />
+        <path class="ld" d="M902,1060 L1455,1060 L1455,1518" marker-end="url(#a)" />
+        <text x="1485" y="1300" class="lbl" transform="rotate(90 1485,1300)">writes / reads</text>
+      </svg>
+    </div>
+  </body>
+</html>

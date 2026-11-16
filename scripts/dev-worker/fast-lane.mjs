@@ -36,6 +36,7 @@ import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-sec
 import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
 import { S3Client } from '@aws-sdk/client-s3';
 import { startAnthropicProxy } from './anthropic-proxy.mjs';
+import { compactResultText } from './compact-command.mjs';
 import { createTools, OUTSIDE_TITLES_NOTE, STATE_KEYS } from './assistant-tools.mjs';
 import {
   leftoverClaudePids,
@@ -347,6 +348,7 @@ async function initChat() {
       applyFastLane,
       searchPlaces,
       refreshStatus: () => pinned.updateStatus({ fresh: true }),
+      compactOwn: (instructions) => compactOwn(instructions),
       download: async (key, name) => {
         const path = join(INBOX_DIR, name.replace(/[^\w.-]/g, '_'));
         writeFileSync(path, (await objects.get(key)) ?? '');
@@ -1126,6 +1128,10 @@ const typing = createTypingKeeper({
   active: () => !interactions?.waitingForOwner(),
 });
 let voiceTrigger = null;
+/** Context usage before this lane's own `/compact` in progress: its result is reported instead of an answer. */
+let compacting = null;
+/** Owner messages that came during this lane's own compaction: one new turn once it is done. */
+const afterCompact = [];
 let isolationFailed = null;
 /** Timings of the turn in progress (ms from the message's receipt): one JSON line when it ends. */
 let turnTiming = null;
@@ -1349,6 +1355,8 @@ async function startSession() {
     .catch(async (error) => {
       log('session failed', error);
       turnActive = false;
+      compacting = null;
+      for (const item of afterCompact.splice(0)) turnMessages.push(item.message);
       // The messages of the broken turn go to the worker as they came (fail closed), none waits for an answer
       for (const owner of turnMessages.splice(0))
         await failClosed(owner, `session failed: ${error}`);
@@ -1397,7 +1405,8 @@ async function consume() {
       turnMessages.length = 0;
       const final = (typeof message.result === 'string' && message.result) || answer;
       answer = '';
-      await finishTurn(final, message.is_error);
+      if (compacting) await finishCompact(message);
+      else await finishTurn(final, message.is_error);
       // The answer (and any hand-over of this turn) is out: the owner's next message may go straight to the worker
       if (!turnActive) await syncBusy(false);
     }
@@ -1440,6 +1449,96 @@ async function finishTurn(answerText, failed) {
       log('voice reply failed', error);
     }
   }
+}
+
+// ---------------------------------------------------------------------------------------------- /compact
+
+/**
+ * `/compact` with the lane switch on `⚡ Лямбда` (fast-lane-commands.mjs, compact-command.mjs): this lane compacts its
+ * own live Claude Code session. The owner's "/" messages never reach the SDK; this handler-made `/compact` is the only
+ * command the session gets. The result is one line (finishCompact), like the worker's.
+ */
+export async function compactOwn(instructions = '') {
+  if (!session || !sessionAlive || isolationFailed) {
+    await tg.say(
+      '🗜 Лямбда: живої сесії зараз немає, стискати нічого; наступна почнеться зі збереженої'
+    );
+    return 'no session';
+  }
+  if (turnActive) {
+    await tg.say('⏳ Лямбда зараз відповідає: /compact — після відповіді');
+    return 'busy';
+  }
+  const before = await session.getContextUsage({ detail: 'summary' }).catch(() => null);
+  compacting = { before };
+  turnActive = true;
+  sendToClaude(`/compact${instructions ? ` ${String(instructions).trim()}` : ''}`);
+  return 'started';
+}
+
+/** The end of this lane's own compaction: context before → after, in one line (no answer of the model). */
+async function finishCompact(result) {
+  const { before } = compacting;
+  compacting = null;
+  typing.stop();
+  const after = await session?.getContextUsage({ detail: 'summary' }).catch(() => null);
+  await tg.say(compactResultText(result, before, after, 'Лямбда: '));
+  void pinned?.updateStatus();
+  // Messages that came meanwhile: their turn starts now
+  const queued = afterCompact.splice(0);
+  if (queued.length) {
+    turnActive = true;
+    taint.newTurn();
+    turnHandovers = { messages: queued.length, handedOver: 0, failed: false, gateAsked: false };
+    for (const item of queued) turnMessages.push(item.message);
+    typing.start();
+    sendToClaude(
+      queued
+        .map((item) => item.prompt)
+        .join('\n\n[Next message from the owner; answer every one of them.]\n\n')
+    );
+  }
+}
+
+/** Tests only: the live session as a stub (compactOwn / consume without the SDK), never inside a Lambda. */
+export function useSessionForTest(stub, { alive = true, turn = false } = {}) {
+  if (env.AWS_LAMBDA_RUNTIME_API) throw new Error('not in a Lambda');
+  session = stub;
+  sessionAlive = alive;
+  turnActive = turn;
+  compacting = null;
+  afterCompact.length = 0;
+  isolationFailed = null;
+}
+
+/** Tests only: the Bot API client as a stub (createTelegram's functions), never inside a Lambda. */
+export function useTelegramForTest(client) {
+  if (env.AWS_LAMBDA_RUNTIME_API) throw new Error('not in a Lambda');
+  tg = client;
+}
+
+/** Tests only: the user messages queued for the session (not yet taken by the SDK). */
+export function pendingInputForTest() {
+  if (env.AWS_LAMBDA_RUNTIME_API) throw new Error('not in a Lambda');
+  return [...inputQueue];
+}
+
+/** Tests only: session messages through the stream handler (the result of a compaction). */
+export async function consumeForTest(messages) {
+  if (env.AWS_LAMBDA_RUNTIME_API) throw new Error('not in a Lambda');
+  const saved = session;
+  const stream = (async function* () {
+    for (const message of messages) yield message;
+  })();
+  session = Object.assign(stream, {
+    getContextUsage: (...args) => saved.getContextUsage(...args),
+  });
+  try {
+    await consume();
+  } finally {
+    session = saved;
+  }
+  return { turnActive, compacting };
 }
 
 // ---------------------------------------------------------------------------------------------- messages
@@ -1509,6 +1608,11 @@ async function deliver(message, receivedAt = Date.now()) {
   if (isolationFailed) throw new Error(`isolation self-check: ${isolationFailed}`);
   if (!turnTiming) turnTiming = { start: receivedAt, promptReadyMs: Date.now() - receivedAt };
   if (!session) await startSession();
+  if (compacting) {
+    // This lane compacts its session: the message gets its own turn right after (finishCompact)
+    afterCompact.push({ prompt, message });
+    return;
+  }
   turnMessages.push(message);
   if (turnActive) {
     sendToClaude(
@@ -1650,6 +1754,9 @@ export async function handler(event, context = {}) {
   turnActive = false;
   turnTiming = null;
   workerSeenAt = null;
+  // A compaction still running at the deadline went with the closed session (never kept: turnActive)
+  compacting = null;
+  afterCompact.length = 0;
   rmSync(INBOX_DIR, { recursive: true, force: true });
   log(`invocation done: ${handled} message(s)`);
   return { handled, wake: Boolean(event?.wake) };
