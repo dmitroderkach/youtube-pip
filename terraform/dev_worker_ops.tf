@@ -1030,6 +1030,13 @@ resource "aws_iam_role_policy" "image_publish" {
         Effect   = "Allow"
         Action   = "secretsmanager:GetSecretValue"
         Resource = data.aws_secretsmanager_secret.oncall.arn
+      },
+      {
+        # After a published dev-worker image: the plan that moves the fast lane to it (dev-ops {"action": "plan"}: a
+        # tf-plan of main with the owner's ✅ Apply; never an apply)
+        Effect   = "Allow"
+        Action   = "lambda:InvokeFunction"
+        Resource = aws_lambda_function.dev_ops.arn
       }
     ]
   })
@@ -1058,6 +1065,10 @@ resource "aws_codebuild_project" "image_publish" {
     environment_variable {
       name  = "DEV_WORKER_REPO"
       value = aws_ecr_repository.dev_worker.name
+    }
+    environment_variable {
+      name  = "DEV_OPS_FUNCTION"
+      value = local.dev_ops_lambda_name
     }
     # Set by dev-bot: what the owner approved
     environment_variable {
@@ -1094,6 +1105,9 @@ resource "aws_codebuild_project" "image_publish" {
         post_build = {
           commands = [
             "if [ \"$CODEBUILD_BUILD_SUCCEEDING\" = 1 ]; then TEXT=\"✅ Образ $IMAGE:latest опубліковано з main@$${REF:0:7}\"; else TEXT=\"🔴 Публікація $IMAGE:latest з main@$${REF:0:7} не вдалася, лог: $CODEBUILD_BUILD_ID\"; fi; curl -fsS -o /dev/null \"https://api.telegram.org/bot$TELEGRAM_BOT_TOKEN/sendMessage\" --data-urlencode \"chat_id=$TELEGRAM_CHAT_ID\" --data-urlencode \"text=$TEXT\" || true",
+            # A published dev-worker image: the fast lane runs it only after a plan (its image is the published
+            # digest), so the owner gets that plan with ✅ Apply now (dev-ops "plan"; the apply still waits for the button)
+            "if [ \"$CODEBUILD_BUILD_SUCCEEDING\" = 1 ] && [ \"$IMAGE\" = dev-worker ]; then aws lambda invoke --function-name \"$DEV_OPS_FUNCTION\" --cli-binary-format raw-in-base64-out --payload '{\"action\":\"plan\"}' /tmp/plan-request.json >/dev/null && cat /tmp/plan-request.json || echo 'plan request failed'; fi",
           ]
         }
       }

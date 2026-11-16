@@ -217,10 +217,35 @@ def start_worker(up_at):
             reason = "; ".join(f"{f.get('reason')} {f.get('detail') or ''}".strip() for f in failures)
             say(f"🔴 Не вдалося підняти робочий воркер: {reason or 'ECS не створив таск'}")
             return False
+        mark_starting()
         return True
     except Exception as error:
         say(f"🔴 Не вдалося підняти робочий воркер: {error}")
         return False
+
+
+def mark_starting():
+    """The progress record says the worker is being started (the pinned status shows it as such, the fast lane's note
+    too), unless a fresh record says a worker is running. The other fields stay; best effort."""
+    try:
+        try:
+            progress = json.loads(s3.get_object(Bucket=STATE_BUCKET, Key=PROGRESS_KEY)["Body"].read())
+        except Exception as error:
+            # Only a missing record means "none yet": a failed read must not be written over
+            if "NoSuchKey" not in repr(error):
+                raise
+            progress = {}
+        if not isinstance(progress, dict):
+            progress = {}
+        if progress.get("worker") == "running":
+            updated = datetime.fromisoformat(str(progress.get("updatedAt")).replace("Z", "+00:00"))
+            if 0 <= time.time() - updated.timestamp() <= PROGRESS_FRESH_SECONDS:
+                return
+        now = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        record = {**progress, "worker": "starting", "turnActive": False, "awaitingAnswer": False, "updatedAt": now}
+        s3.put_object(Bucket=STATE_BUCKET, Key=PROGRESS_KEY, Body=json.dumps(record).encode())
+    except Exception as error:
+        print(f"progress record (starting): {error!r}")
 
 
 def request_start_after_stop(up_at):

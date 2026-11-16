@@ -109,7 +109,7 @@ class FastLaneRouting(unittest.TestCase):
         self.stored_hand_over(clients, {"reason": "PR", "since": since, "message": {"text": "do it", "attachments": []}})
         result = bot.handler({"action": "hand_over", "key": KEY}, None)
         self.assertEqual(result, {"handed_over": True, "started": True})
-        self.assertEqual(clients["s3"].get_object.call_args.kwargs["Key"], KEY)
+        self.assertIn(KEY, [call.kwargs["Key"] for call in clients["s3"].get_object.call_args_list])
         clients["s3"].delete_object.assert_called_once_with(Bucket="bucket", Key=KEY)
         sent = clients["sqs"].send_message.call_args.kwargs
         self.assertEqual(sent["QueueUrl"], "worker-queue")
@@ -422,3 +422,57 @@ class ControlHandOver(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class MarkStarting(unittest.TestCase):
+    """Plan Phase 0 item 1: a worker start shows in the progress record (the pinned status) as being started."""
+
+    def progress_body(self, record):
+        return {"Body": io.BytesIO(json.dumps(record).encode())}
+
+    def written(self, clients):
+        args = clients["s3"].put_object.call_args.kwargs
+        self.assertEqual(args["Key"], "state/progress.json")
+        return json.loads(args["Body"])
+
+    def test_a_stopped_record_becomes_starting_and_keeps_its_other_fields(self):
+        bot, clients = load_dev_bot()
+        clients["s3"].get_object.return_value = self.progress_body(
+            {"worker": "stopped", "turnActive": True, "lastAnswerAt": "2026-11-16T19:00:00Z", "updatedAt": "x"}
+        )
+        bot.mark_starting()
+        record = self.written(clients)
+        self.assertEqual(record["worker"], "starting")
+        self.assertFalse(record["turnActive"])
+        self.assertEqual(record["lastAnswerAt"], "2026-11-16T19:00:00Z")
+        self.assertNotEqual(record["updatedAt"], "x")
+
+    def test_a_fresh_running_record_is_left_alone(self):
+        bot, clients = load_dev_bot()
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        clients["s3"].get_object.return_value = self.progress_body({"worker": "running", "updatedAt": now})
+        bot.mark_starting()
+        clients["s3"].put_object.assert_not_called()
+
+    def test_no_record_yet(self):
+        bot, clients = load_dev_bot()
+        clients["s3"].get_object.side_effect = Exception("An error occurred (NoSuchKey) when calling GetObject")
+        bot.mark_starting()
+        self.assertEqual(self.written(clients)["worker"], "starting")
+
+    def test_an_unreadable_record_is_not_overwritten(self):
+        bot, clients = load_dev_bot()
+        clients["s3"].get_object.side_effect = Exception("throttled")
+        bot.mark_starting()
+        clients["s3"].put_object.assert_not_called()
+
+    def test_a_successful_start_marks_starting_a_failed_one_does_not(self):
+        bot, clients = load_dev_bot()
+        bot.mark_starting = mock.MagicMock()
+        clients["ecs"].run_task.return_value = {"tasks": [{"taskArn": "t"}], "failures": []}
+        self.assertTrue(bot.start_worker(1000))
+        bot.mark_starting.assert_called_once()
+        bot.mark_starting.reset_mock()
+        clients["ecs"].run_task.return_value = {"tasks": [], "failures": [{"reason": "x"}]}
+        self.assertFalse(bot.start_worker(1000))
+        bot.mark_starting.assert_not_called()
