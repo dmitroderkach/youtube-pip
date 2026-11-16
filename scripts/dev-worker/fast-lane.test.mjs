@@ -4,6 +4,8 @@ import { createServer } from 'node:http';
 import { test } from 'node:test';
 import { createTools, safeName, safePath } from './assistant-tools.mjs';
 import {
+  BUSY_REFRESH_MS,
+  busyMarkerAction,
   CALLBACK_PREFIX,
   checkChildEnv,
   checkToolList,
@@ -432,4 +434,13 @@ test('pinned status of both lanes: each lane writes its section, the message sho
   assert.deepEqual(rateWindows({ rateLimitType: 'seven_day', utilization: 0.2 }), {
     seven_day: { utilization: 0.2, resetsAt: null },
   });
+});
+
+test('busy marker: put when marking or stale, delete when idle, nothing otherwise', () => {
+  const now = 1_000_000;
+  assert.equal(busyMarkerAction({ busy: true, markedAt: null, now }), 'put');
+  assert.equal(busyMarkerAction({ busy: true, markedAt: now - 1000, now }), null);
+  assert.equal(busyMarkerAction({ busy: true, markedAt: now - BUSY_REFRESH_MS, now }), 'put');
+  assert.equal(busyMarkerAction({ busy: false, markedAt: now - 1000, now }), 'delete');
+  assert.equal(busyMarkerAction({ busy: false, markedAt: null, now }), null);
 });

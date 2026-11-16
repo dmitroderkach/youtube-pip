@@ -158,3 +158,22 @@ export async function runtimeLoop(
 
 /** True when a saved session transcript is too big to resume (a fresh session then; the chat log keeps continuity). */
 export const tooBigToResume = (bytes, max = 2 * 1024 * 1024) => Number(bytes) > max;
+
+/**
+ * The busy marker (fast-lane/busy.json, docs/DEV_WORKER.md "Fast lane"): while the fast lane handles the owner's
+ * messages, dev-bot sends later ones here too, so a message it hands over reaches the worker before the owner's next
+ * one. dev-bot counts the marker only while its updatedAt is fresh (120 s), so it is refreshed every BUSY_REFRESH_MS.
+ */
+export const BUSY_KEY = 'fast-lane/busy.json';
+export const BUSY_REFRESH_MS = 30_000;
+
+/** What to do with the marker: 'put' (mark or refresh), 'delete' (clear) or null (nothing). */
+export function busyMarkerAction({
+  busy,
+  markedAt,
+  now = Date.now(),
+  refreshMs = BUSY_REFRESH_MS,
+}) {
+  if (busy) return markedAt === null || now - markedAt >= refreshMs ? 'put' : null;
+  return markedAt === null ? null : 'delete';
+}

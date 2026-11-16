@@ -142,9 +142,13 @@ resource "aws_iam_role_policy" "fast_lane" {
         ] : "${aws_s3_bucket.dev_worker_state.arn}/${key}"]
       },
       {
-        Effect   = "Allow"
-        Action   = "s3:DeleteObject"
-        Resource = "${aws_s3_bucket.dev_worker_state.arn}/state/scheduled/*"
+        Effect = "Allow"
+        Action = "s3:DeleteObject"
+        # busy.json: the busy marker dev-bot routes by (fast-lane-core.mjs BUSY_KEY), cleared after each answer
+        Resource = [
+          "${aws_s3_bucket.dev_worker_state.arn}/state/scheduled/*",
+          "${aws_s3_bucket.dev_worker_state.arn}/fast-lane/busy.json",
+        ]
       },
       {
         Effect   = "Allow"

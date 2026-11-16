@@ -38,6 +38,8 @@ import { S3Client } from '@aws-sdk/client-s3';
 import { startAnthropicProxy } from './anthropic-proxy.mjs';
 import { createTools, STATE_KEYS } from './assistant-tools.mjs';
 import {
+  BUSY_KEY,
+  busyMarkerAction,
   checkChildEnv,
   checkToolList,
   childEnv,
@@ -646,6 +648,29 @@ let isolationFailed = null;
 let turnTiming = null;
 /** The chat log time up to which the worker's exchanges are known to the fast lane's session. */
 let workerSeenAt = null;
+/** When this invocation last wrote the busy marker (null: not marked). */
+let busyMarkedAt = null;
+
+/**
+ * Keep the busy marker (fast-lane-core.mjs BUSY_KEY) in line with `busy`: dev-bot routes the owner's next messages
+ * here while it is fresh, so they keep their order with what this lane hands over. Best effort: a failed write only
+ * means dev-bot routes as if the fast lane were idle.
+ */
+async function syncBusy(busy) {
+  const action = busyMarkerAction({ busy, markedAt: busyMarkedAt });
+  try {
+    if (action === 'put') {
+      const now = new Date().toISOString();
+      await putObject(BUSY_KEY, JSON.stringify({ since: now, updatedAt: now }));
+      busyMarkedAt = Date.now();
+    } else if (action === 'delete') {
+      busyMarkedAt = null;
+      await objects.delete(BUSY_KEY);
+    }
+  } catch (error) {
+    log(`busy marker ${action} failed`, error);
+  }
+}
 
 /**
  * The worker note in front of every prompt (session-state.mjs syncNote): the worker's real state from its progress
@@ -788,6 +813,8 @@ async function consume() {
       const final = (typeof message.result === 'string' && message.result) || answer;
       answer = '';
       await finishTurn(final, message.is_error);
+      // The answer (and any hand-over of this turn) is out: the owner's next message may go straight to the worker
+      if (!turnActive) await syncBusy(false);
     }
   }
 }
@@ -967,6 +994,8 @@ export async function handler(event, context = {}) {
       continue;
     }
     const receivedAt = Date.now();
+    // Mark busy before handling (dev-bot then keeps the owner's next messages here, in order)
+    if (messages.some((message) => !message.callback)) await syncBusy(true);
     for (const message of messages) {
       lastActivity = Date.now();
       handled++;
@@ -977,7 +1006,11 @@ export async function handler(event, context = {}) {
       }
     }
     if (turnActive) lastActivity = Date.now();
+    // Busy while a turn runs (refreshed, dev-bot counts it only while fresh); a command or a hand-over without a turn
+    // is done once deliver returns
+    await syncBusy(turnActive);
   }
+  await syncBusy(false);
   interactions.abortAll();
   await settingWrites;
   if (session) {
