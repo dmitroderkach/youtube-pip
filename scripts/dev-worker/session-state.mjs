@@ -290,10 +290,50 @@ export const CHAT_LOG_LINES_MAX = 200;
  */
 export const WORKER_STATES = ['running', 'stopping', 'stopped'];
 
+/** A background task id of the SDK (task_id) as a control message may name it (stopTask), or null. */
+export function validBackgroundTaskId(id) {
+  const value = String(id ?? '');
+  return /^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : null;
+}
+
+const WAITING_ON_MAX = 10;
+
+/**
+ * The PRs and workflow runs the worker waits on, from its background tasks' descriptions and commands: GitHub PR /
+ * run URLs, `gh pr checks <n>`, `gh pr view <n>`, `gh run watch <id>`, `gh run view <id>`. Deduplicated, at most
+ * WAITING_ON_MAX: [{ kind: 'pr' | 'run', id, url }].
+ */
+export function waitingOn(tasks, repo = 'dmitroderkach/youtube-pip') {
+  const found = new Map();
+  const add = (kind, id, url) => {
+    const key = `${kind}:${id}`;
+    if (!found.has(key) && found.size < WAITING_ON_MAX)
+      found.set(key, { kind, id: String(id), url });
+  };
+  const base = `https://github.com/${repo}`;
+  for (const task of tasks ?? []) {
+    const text = [task?.description, task?.command].filter(Boolean).join('\n');
+    for (const [, owner, number] of text.matchAll(
+      /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/pull\/(\d+)/g
+    ))
+      add('pr', number, `https://github.com/${owner}/pull/${number}`);
+    for (const [, owner, id] of text.matchAll(
+      /https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/actions\/runs\/(\d+)/g
+    ))
+      add('run', id, `https://github.com/${owner}/actions/runs/${id}`);
+    for (const [, number] of text.matchAll(/\bgh\s+pr\s+(?:checks|view)\s+#?(\d+)/g))
+      add('pr', number, `${base}/pull/${number}`);
+    for (const [, id] of text.matchAll(/\bgh\s+run\s+(?:watch|view)\s+(\d+)/g))
+      add('run', id, `${base}/actions/runs/${id}`);
+  }
+  return [...found.values()];
+}
+
 /**
  * The worker's progress record (`state/progress.json`), what the fast lane answers "як там" from: the request being
- * worked on, the current step (as the in-chat progress message shows it), running background tasks, the last answer.
- * Small by design (texts clipped, at most PROGRESS_TASKS_MAX tasks).
+ * worked on, the current step (as the in-chat progress message shows it), running background tasks (with their task
+ * ids: the fast lane's /background stops one through a control message), the PRs / runs the worker waits on, the last
+ * answer. Small by design (texts clipped, at most PROGRESS_TASKS_MAX tasks).
  */
 export function progressRecord({
   purpose,
@@ -307,7 +347,9 @@ export function progressRecord({
   agents = [],
   now = new Date(),
 }) {
-  const tasks = [...(backgroundTasks ?? [])].slice(0, PROGRESS_TASKS_MAX).map((task) => ({
+  const running = [...(backgroundTasks ?? [])];
+  const tasks = running.slice(0, PROGRESS_TASKS_MAX).map((task) => ({
+    ...(validBackgroundTaskId(task.id) ? { id: task.id } : {}),
     type: task.type,
     description: clip(task.description, PROGRESS_STEP_MAX),
     since: new Date(task.since).toISOString(),
@@ -321,6 +363,7 @@ export function progressRecord({
     step: turnActive && step ? clip(step, PROGRESS_STEP_MAX) : null,
     steps: turnActive ? (steps ?? 0) : 0,
     backgroundTasks: tasks,
+    waitingOn: waitingOn(running),
     // The running subagents (the fast lane's /agents): what each does and since when
     agents: [...(agents ?? [])].slice(0, PROGRESS_TASKS_MAX).map((agent) => ({
       description: clip(agent.description, PROGRESS_STEP_MAX),
@@ -459,6 +502,11 @@ export function workerStateLine(progress, now = Date.now()) {
   const tasks = progress.backgroundTasks ?? [];
   if (progress.worker !== 'stopped' && tasks.length)
     parts.push(`background tasks: ${tasks.length}`);
+  const waiting = progress.worker !== 'stopped' ? (progress.waitingOn ?? []) : [];
+  if (waiting.length)
+    parts.push(
+      `waiting on ${waiting.map((item) => `${item.kind === 'pr' ? 'PR' : 'run'} ${item.url}`).join(', ')}`
+    );
   return `${parts.join('; ')}.`;
 }
 

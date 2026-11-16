@@ -34,6 +34,7 @@ import { z } from 'zod';
 import { DeleteMessageCommand, ReceiveMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
+import { S3Client } from '@aws-sdk/client-s3';
 import { startAnthropicProxy } from './anthropic-proxy.mjs';
 import { createTools, STATE_KEYS } from './assistant-tools.mjs';
 import {
@@ -109,7 +110,16 @@ const lambda = new LambdaClient({ region: REGION });
 // ---------------------------------------------------------------------------------------------- S3
 
 /** The state bucket (s3-objects.mjs): conditional writes of the stores the worker writes too. */
-const objects = createS3Objects({ region: REGION, bucket: BUCKET });
+// Through a transport the smoke test can swap for an in-memory bucket (useClientsForTest)
+let realS3 = null;
+let testS3 = null;
+const objects = createS3Objects({
+  region: REGION,
+  bucket: BUCKET,
+  client: {
+    send: (command) => (testS3 ?? (realS3 ??= new S3Client({ region: REGION }))).send(command),
+  },
+});
 const { getObject, putObject, updateObject } = objects;
 /** get / list / put / delete for the agent's tools (assistant-tools.mjs). */
 const s3Client = objects;
@@ -148,6 +158,19 @@ async function loadSecrets() {
 export function useSecretsForTest(value) {
   if (env.AWS_LAMBDA_RUNTIME_API) throw new Error('not in a Lambda');
   secrets = value;
+}
+
+/** GitHub GET for the agent's tools (path -> parsed JSON); a stub in the smoke test. */
+let testGithub = null;
+
+/**
+ * Tests only (fast-lane-smoke.mjs in claude-code-update.yml, no AWS there): the state bucket as an S3 client stub
+ * (memory-s3-client.mjs) and GitHub as a function, never inside a Lambda.
+ */
+export function useClientsForTest({ s3, github }) {
+  if (env.AWS_LAMBDA_RUNTIME_API) throw new Error('not in a Lambda');
+  testS3 = s3 ?? null;
+  testGithub = github ?? null;
 }
 
 const secretValues = () =>
@@ -443,7 +466,7 @@ function inboxFile(path) {
 const text = (value) => ({ content: [{ type: 'text', text: String(value) }] });
 
 export function mcpServer() {
-  const github = async (path) => {
+  const githubApi = async (path) => {
     const res = await fetch(`https://api.github.com/${path}`, {
       headers: {
         Accept: 'application/vnd.github+json',
@@ -456,6 +479,7 @@ export function mcpServer() {
     if (!res.ok) throw new Error(`GitHub ${res.status}: ${json.message ?? ''}`);
     return json;
   };
+  const github = (path) => (testGithub ?? githubApi)(path);
   const tools = createTools({ s3: s3Client, github, repo: REPO, project: MEMORY_PROJECT });
   const wrap = (fn) => async (args) => {
     try {

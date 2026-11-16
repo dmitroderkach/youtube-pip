@@ -932,7 +932,12 @@ function currentProgress() {
     purpose: turnPurpose,
     step: currentStep,
     steps: turn?.steps ?? 0,
-    backgroundTasks: backgroundTasks.values(),
+    // With the task id (the fast lane's /background stops one) and the command (the PRs / runs it waits on)
+    backgroundTasks: [...backgroundTasks].map(([id, task]) => ({
+      ...task,
+      id,
+      command: recordedTasks.get(id)?.command ?? null,
+    })),
     lastAnswerAt,
     turnActive: Boolean(turn),
     worker: workerState,
@@ -1897,7 +1902,8 @@ const settingsCommands = createSettingsCommands({
 async function applyControl(raw) {
   const parts = splitControl(raw);
   if (!parts) return;
-  const { session: live, shared } = parts;
+  const { session: live, shared, stopTask } = parts;
+  if (stopTask) await stopBackgroundTask(stopTask);
   const applied = {};
   if ('model' in live && (await setModel(live.model))) applied.model = live.model;
   if ('effort' in live && (await setEffort(live.effort ?? 'default'))) applied.effort = live.effort;
@@ -1913,6 +1919,28 @@ async function applyControl(raw) {
   }
   if (Object.keys(applied).length)
     await say(`⚙️ Робочий воркер: ${describeControl(applied)} (змінено в Лямбді)`);
+}
+
+/**
+ * Stop one background task of the session (the fast lane's /background button: a control message `stopTask`), with
+ * the SDK's stopTask, as Claude's TaskStop would; one line in the chat either way.
+ */
+async function stopBackgroundTask(taskId) {
+  const task = backgroundTasks.get(taskId);
+  if (!task || !session) {
+    await say('ℹ️ Цієї фонової задачі вже немає: /background');
+    return;
+  }
+  try {
+    await session.stopTask(taskId);
+    log(`background task ${taskId} stopped by the owner (fast lane)`);
+    await say(`⏹ Фонову задачу зупинено: ${task.description || task.type}`);
+  } catch (error) {
+    log('stop task failed', error);
+    await say(
+      `🔴 Не вдалося зупинити фонову задачу: ${String(error?.message ?? error).slice(0, 300)}`
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------------------------- /agents

@@ -11,9 +11,10 @@
  * (resolveSettings), and the worker writes its values here on its first save, so the fallback is used once.
  *
  * Control messages: a setting the fast lane changes while the worker runs reaches it as `{ control: { … } }` in its
- * queue (validControl), which the worker applies to the live session without a model turn.
+ * queue (validControl), which the worker applies to the live session without a model turn. `stopTask` (a background
+ * task id) is no setting: the fast lane's /background button stops that task of the running worker.
  */
-import { isTimeZone } from './session-state.mjs';
+import { isTimeZone, validBackgroundTaskId } from './session-state.mjs';
 import { DEFAULT_MODE, EFFORT_LEVELS, MODES, VOICE_MODELS } from './telegram-format.mjs';
 
 export const SETTINGS_KEY = 'state/settings.json';
@@ -93,6 +94,7 @@ export function validControl(control) {
   if (VOICE_MODES.includes(control.voiceMode)) out.voiceMode = control.voiceMode;
   if (/^[A-Z][a-z]{1,30}$/.test(String(control.voiceName ?? ''))) out.voiceName = control.voiceName;
   if (VOICE_MODELS[control.voiceModel]) out.voiceModel = control.voiceModel;
+  if (validBackgroundTaskId(control.stopTask)) out.stopTask = control.stopTask;
   return Object.keys(out).length ? out : null;
 }
 
@@ -106,11 +108,13 @@ export function splitControl(raw) {
   if (!control) return null;
   const session = {};
   const shared = {};
+  let stopTask = null;
   for (const [key, value] of Object.entries(control)) {
-    if (['model', 'effort', 'mode'].includes(key)) session[key] = value;
+    if (key === 'stopTask') stopTask = value;
+    else if (['model', 'effort', 'mode'].includes(key)) session[key] = value;
     else shared[key] = value;
   }
-  return { session, shared };
+  return { session, shared, stopTask };
 }
 
 /**
@@ -119,6 +123,8 @@ export function splitControl(raw) {
  */
 export function controlText(control) {
   const [key, value] = Object.entries(control ?? {})[0] ?? [];
+  // Stopping a background task has no text form: the /background list shows what runs
+  if (key === 'stopTask') return '/background';
   const command = {
     model: '/model',
     effort: '/effort',

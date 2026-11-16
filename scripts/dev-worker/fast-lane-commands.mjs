@@ -7,14 +7,14 @@
  * - shared settings (state/settings.json `shared`): /voice (voice.mjs, its writes come back through setShared),
  *   /timezone; a running worker gets the change as a control message;
  * - from S3: /scheduled (cancel buttons), /plans (the plan file), /status (the pinned status of both lanes),
- *   /background (the worker's task records), /context (the plan windows and both lanes' context from
+ *   /background (the worker's task records; a stop button per task of a running worker), /context (the plan windows and both lanes' context from
  *   state/status.json), /agents (the worker's running subagents from its progress record);
  * - the worker's: /stop (interrupts its running turn), /compact (asks to start the worker and compact).
  *
  * Built around injected clients so it is tested without AWS, Telegram or Claude.
  */
 import { SCHEDULED_PREFIX, validTaskId } from './scheduled-tasks.mjs';
-import { isTimeZone, timeZoneChoices } from './session-state.mjs';
+import { isTimeZone, timeZoneChoices, validBackgroundTaskId } from './session-state.mjs';
 import { createSettingsCommands } from './settings-commands.mjs';
 import {
   SETTINGS_KEY,
@@ -25,6 +25,7 @@ import {
 } from './settings.mjs';
 import { STATUS_KEY } from './status.mjs';
 import {
+  backgroundStopKeyboard,
   escapeHtml,
   planTitle,
   scheduledHtml,
@@ -220,20 +221,23 @@ export function createFastLaneCommands({
 
   const sinceText = (iso) => (iso ? `з ${String(iso).slice(11, 16)} UTC` : '');
 
-  /** `/background`: the running worker's tasks (progress record), or the ones a stopped run left (its records). */
+  /**
+   * `/background`: the running worker's tasks (progress record) with a stop button each (a control message
+   * `stopTask`), or the ones a stopped run left (its records).
+   */
   async function reportBackground() {
     const record = await progress();
     if (record?.worker === 'running') {
       const tasks = record.backgroundTasks ?? [];
       if (!tasks.length) return telegram.say('🧵 Фонових задач у робочого воркера немає');
-      return telegram.say(
-        [
-          `🧵 Фонові задачі робочого воркера (${tasks.length}):`,
-          ...tasks.map(
-            (task, i) => `${i + 1}. ${task.type}: ${task.description} (${sinceText(task.since)})`
-          ),
-        ].join('\n')
-      );
+      const lines = [
+        `🧵 Фонові задачі робочого воркера (${tasks.length}):`,
+        ...tasks.map(
+          (task, i) =>
+            `${i + 1}. ${escapeHtml(task.type)}: ${escapeHtml(task.description)} (${sinceText(task.since)})`
+        ),
+      ];
+      return telegram.sayHtml(lines.join('\n'), backgroundStopKeyboard(tasks));
     }
     const keys = (await store.list(BACKGROUND_PREFIX)).filter((key) => key.endsWith('.json'));
     if (!keys.length) return telegram.say('🧵 Робочий воркер спить, фонових задач немає');
@@ -301,6 +305,19 @@ export function createFastLaneCommands({
         'Їхні повідомлення показує сам воркер: /agents, коли він вільний.',
       ].join('\n')
     );
+  }
+
+  /** A /background stop button: the running worker stops that task (control message `stopTask`). */
+  async function stopBackgroundTask(messageId, id) {
+    await telegram.editButtons(messageId);
+    const taskId = validBackgroundTaskId(id);
+    const record = await progress();
+    const task = (record?.backgroundTasks ?? []).find((item) => item.id === taskId);
+    if (!taskId || record?.worker !== 'running' || !task)
+      return telegram.say('ℹ️ Цієї фонової задачі вже немає: /background');
+    const control = validControl({ stopTask: taskId });
+    await toWorker({ text: controlText(control), control }, 'зупинити фонову задачу');
+    return telegram.say(`⏹ Передав робочому воркеру: зупинити «${task.description || task.type}»`);
   }
 
   async function stopCommand() {
@@ -382,6 +399,10 @@ export function createFastLaneCommands({
     }
     if (kind === 'plans') {
       await sendPlan(Number(id));
+      return true;
+    }
+    if (kind === 'bgs') {
+      await stopBackgroundTask(messageId, id);
       return true;
     }
     if (kind === 'compact') {

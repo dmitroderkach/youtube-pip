@@ -561,6 +561,19 @@ export function scheduledKeyboard(tasks) {
   };
 }
 
+/**
+ * `/background` in the fast lane while the worker runs: a stop button per task (its SDK task id; the fast lane's
+ * `f|` prefix leaves 62 bytes). A task whose id would not fit gets no button.
+ */
+export function backgroundStopKeyboard(tasks) {
+  const rows = [];
+  (tasks ?? []).forEach((task, i) => {
+    if (!task?.id || Buffer.byteLength(`f|bgs:${task.id}`) > CALLBACK_DATA_MAX) return;
+    rows.push([{ text: `⏹ Зупинити ${i + 1}`, callback_data: callbackData('bgs', task.id) }]);
+  });
+  return rows.length ? { inline_keyboard: rows } : undefined;
+}
+
 /** Background tasks of the previous run offered for restoring: what each was, why and when it started. */
 export function backgroundRestoreHtml(
   records,

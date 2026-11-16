@@ -176,9 +176,14 @@ test('splitControl: what the worker applies to its live session and what to its 
     {
       session: { model: 'haiku', effort: null },
       shared: { timeZone: 'Europe/Kyiv', voiceName: 'Kore' },
+      stopTask: null,
     }
   );
-  assert.deepEqual(splitControl({ mode: 'plan' }), { session: { mode: 'plan' }, shared: {} });
+  assert.deepEqual(splitControl({ mode: 'plan' }), {
+    session: { mode: 'plan' },
+    shared: {},
+    stopTask: null,
+  });
   assert.equal(splitControl({ model: '../../etc' }), null);
 });
 
@@ -366,7 +371,7 @@ test("/background, /context, /agents from the worker's records in S3", async () 
         worker: 'running',
         turnActive: true,
         backgroundTasks: [
-          { type: 'bash', description: 'Wait for CI', since: '2026-11-16T18:00:00Z' },
+          { id: 'b7x2k', type: 'bash', description: 'Wait for CI', since: '2026-11-16T18:00:00Z' },
         ],
         agents: [{ description: 'Implement the fix', since: '2026-11-16T18:05:00Z' }],
       }),
@@ -378,7 +383,8 @@ test("/background, /context, /agents from the worker's records in S3", async () 
     },
   });
   await running.commands.handleCommand('/background');
-  assert.match(running.telegram.sent.at(-1).text, /1\. bash: Wait for CI \(з 18:00 UTC\)/);
+  assert.match(running.telegram.sent.at(-1).html, /1\. bash: Wait for CI \(з 18:00 UTC\)/);
+  assert.equal(callbackOf(running.telegram.sent.at(-1).markup, 'Зупинити 1'), 'bgs:b7x2k');
   await running.commands.handleCommand('/agents');
   assert.match(running.telegram.sent.at(-1).text, /1\. Implement the fix/);
   await running.commands.handleCommand('/context');
@@ -418,4 +424,54 @@ test('/plans: newest first with buttons; a button sends the plan file', async ()
   );
   await commands.handleCallback(1, { kind: 'plans', id: '0', value: '' });
   assert.deepEqual(telegram.sent.at(-1), { file: '/tmp/plans/2026-11-16T09-00-b.md' });
+});
+
+test('/background stop button: the running worker gets a stopTask control message', async () => {
+  const progress = {
+    worker: 'running',
+    turnActive: false,
+    backgroundTasks: [
+      { id: 'b7x2k', type: 'bash', description: 'Wait for CI', since: '2026-11-16T18:00:00Z' },
+      { type: 'bash', description: 'An old record without an id', since: '2026-11-16T18:01:00Z' },
+    ],
+  };
+  const lane = fastLane({ objects: { 'state/progress.json': JSON.stringify(progress) } });
+  await lane.commands.handleCommand('/background');
+  const { markup } = lane.telegram.sent.at(-1);
+  assert.equal(markup.inline_keyboard.length, 1, 'no button for a task without an id');
+  assert.ok(await lane.commands.handleCallback(42, { kind: 'bgs', id: 'b7x2k', value: '' }));
+  assert.deepEqual(lane.toWorker, [
+    {
+      text: '/background',
+      control: { stopTask: 'b7x2k' },
+      reason: 'зупинити фонову задачу',
+    },
+  ]);
+  assert.deepEqual(lane.telegram.sent.at(-2), { editButtons: 42 });
+  assert.match(lane.telegram.sent.at(-1).text, /Wait for CI/);
+
+  // A task that already ended, a malformed id or a stopped worker: nothing goes to the worker
+  for (const id of ['gone1', '../x', '']) {
+    await lane.commands.handleCallback(43, { kind: 'bgs', id, value: '' });
+    assert.match(lane.telegram.sent.at(-1).text, /вже немає/);
+  }
+  const stopped = fastLane({
+    objects: { 'state/progress.json': JSON.stringify({ ...progress, worker: 'stopped' }) },
+  });
+  await stopped.commands.handleCallback(44, { kind: 'bgs', id: 'b7x2k', value: '' });
+  assert.equal(stopped.toWorker.length, 0);
+  assert.equal(lane.toWorker.length, 1);
+});
+
+test('stopTask control: validated, split apart from the settings, shown as /background', () => {
+  assert.deepEqual(validControl({ stopTask: 'b7x2k' }), { stopTask: 'b7x2k' });
+  assert.equal(validControl({ stopTask: 'a/b' }), null);
+  assert.equal(validControl({ stopTask: 'x'.repeat(65) }), null);
+  assert.deepEqual(splitControl({ stopTask: 'b7x2k', model: 'opus' }), {
+    session: { model: 'opus' },
+    shared: {},
+    stopTask: 'b7x2k',
+  });
+  assert.equal(splitControl({ model: 'opus' }).stopTask, null);
+  assert.equal(controlText({ stopTask: 'b7x2k' }), '/background');
 });
