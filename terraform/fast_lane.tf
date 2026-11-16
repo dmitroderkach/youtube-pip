@@ -57,7 +57,6 @@ resource "aws_lambda_function" "fast_lane" {
     variables = {
       STATE_BUCKET      = aws_s3_bucket.dev_worker_state.bucket
       QUEUE_URL         = aws_sqs_queue.fast_lane_inbox.id
-      WORKER_QUEUE_URL  = aws_sqs_queue.dev_worker_inbox.id
       DEV_BOT_FUNCTION  = aws_lambda_function.dev_bot.function_name
       ONCALL_SECRET_ARN = data.aws_secretsmanager_secret.oncall.arn
       GITHUB_REPO       = "${var.github_owner}/${var.github_repo}"
@@ -109,7 +108,8 @@ resource "aws_iam_role" "fast_lane" {
 }
 
 # Reads of the shared state (chat log, progress, memory, plans, settings), its own session (fast-lane/), the chat log
-# appends, the owner's scheduled tasks; its queue, the worker's queue (hand-over) and dev-bot (start the worker).
+# appends, the owner's scheduled tasks; its queue and dev-bot (hand-over: dev-bot writes the worker's queue and starts it; the boundary keeps that queue
+# dev-bot's alone).
 # No Transcribe (outside the project's boundary): voice messages are handed over to the worker.
 resource "aws_iam_role_policy" "fast_lane" {
   name = "${local.name_prefix}-fast-lane-policy"
@@ -156,11 +156,6 @@ resource "aws_iam_role_policy" "fast_lane" {
         Effect   = "Allow"
         Action   = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"]
         Resource = aws_sqs_queue.fast_lane_inbox.arn
-      },
-      {
-        Effect   = "Allow"
-        Action   = "sqs:SendMessage"
-        Resource = aws_sqs_queue.dev_worker_inbox.arn
       },
       {
         Effect   = "Allow"

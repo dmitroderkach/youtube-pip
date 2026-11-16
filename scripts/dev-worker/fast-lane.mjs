@@ -37,12 +37,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
-import {
-  DeleteMessageCommand,
-  ReceiveMessageCommand,
-  SendMessageCommand,
-  SQSClient,
-} from '@aws-sdk/client-sqs';
+import { DeleteMessageCommand, ReceiveMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { GetSecretValueCommand, SecretsManagerClient } from '@aws-sdk/client-secrets-manager';
 import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
 import { startAnthropicProxy } from './anthropic-proxy.mjs';
@@ -72,7 +67,6 @@ const log = (...args) => console.log(new Date().toISOString(), ...args);
 const REGION = env.AWS_REGION ?? 'eu-central-1';
 const BUCKET = env.STATE_BUCKET;
 const QUEUE_URL = env.QUEUE_URL;
-const WORKER_QUEUE_URL = env.WORKER_QUEUE_URL;
 const DEV_BOT_FUNCTION = env.DEV_BOT_FUNCTION;
 const REPO = env.GITHUB_REPO ?? 'dmitroderkach/youtube-pip';
 /** Claude Code's memory project of the worker (memory/<project>/ in the state bucket). */
@@ -296,8 +290,8 @@ async function logChat(role, text, options = {}) {
 // ---------------------------------------------------------------------------------------------- hand-over
 
 /**
- * The task goes into the worker's queue (dated now: the worker skips older messages) and dev-bot is asked to start
- * the worker ({ action: start_worker }, a no-op when it runs). dev-bot posts "🛠 Довга задача: піднімаю…".
+ * The task goes to the worker through dev-bot (dated now: the worker skips older messages); dev-bot starts the worker
+ * (a no-op when it runs) and posts "🛠 Довга задача: піднімаю…".
  */
 async function handOver(task, context) {
   const { body, date } = handOverMessage({ task, context });
@@ -316,30 +310,28 @@ async function handOverRaw(message, reason) {
   return toWorker(body, date, reason);
 }
 
-/** Into the worker queue, then dev-bot starts the worker (UP_AT = min(now, since), so it takes this message). */
+/**
+ * Through dev-bot ({ action: hand_over }): the project's permissions boundary lets no role but the gate's dev-bot
+ * write the worker's queue (a message there is the owner's word), so dev-bot puts the task there, marked as handed
+ * over, and starts the worker (UP_AT = min(now, since), so it takes this message).
+ */
 async function toWorker(body, date, reason) {
-  await sqs.send(
-    new SendMessageCommand({
-      QueueUrl: WORKER_QUEUE_URL,
-      MessageBody: JSON.stringify(body),
-      MessageGroupId: 'owner',
-      MessageDeduplicationId: `handover-${date}-${Math.random().toString(36).slice(2, 10)}`,
-    })
-  );
   try {
     const out = await lambda.send(
       new InvokeCommand({
         FunctionName: DEV_BOT_FUNCTION,
         InvocationType: 'Event',
-        Payload: Buffer.from(JSON.stringify({ action: 'start_worker', reason, since: date })),
+        Payload: Buffer.from(
+          JSON.stringify({ action: 'hand_over', reason, since: date, message: body })
+        ),
       })
     );
     if (out.StatusCode !== 202) throw new Error(`invoke status ${out.StatusCode}`);
   } catch (error) {
-    log('start_worker request failed', error);
-    return 'The task is in the worker queue, but starting the worker failed: tell the owner to send /up.';
+    log('hand_over request failed', error);
+    return 'Handing over failed: tell the owner the working worker could not be reached and to send /up.';
   }
-  return 'Handed over: the task is in the worker queue and the worker is starting (or already running).';
+  return 'Handed over: dev-bot puts the task into the worker queue and starts the worker (or it is already running).';
 }
 
 // ---------------------------------------------------------------------------------------------- tools
