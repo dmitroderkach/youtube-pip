@@ -176,7 +176,8 @@ def iso_ago(seconds):
 
 
 class BusyWorkerRouting(unittest.TestCase):
-    """While the running worker is in a turn, messages go to the fast lane (docs/DEV_WORKER.md, "Fast lane")."""
+    """While the worker runs, messages go to the fast lane (busy or free: the owner's decision of 2026-11-16), except an
+    answer the worker waits for; an unreadable record routes as before (docs/DEV_WORKER.md, "Fast lane")."""
 
     def route(self, progress=None, error=None):
         bot, clients = load_dev_bot()
@@ -198,18 +199,22 @@ class BusyWorkerRouting(unittest.TestCase):
         self.assertEqual(body["text"], "привіт")
         clients["lambda"].invoke.assert_called_once()
 
-    def test_an_idle_running_worker_gets_the_message(self):
+    def test_a_free_running_worker_does_not_get_the_chat(self):
         clients = self.route({"turnActive": False, "updatedAt": iso_ago(30)})
-        self.assertEqual(clients["sqs"].send_message.call_args.kwargs["QueueUrl"], "worker-queue")
-        clients["lambda"].invoke.assert_not_called()
+        sent = clients["sqs"].send_message.call_args.kwargs
+        self.assertEqual(sent["QueueUrl"], "fast-lane-queue")
+        self.assertIs(json.loads(sent["MessageBody"])["workerBusy"], False)
+        clients["lambda"].invoke.assert_called_once()
 
     def test_a_worker_waiting_for_the_owners_answer_gets_the_message(self):
         clients = self.route({"turnActive": True, "awaitingAnswer": True, "updatedAt": iso_ago(30)})
         self.assertEqual(clients["sqs"].send_message.call_args.kwargs["QueueUrl"], "worker-queue")
 
-    def test_a_stale_progress_record_means_the_worker(self):
-        clients = self.route({"turnActive": True, "updatedAt": iso_ago(16 * 60)})
-        self.assertEqual(clients["sqs"].send_message.call_args.kwargs["QueueUrl"], "worker-queue")
+    def test_a_stale_progress_record_is_not_busy_and_not_waiting(self):
+        clients = self.route({"turnActive": True, "awaitingAnswer": True, "updatedAt": iso_ago(16 * 60)})
+        sent = clients["sqs"].send_message.call_args.kwargs
+        self.assertEqual(sent["QueueUrl"], "fast-lane-queue")
+        self.assertIs(json.loads(sent["MessageBody"])["workerBusy"], False)
 
     def test_an_unreadable_progress_record_means_the_worker(self):
         for progress, error in (
@@ -251,8 +256,9 @@ def command_update(text):
 
 
 class FastLaneBusyOrder(unittest.TestCase):
-    """While the fast lane still handles earlier messages (its marker fast-lane/busy.json), later ones follow them there,
-    so a message it hands over is never overtaken by a newer one sent straight to the worker."""
+    """With a readable record, a running worker's messages go to the fast lane anyway; when the record cannot be read,
+    the fast lane's marker (fast-lane/busy.json) still keeps later messages behind earlier ones there, so a message it
+    hands over is never overtaken by a newer one sent straight to the worker."""
 
     def route(self, progress, marker, tasks=RUNNING):
         bot, clients = load_dev_bot()
@@ -273,25 +279,25 @@ class FastLaneBusyOrder(unittest.TestCase):
         sent = clients["sqs"].send_message.call_args.kwargs
         return sent["QueueUrl"], json.loads(sent["MessageBody"])
 
-    def test_a_fresh_marker_sends_the_message_to_the_fast_lane_even_to_an_idle_worker(self):
-        clients = self.route({"turnActive": False, "updatedAt": iso_ago(5)}, {"since": iso_ago(20), "updatedAt": iso_ago(10)})
+    def test_a_fresh_marker_sends_the_message_to_the_fast_lane_without_a_record(self):
+        clients = self.route(None, {"since": iso_ago(20), "updatedAt": iso_ago(10)})
         queue, body = self.sent(clients)
         self.assertEqual(queue, "fast-lane-queue")
         self.assertIs(body["workerBusy"], False)
         clients["lambda"].invoke.assert_called_once()
 
     def test_a_stale_marker_is_ignored(self):
-        clients = self.route({"turnActive": False, "updatedAt": iso_ago(5)}, {"since": iso_ago(400), "updatedAt": iso_ago(121)})
+        clients = self.route(None, {"since": iso_ago(400), "updatedAt": iso_ago(121)})
         self.assertEqual(self.sent(clients)[0], "worker-queue")
 
-    def test_no_marker_means_the_worker(self):
-        clients = self.route({"turnActive": False, "updatedAt": iso_ago(5)}, None)
+    def test_no_record_and_no_marker_means_the_worker(self):
+        clients = self.route(None, None)
         self.assertEqual(self.sent(clients)[0], "worker-queue")
 
     def test_a_broken_marker_means_the_worker(self):
         for marker in ({"since": iso_ago(5)}, {"updatedAt": "now"}, ["x"]):
             with self.subTest(marker=marker):
-                clients = self.route({"turnActive": False, "updatedAt": iso_ago(5)}, marker)
+                clients = self.route(None, marker)
                 self.assertEqual(self.sent(clients)[0], "worker-queue")
 
     def test_a_busy_worker_and_a_busy_fast_lane_say_the_worker_is_busy(self):
@@ -299,6 +305,13 @@ class FastLaneBusyOrder(unittest.TestCase):
         queue, body = self.sent(clients)
         self.assertEqual(queue, "fast-lane-queue")
         self.assertIs(body["workerBusy"], True)
+
+    def test_a_waiting_worker_gets_its_answer_even_with_a_busy_fast_lane(self):
+        clients = self.route(
+            {"turnActive": True, "awaitingAnswer": True, "updatedAt": iso_ago(5)},
+            {"since": iso_ago(5), "updatedAt": iso_ago(5)},
+        )
+        self.assertEqual(self.sent(clients)[0], "worker-queue")
 
     def test_a_sleeping_worker_goes_to_the_fast_lane_without_reading_the_marker(self):
         clients = self.route(None, None, tasks=[])
@@ -321,7 +334,7 @@ class FastLaneCommands(unittest.TestCase):
         bot.config = mock.MagicMock(return_value={"chat_id": "42", "webhook_secret": "s"})
         bot.worker_tasks = mock.MagicMock(return_value=tasks)
         bot.worker_stopping = mock.MagicMock(return_value=False)
-        bot.worker_busy = mock.MagicMock(return_value=busy)
+        bot.worker_routing_state = mock.MagicMock(return_value={"waits": False, "busy": busy})
         bot.start_worker = mock.MagicMock(return_value=True)
         event = {
             "headers": {"X-Telegram-Bot-Api-Secret-Token": "s"},
@@ -333,19 +346,20 @@ class FastLaneCommands(unittest.TestCase):
 
     def test_settings_and_state_commands_go_to_the_fast_lane_while_the_worker_runs(self):
         for text in ("/model", "/effort high", "/mode@ytpip_dev_bot", "/timezone Europe/Kyiv", "/voice on",
-                     "/scheduled", "/plans", "/status", "/background", "/context", "/MODEL opus"):
+                     "/scheduled", "/plans", "/status", "/background", "/context", "/MODEL opus",
+                     "/compact", "/compact keep the plan"):
             with self.subTest(text=text):
                 queue, bot, clients = self.routed(text, RUNNING)
                 self.assertEqual(queue, "fast-lane-queue")
                 clients["lambda"].invoke.assert_called_once()
-                bot.worker_busy.assert_not_called()
+                bot.worker_routing_state.assert_not_called()
 
-    def test_agents_and_compact_keep_the_message_routing(self):
-        for text in ("/agents", "/compact keep the plan"):
-            with self.subTest(text=text):
-                self.assertEqual(self.routed(text, RUNNING)[0], "worker-queue")
-                self.assertEqual(self.routed(text, [])[0], "fast-lane-queue")
-                self.assertEqual(self.routed(text, RUNNING, busy=True)[0], "fast-lane-queue")
+    def test_agents_is_routed_like_a_message_to_the_fast_lane(self):
+        # Not a fast lane command, but a running worker's messages go to the fast lane anyway (it reads the worker's
+        # subagents from its progress record)
+        for tasks, busy in ((RUNNING, False), ([], False), (RUNNING, True)):
+            with self.subTest(tasks=tasks, busy=busy):
+                self.assertEqual(self.routed("/agents", tasks, busy=busy)[0], "fast-lane-queue")
 
     def test_without_the_fast_lane_commands_go_to_the_worker(self):
         queue, _bot, clients = self.routed("/model", RUNNING, fast_lane=False)
@@ -353,7 +367,12 @@ class FastLaneCommands(unittest.TestCase):
         clients["lambda"].invoke.assert_not_called()
 
     def test_a_command_word_inside_text_is_an_ordinary_message(self):
-        self.assertEqual(self.routed("what does /model do?", RUNNING)[0], "worker-queue")
+        # An ordinary message: while the worker waits for the owner's answer it goes there (a command would not)
+        bot, clients = load_dev_bot()
+        bot.worker_tasks = mock.MagicMock(return_value=RUNNING)
+        bot.worker_routing_state = mock.MagicMock(return_value={"waits": True, "busy": False})
+        bot.forward(command_update("what does /model do?"), "what does /model do?", [])
+        self.assertEqual(clients["sqs"].send_message.call_args.kwargs["QueueUrl"], "worker-queue")
 
 
 class ControlHandOver(unittest.TestCase):
