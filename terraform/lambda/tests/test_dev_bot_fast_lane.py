@@ -319,6 +319,10 @@ class ControlHandOver(unittest.TestCase):
         bot.say.assert_not_called()
         bot.start_worker.assert_not_called()
 
+    def test_control_stop_task(self):
+        result, bot, clients = self.hand_over({"control": {"stopTask": "bash_1a2b"}}, RUNNING)
+        self.assertEqual(result, {"handed_over": True, "control": True, "running": True})
+
     def test_control_effort_default_is_null(self):
         result, bot, clients = self.hand_over({"control": {"effort": None}}, RUNNING)
         self.assertEqual(result, {"handed_over": True, "control": True, "running": True})
@@ -339,6 +343,7 @@ class ControlHandOver(unittest.TestCase):
             {"model": "x" * 101},
             {"voice": "on"},
             {"mode": None},
+            {"stopTask": "../x"},
             ["model", "opus"],
             "opus",
             None,

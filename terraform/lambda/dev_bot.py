@@ -90,7 +90,9 @@ FAST_LANE_COMMANDS = {
 }
 # A settings change for a running worker (hand_over "control"; scripts/dev-worker/settings.mjs validControl, which the
 # worker applies after its own check): these keys only, short string values; effort may be null (the default)
-CONTROL_KEYS = {"model", "effort", "mode", "timeZone", "voiceMode", "voiceName", "voiceModel"}
+CONTROL_KEYS = {"model", "effort", "mode", "timeZone", "voiceMode", "voiceName", "voiceModel", "stopTask"}
+# stopTask: the id of the worker's background task to stop (/background in the fast lane)
+CONTROL_TASK_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 CONTROL_VALUE_MAX = 100
 # Tasks the owner scheduled (scripts/dev-worker/schedule.sh): {id, dueAt (UTC ISO), timeZone, text, createdAt}
 SCHEDULED_PREFIX = "state/scheduled/"
@@ -787,13 +789,15 @@ def hand_over(event):
 
 
 def valid_control(control):
-    """A settings change for the worker ({model, effort, mode, timeZone, voice}: short strings), or None."""
+    """A settings change for the worker (CONTROL_KEYS: short strings; stopTask a task id), or None."""
     if not isinstance(control, dict) or not control:
         return None
     for key, value in control.items():
         if key == "effort" and value is None:
             continue
         if key not in CONTROL_KEYS or not isinstance(value, str) or not value or len(value) > CONTROL_VALUE_MAX:
+            return None
+        if key == "stopTask" and not CONTROL_TASK_ID.match(value):
             return None
     return dict(control)
 
