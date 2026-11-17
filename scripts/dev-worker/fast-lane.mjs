@@ -500,7 +500,8 @@ async function logChat(role, text, options = {}) {
  * (a no-op when it runs) and posts "🛠 Довга задача: піднімаю…".
  */
 async function handOver(task, context) {
-  const { body, date } = handOverMessage({ task, context });
+  // The owner's message of this turn was a voice message: the worker answers by voice too
+  const { body, date } = handOverMessage({ task, context, spoken: voiceTrigger === 'voice' });
   // The whole task for dev-bot's line in the chat (it shows it in full, folded when long)
   return toWorker(body, date, taskText(task));
 }

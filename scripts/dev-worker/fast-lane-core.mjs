@@ -99,7 +99,7 @@ export function checkToolList(tools, expected) {
  * `handover: true` and `date` = now (the worker skips messages older than its start; dev-bot starts it with
  * UP_AT = min(now, since)).
  */
-export function handOverMessage({ task, context, now = new Date() }) {
+export function handOverMessage({ task, context, spoken = false, now = new Date() }) {
   const date = Math.floor(now.getTime() / 1000);
   // The worker's incoming.mjs puts the hand-over note in front (message.handover). The task is the request; the
   // context is the fast lane's data, kept inside a bracketed note (its "]" made ")" so it cannot close it early)
@@ -114,7 +114,15 @@ export function handOverMessage({ task, context, now = new Date() }) {
     );
   }
   return {
-    body: { text: parts.join('\n\n'), attachments: [], date, message_id: null, handover: true },
+    // `spoken`: the owner wrote it by voice (the worker answers by voice too, as for a voice message of its own)
+    body: {
+      text: parts.join('\n\n'),
+      attachments: [],
+      date,
+      message_id: null,
+      handover: true,
+      ...(spoken ? { spoken: true } : {}),
+    },
     date,
   };
 }

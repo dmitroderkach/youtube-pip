@@ -2705,9 +2705,12 @@ async function deliver(message, receivedAt = Date.now()) {
     );
   }
   turnPurpose = text;
-  logChat('owner', text, {
-    kind: (message.attachments ?? []).some((a) => a.kind === 'voice') ? 'voice' : 'text',
-  });
+  // A voice message, or a hand-over of one (the fast lane transcribed it and marks it `spoken`): the answer is
+  // spoken as for the owner's own voice message
+  const spokenByOwner =
+    (message.attachments ?? []).some((a) => a.kind === 'voice') ||
+    (message.handover === true && message.spoken === true);
+  logChat('owner', text, { kind: spokenByOwner ? 'voice' : 'text' });
   scheduleProgress();
   if (notesForClaude.length) text = `${notesForClaude.splice(0).join('\n')}\n\n${text}`;
   // What the owner and the fast lane said since the previous turn (two-way sync; the fast lane reads the worker's)
@@ -2715,7 +2718,6 @@ async function deliver(message, receivedAt = Date.now()) {
   if (laneNote) text = `${laneNote}\n\n${text}`;
   const oncall = await oncallNote().catch((error) => log('oncall check failed', error));
   if (oncall) text = `${oncall}\n\n${text}`;
-  const spokenByOwner = (message.attachments ?? []).some((a) => a.kind === 'voice');
   // A voice message wins over a text one in the same answer
   if (voiceTrigger !== 'voice') voiceTrigger = spokenByOwner ? 'voice' : 'text';
   if (env.GOOGLE_TTS_API_KEY && voiceReplyWanted(voiceMode(), voiceTrigger)) {
