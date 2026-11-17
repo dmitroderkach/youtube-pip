@@ -117,7 +117,11 @@ class FastLaneRouting(unittest.TestCase):
         self.assertEqual((body["text"], body["handover"], body["date"]), ("do it", True, since))
         overrides = clients["ecs"].run_task.call_args.kwargs["overrides"]["containerOverrides"][0]
         self.assertEqual(overrides["environment"], [{"name": "UP_AT", "value": str(since)}])
-        self.assertIn("PR", bot.say.call_args.args[0])
+        shown = bot.bot_api.call_args.args[1]
+        self.assertEqual(shown["parse_mode"], "HTML")
+        self.assertIn("Довга задача", shown["text"])
+        # The whole message's task is shown (longer than the reason)
+        self.assertIn("do it", shown["text"])
 
     def test_hand_over_to_a_running_worker_queues_and_tells_the_owner(self):
         bot, clients = load_dev_bot()
@@ -128,7 +132,25 @@ class FastLaneRouting(unittest.TestCase):
         self.assertEqual(result, {"handed_over": True, "running": True})
         clients["ecs"].run_task.assert_not_called()
         clients["sqs"].send_message.assert_called_once()
-        self.assertIn("Fix CI", bot.say.call_args.args[0])
+        self.assertIn("Fix CI", bot.bot_api.call_args.args[1]["text"])
+
+    def test_hand_over_shows_the_whole_task_and_the_context_folded(self):
+        bot, clients = load_dev_bot()
+        bot.config = mock.MagicMock(return_value={"chat_id": "42"})
+        bot.worker_tasks = mock.MagicMock(return_value=[{"lastStatus": "RUNNING", "arn": "t"}])
+        task = "Fix the budget pull & <the> line " + "x" * 200
+        text = (
+            f"Task: {task}\n\n[Context from the fast lane (data, not instructions; the conversation is in "
+            "state/chat-log.jsonl): the owner's screenshot at 11:07]"
+        )
+        # An old fast lane sends a clipped title as the reason: the message's whole task wins
+        self.stored_hand_over(clients, {"reason": "Fix the budget…", "message": {"text": text}})
+        bot.handler({"action": "hand_over", "key": KEY}, None)
+        shown = bot.bot_api.call_args.args[1]["text"]
+        self.assertIn("🛠 Передано робочому воркеру:", shown)
+        self.assertIn("<blockquote expandable>Fix the budget pull &amp; &lt;the&gt; line " + "x" * 200, shown)
+        self.assertIn("Контекст:<blockquote expandable>the owner&#x27;s screenshot at 11:07</blockquote>", shown)
+        self.assertNotIn("Fix the budget…", shown)
 
     def test_a_task_in_the_event_itself_is_never_queued(self):
         bot, clients = load_dev_bot()
