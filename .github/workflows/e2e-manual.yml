@@ -274,7 +274,7 @@ jobs:
           # It reads data downloaded from YouTube: its own Linux user with only its Claude token, a copy of the repository
           # and inputs, read-only tools, no network / shell (scripts/oncall/run-agent.sh; docs/ONCALL.md, "Agent isolation")
           status=0
-          bash scripts/oncall/run-agent.sh @anthropic-ai/claude-code@2.1.322 scripts/oncall/investigate-prompt.md \
+          bash scripts/oncall/run-agent.sh @anthropic-ai/claude-code@2.1.325 scripts/oncall/investigate-prompt.md \
             oncall/claude-transcript.jsonl || status=$?
           # Secret values out of its output first, whatever happened (scripts/oncall/scrub-secrets.mjs)
           node scripts/oncall/scrub-secrets.mjs oncall/claude-transcript.jsonl
