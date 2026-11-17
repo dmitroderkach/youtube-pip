@@ -74,6 +74,7 @@ import {
 } from './isolation.mjs';
 import { startAnthropicProxy } from './anthropic-proxy.mjs';
 import { createTelegram } from './telegram.mjs';
+import { createPendingWork, createVoiceQueue, voiceFailureText } from './voice-queue.mjs';
 import { createVoice } from './voice.mjs';
 import { createIncoming } from './incoming.mjs';
 import { createInteractions } from './interactions.mjs';
@@ -1149,6 +1150,7 @@ async function finishTurn(result) {
       : raw || (failed ? `(${result.subtype})` : '');
   if (limited) log(`turn refused by the plan limit: ${answer.slice(0, 300)}`);
   if (apiError) log(`turn failed with an API error: ${raw.slice(0, 500)}`);
+  let answerMessageId = null;
   if (apiError?.retry && lastPrompt) {
     const id = newPendingId();
     retryPrompts.set(id, lastPrompt);
@@ -1158,12 +1160,12 @@ async function finishTurn(result) {
         inline_keyboard: [[{ text: '🔁 Повторити', callback_data: callbackData('retry', id) }]],
       },
     });
-  } else if (message) await say(`${label}${message}`);
+  } else if (message) answerMessageId = (await say(`${label}${message}`))?.message_id ?? null;
   if (message) logChat('worker', message);
   scheduleStatusUpdate();
   lastAnswerAt = new Date().toISOString();
   publishActivity(false);
-  if (text && !failed) await replyByVoice(text, spoken);
+  if (text && !failed) replyByVoice(text, spoken, answerMessageId);
   else voiceTrigger = null;
   await flushOutbox();
   try {
@@ -1363,24 +1365,34 @@ async function keepSession() {
  */
 let voiceTrigger = null;
 
-/** After the text answer: the voice message, when the voice mode of this moment wants one (voiceReplyWanted). */
-async function replyByVoice(text, spoken) {
+/** The voice replies still being made or sent (voice-queue.mjs): they keep the worker from going idle. */
+const pendingVoices = createPendingWork();
+/** Voice replies in the background, in the order of the answers, each a reply to its text (as in the fast lane). */
+const voiceReplies = createVoiceQueue({
+  synthesize: (speech) => synthesizeWithFallback(speech),
+  send: async (audio, { replyTo, speech }) => {
+    const messageId = await sendVoice(audio, undefined, { replyTo });
+    // What it said, for a later reply to it (kept like the owner's voice transcripts)
+    await keepVoiceTranscript(messageId, speech);
+  },
+  pending: pendingVoices,
+  onError: async (error) => {
+    log('voice reply failed', error);
+    await say(voiceFailureText(error));
+  },
+});
+
+/**
+ * After the text answer: the voice message, when the voice mode of this moment wants one (voiceReplyWanted), made in
+ * the background (the owner's next message never waits for it) and sent as a reply to the text answer `replyTo`.
+ */
+function replyByVoice(text, spoken, replyTo) {
   const trigger = voiceTrigger;
   voiceTrigger = null;
   // The mode of this moment: switched while Claude worked, it still counts
   if (!env.GOOGLE_TTS_API_KEY || !voiceReplyWanted(voiceMode(), trigger)) return;
   const speech = (spoken ?? speakable(text)).slice(0, TTS_MAX_CHARS * 2);
-  if (!speech) return;
-  try {
-    const messageId = await sendVoice(await synthesizeWithFallback(speech));
-    // What it said, for a later reply to it (kept like the owner's voice transcripts)
-    await keepVoiceTranscript(messageId, speech);
-  } catch (error) {
-    log('voice reply failed', error);
-    await say(
-      `⚠️ Голосову відповідь не вдалося озвучити: ${String(error.message ?? error).slice(0, 300)}`
-    );
-  }
+  void voiceReplies.enqueue(speech, replyTo);
 }
 
 const VOICE_COMMAND = /^\/voice(@\w+)?(\s+(.+))?$/i;
@@ -2836,6 +2848,8 @@ async function stop() {
   void writeProgressNow();
   const reason = stopReason;
   const interrupted = Boolean(turn);
+  // A voice reply on its way is sent before the stop (20 s at most)
+  if (!(await pendingVoices.settle(20_000))) log('a voice reply was still pending at the stop');
   if (session) {
     // Stop the turn in progress (and the session's background tasks), then end the Claude Code process
     await Promise.race([
@@ -2880,6 +2894,8 @@ process.on('SIGTERM', () => {
 
 function checkLimits() {
   if (stopReason) return;
+  // A voice reply still being made or sent is work too (it would be cut by the stop)
+  if (pendingVoices.busy()) lastActivity = Date.now();
   const idle = !turn && backgroundTaskCount === 0;
   if (idle && Date.now() - lastActivity >= IDLE_MS) stopReason = 'idle';
   if (stopReason) void stop();

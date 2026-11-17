@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { createPendingWork, createVoiceQueue } from './fast-lane-core.mjs';
+import { createPendingWork, createVoiceQueue, voiceFailureText } from './voice-queue.mjs';
 
 const later = (ms, value) => new Promise((resolve) => setTimeout(() => resolve(value), ms));
 
@@ -38,9 +38,23 @@ test('voice queue: a failed voice is logged and does not hold back the next one'
     },
     send: async (audio) => sent.push(audio),
     pending,
-    log: (message) => logged.push(message),
+    onError: (error) => logged.push(voiceFailureText(error)),
   });
   await Promise.all([queue.enqueue('bad', 1), queue.enqueue('good', 2)]);
   assert.deepEqual(sent, ['good']);
-  assert.deepEqual(logged, ['voice reply failed']);
+  assert.equal(logged.length, 1);
+  assert.match(logged[0], /tts down/);
+});
+
+test('voice queue: nothing to say, nothing enqueued', async () => {
+  const pending = createPendingWork();
+  let synthesized = 0;
+  const queue = createVoiceQueue({
+    synthesize: async () => synthesized++,
+    send: async () => {},
+    pending,
+  });
+  await queue.enqueue('   ', 1);
+  assert.equal(synthesized, 0);
+  assert.equal(pending.busy(), false);
 });

@@ -91,6 +91,7 @@ import { searchPlaces } from './timezone-search.mjs';
 import { createTelegram } from './telegram.mjs';
 import { MODES, parseCallback, VOICE_MODELS } from './telegram-format.mjs';
 import { createVoice } from './voice.mjs';
+import { voiceFailureText } from './voice-queue.mjs';
 
 const execFileAsync = promisify(execFile);
 const env = process.env;
@@ -1431,7 +1432,10 @@ const voiceReplies = createVoiceQueue({
     await incoming.keepVoiceTranscript(messageId, speech);
   },
   pending: replies,
-  log,
+  onError: async (error) => {
+    log('voice reply failed', error);
+    await tg.say(voiceFailureText(error));
+  },
 });
 
 async function finishTurn(answerText, failed) {
