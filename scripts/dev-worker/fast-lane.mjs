@@ -45,6 +45,7 @@ import {
   checkChildEnv,
   checkToolList,
   childEnv,
+  createPendingWork,
   createTaintGate,
   createTypingKeeper,
   handOverMessage,
@@ -1419,6 +1420,9 @@ async function consume() {
   }
 }
 
+/** The voice replies still being made or sent (fast-lane-core.mjs createPendingWork). */
+const replies = createPendingWork();
+
 async function finishTurn(answerText, failed) {
   // The answer (or nothing, when every message was handed over) goes out now: no more "typing…"
   typing.stop();
@@ -1447,13 +1451,16 @@ async function finishTurn(answerText, failed) {
   const trigger = voiceTrigger;
   voiceTrigger = null;
   if (shown && !failed && secrets.googleKey && voiceReplyWanted(voice.voiceMode(), trigger)) {
-    try {
-      const speech = (spoken ?? voice.speakable(shown)).slice(0, voice.TTS_MAX_CHARS * 2);
-      const messageId = await tg.sendVoice(await voice.synthesizeWithFallback(speech));
-      await incoming.keepVoiceTranscript(messageId, speech);
-    } catch (error) {
-      log('voice reply failed', error);
-    }
+    // Pending work: the invocation is not idle (and does not end) while the voice is made and sent
+    await replies.track(async () => {
+      try {
+        const speech = (spoken ?? voice.speakable(shown)).slice(0, voice.TTS_MAX_CHARS * 2);
+        const messageId = await tg.sendVoice(await voice.synthesizeWithFallback(speech));
+        await incoming.keepVoiceTranscript(messageId, speech);
+      } catch (error) {
+        log('voice reply failed', error);
+      }
+    });
   }
 }
 
@@ -1703,7 +1710,8 @@ export async function handler(event, context = {}) {
   let handled = 0;
   for (;;) {
     if (Date.now() > deadline - DEADLINE_MARGIN_MS) break;
-    const idle = !turnActive && !interactions.getTextTarget();
+    // Not idle while a turn runs, a question waits for the owner or a voice reply is still being made / sent
+    const idle = !turnActive && !interactions.getTextTarget() && !replies.busy();
     if (idle && Date.now() - lastActivity > IDLE_MS) break;
     let messages = [];
     try {
@@ -1728,7 +1736,7 @@ export async function handler(event, context = {}) {
         await failClosed(message, String(error?.message ?? error));
       }
     }
-    if (turnActive) lastActivity = Date.now();
+    if (turnActive || replies.busy()) lastActivity = Date.now();
     // A command, a hand-over without a turn or a button press: done once deliver returns; a running turn keeps it
     // (a button that answered the turn's question resumes it)
     if (turnActive) typing.start();
@@ -1738,6 +1746,9 @@ export async function handler(event, context = {}) {
     await syncBusy(turnActive);
   }
   typing.stop();
+  // A voice reply still on its way (the deadline cut the loop): wait for it up to the deadline's margin
+  if (!(await replies.settle(deadline - Date.now() - 30_000)))
+    log('a voice reply was still pending when the invocation ended');
   await syncBusy(false);
   await Promise.race([budgetPull, new Promise((r) => setTimeout(r, 10_000))]);
   interactions.abortAll();
