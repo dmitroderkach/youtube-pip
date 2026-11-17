@@ -242,6 +242,7 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 
 ### 9. `context-menu-after-pip.spec.ts` — page context menu after using it in PiP
 
+- **No ads** (`blockAds`), like `context-menu-copy`: while an ad plays the player's menu is not ours (a pre-roll outlasting the menu wait made it flake on the daily on-call).
 - **Scenario:** Open PiP, open the context menu in PiP, close PiP with the menu open, right-click the player on the page, click the last item → the menu closes.
 - **Goal:** With `web_watch_pip` / `web_shorts_pip` YouTube opens the menu in the PiP document; it must be returned to the page on close, otherwise YouTube keeps reusing the stranded element and items stop closing the menu.
 
@@ -253,6 +254,8 @@ So clicks, visibility checks, and focus checks are done via `page.evaluate(...)`
 - **Goal:** Keys reach the menu in every flag configuration, including menus YouTube opens in PiP itself (`web_watch_pip` / `web_shorts_pip`), where `DocumentFocusHandler` used to forward them to the player.
 
 ### 11. `pip-entry-points.spec.ts` — opening PiP from the page
+
+The context menu item tests (page and mini player) run **without ads** (`blockAds`, for the same reason as spec 9: on the daily on-call they flaked 3 times in 11 runs while a pre-roll played); the controls button and hotkey tests keep ads.
 
 Real mouse clicks and keys (a real user activation): the "Picture-in-picture" item first in the page's context menu (all items fit in the resized menu, opens PiP, not in the menu inside PiP, back after closing; also in the mini player), the controls button before the settings button (YouTube-style tooltip with "(p)", opaque, centered above the button; opens PiP; hidden in PiP), the key `p` (opens PiP, closes it in the PiP window, ignored while typing in the search box), and, signed in, Shorts: the context menu item, the button right after "⋮" in the top controls and the "⋮" menu item. Every flag set checks that only our PiP entries are offered (YouTube's own item and `.ytp-pip-button`, `chromium-yt-pip`, are hidden). Labels are compared for `en` / `uk` pages (YouTube's own texts, `src/i18n`).
 

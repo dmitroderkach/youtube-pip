@@ -22,6 +22,10 @@ function visibleMenuOnPage(page: Page): Promise<boolean> {
 }
 
 test.describe('Context menu on the page after using it in PiP', () => {
+  // No ads (blockAds, fixtures/block-ads.ts, like the other context menu specs): while an ad plays the player's menu
+  // is not ours, and a pre-roll outlasting the menu wait made it flake (on-call)
+  test.use({ blockAds: true });
+
   test('menu opened in PiP, PiP closed → menu on the page opens and closes on item click', async ({
     videoPageReady: page,
     triggerEnterPictureInPicture,
