@@ -34,10 +34,9 @@ export const EXPERIMENT_FLAG_SETS = {
   /** Player rendered as a CoW component (disposes on plain DOM moves). */
   COW_PLAYER: ['kevlar_player_cow_player_component_all_contexts'],
   /** Profiles without newer rollouts: no "Miniplayer" context menu item, legacy Shorts overlay renderer. */
-  LEGACY_UI: [
-    'web_player_miniplayer_in_context_menu=false',
-    'web_migrate_reel_player_overlay_to_cow=false',
-  ],
+  // web_migrate_reel_player_overlay_to_cow=false was here: YouTube removed the flag from its code (still served as
+  // true, read by nothing since Kevlar build KBh5jBhHFfU, 2026-11-11), so forcing it changed nothing
+  LEGACY_UI: ['web_player_miniplayer_in_context_menu=false'],
 } as const satisfies Record<string, readonly string[]>;
 
 /** Flags we chose by hand for the flows they change (docs/YOUTUBE_EXPERIMENT_FLAGS.md). */

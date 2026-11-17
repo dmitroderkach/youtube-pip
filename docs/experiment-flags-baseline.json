@@ -89,7 +89,6 @@
     "web_improve_shorts_response_rate",
     "web_include_cow_tracing",
     "web_log_reels_ticks",
-    "web_migrate_reel_player_overlay_to_cow",
     "web_migrate_reel_video_renderer_to_cow",
     "web_move_popups_to_fullscreen",
     "web_pip_minimize_breakages",
