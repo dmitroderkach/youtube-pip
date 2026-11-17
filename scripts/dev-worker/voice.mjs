@@ -452,6 +452,14 @@ export function createVoice({
   }
 
   /** Throws SpeechBudgetError when Google's figure says the budget is spent (saying so once a period). */
+  /**
+   * A pull when the last one is older than BUDGET_PULL_MS (none yet in this process: at once). The fast lane calls it
+   * in the background with each invocation, so Google's figure stays current while the worker sleeps.
+   */
+  async function pullSpeechBudgetIfDue() {
+    if (Date.now() - lastBudgetPull > BUDGET_PULL_MS) await pullSpeechBudget();
+  }
+
   async function checkSpeechBudget() {
     if (GEMINI_SPEECH_OFF) throw new SpeechBudgetError('Gemini-озвучку вимкнено');
     if (Date.now() - lastBudgetPull > BUDGET_PULL_MS) await pullSpeechBudget();
@@ -660,6 +668,7 @@ export function createVoice({
     speechUsage,
     speechUsageText,
     pullSpeechBudget,
+    pullSpeechBudgetIfDue,
     BUDGET_PULL_MS,
     voiceCommand,
     onVoiceButton,

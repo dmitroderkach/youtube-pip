@@ -119,7 +119,16 @@ export function handOverMessage({ task, context, now = new Date() }) {
   };
 }
 
-/** A short title of a task for dev-bot's "піднімаю робочий воркер… (<reason>)" line. */
+/**
+ * The whole task for dev-bot's hand-over line in the chat ("🛠 Передано робочому воркеру" / "🛠 Довга задача"): the
+ * owner sees all of it (dev-bot folds a long one), clipped only to stay within a Telegram message.
+ */
+export function taskText(task, max = 3000) {
+  const text = String(task ?? '').trim();
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** A short title of a task (a log line, a failed hand-over's reason). */
 export function taskTitle(task, max = 60) {
   const line = String(task ?? '')
     .trim()

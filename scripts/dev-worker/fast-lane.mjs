@@ -52,7 +52,7 @@ import {
   prefixCallbacks,
   runtimeLoop,
   stripCallbackPrefix,
-  taskTitle,
+  taskText,
   tokenExpiryWarning,
   tokenWarningKey,
   claimMarker,
@@ -335,6 +335,8 @@ async function initChat() {
         },
       },
       store: stateStore,
+      // A new figure of the Gemini speech budget: the pinned status shows it
+      onUsageChanged: () => void pinned?.updateStatus(),
       aws,
       upload: (file, uri) => aws('s3', 'cp', file, uri, '--quiet'),
       bucket: BUCKET,
@@ -496,7 +498,8 @@ async function logChat(role, text, options = {}) {
  */
 async function handOver(task, context) {
   const { body, date } = handOverMessage({ task, context });
-  return toWorker(body, date, taskTitle(task));
+  // The whole task for dev-bot's line in the chat (it shows it in full, folded when long)
+  return toWorker(body, date, taskText(task));
 }
 
 /**
@@ -1660,7 +1663,7 @@ async function failClosed(message, reason) {
     ?.say('⚠️ Швидка смуга недоступна: передаю повідомлення робочому воркеру')
     .catch(() => {});
   if (message && !message.callback) {
-    await handOverRaw(message, taskTitle(message.text || 'повідомлення з вкладенням')).catch(
+    await handOverRaw(message, taskText(message.text || 'повідомлення з вкладенням')).catch(
       (error) => log('fail-closed hand-over failed', error)
     );
   }
@@ -1691,6 +1694,11 @@ export async function handler(event, context = {}) {
   await initChat();
   await loadSettings();
   timing('fast-lane-init', { ms: Date.now() - invoked });
+  // Google's Gemini speech budget (Pub/Sub), in the background: no answer waits for it; awaited (10 s at most) only
+  // before the invocation ends, so the pull is not frozen half-way
+  const budgetPull = voice
+    .pullSpeechBudgetIfDue()
+    .catch((error) => log('speech budget pull failed', error));
   let lastActivity = Date.now();
   let handled = 0;
   for (;;) {
@@ -1731,6 +1739,7 @@ export async function handler(event, context = {}) {
   }
   typing.stop();
   await syncBusy(false);
+  await Promise.race([budgetPull, new Promise((r) => setTimeout(r, 10_000))]);
   interactions.abortAll();
   await settingWrites;
   // Kept for the next invocation of this sandbox unless a turn still runs (the deadline) or it failed its checks
