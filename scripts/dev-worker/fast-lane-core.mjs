@@ -99,7 +99,13 @@ export function checkToolList(tools, expected) {
  * `handover: true` and `date` = now (the worker skips messages older than its start; dev-bot starts it with
  * UP_AT = min(now, since)).
  */
-export function handOverMessage({ task, context, spoken = false, now = new Date() }) {
+export function handOverMessage({
+  task,
+  context,
+  spoken = false,
+  attachments = [],
+  now = new Date(),
+}) {
   const date = Math.floor(now.getTime() / 1000);
   // The worker's incoming.mjs puts the hand-over note in front (message.handover). The task is the request; the
   // context is the fast lane's data, kept inside a bracketed note (its "]" made ")" so it cannot close it early)
@@ -117,7 +123,8 @@ export function handOverMessage({ task, context, spoken = false, now = new Date(
     // `spoken`: the owner wrote it by voice (the worker answers by voice too, as for a voice message of its own)
     body: {
       text: parts.join('\n\n'),
-      attachments: [],
+      // The owner's files of this turn (Telegram file ids): the worker downloads them itself, like its own messages
+      attachments,
       date,
       message_id: null,
       handover: true,
@@ -373,3 +380,22 @@ export function createTypingKeeper({
 
 // Shared with the worker: voice-queue.mjs
 export { createPendingWork, createVoiceQueue } from './voice-queue.mjs';
+
+/**
+ * The owner's files to hand over with a task: the photos, documents and videos of the turn's owner messages (Telegram
+ * file ids, which stay valid; the worker downloads them like its own messages). Voice and audio are left out: their
+ * transcript is in the task and the hand-over is marked `spoken`.
+ */
+export function handOverAttachments(messages) {
+  const seen = new Set();
+  const files = [];
+  for (const message of messages ?? []) {
+    for (const attachment of message?.attachments ?? []) {
+      if (!attachment?.file_id || seen.has(attachment.file_id)) continue;
+      if (attachment.kind === 'voice' || attachment.kind === 'audio') continue;
+      seen.add(attachment.file_id);
+      files.push(attachment);
+    }
+  }
+  return files;
+}

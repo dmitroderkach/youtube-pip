@@ -49,6 +49,7 @@ import {
   createTaintGate,
   createTypingKeeper,
   createVoiceQueue,
+  handOverAttachments,
   handOverMessage,
   shouldSuppressAnswer,
   prefixCallbacks,
@@ -499,9 +500,15 @@ async function logChat(role, text, options = {}) {
  * The task goes to the worker through dev-bot (dated now: the worker skips older messages); dev-bot starts the worker
  * (a no-op when it runs) and posts "🛠 Довга задача: піднімаю…".
  */
-async function handOver(task, context) {
-  // The owner's message of this turn was a voice message: the worker answers by voice too
-  const { body, date } = handOverMessage({ task, context, spoken: voiceTrigger === 'voice' });
+async function handOver(task, context, withFiles = false) {
+  // The owner's message of this turn was a voice message: the worker answers by voice too. With `withFiles`, the
+  // owner's screenshots / files of this turn go along (the worker downloads them from Telegram itself)
+  const { body, date } = handOverMessage({
+    task,
+    context,
+    spoken: voiceTrigger === 'voice',
+    attachments: withFiles ? handOverAttachments(turnMessages) : [],
+  });
   // The whole task for dev-bot's line in the chat (it shows it in full, folded when long)
   return toWorker(body, date, taskText(task));
 }
@@ -998,10 +1005,10 @@ export function mcpServer() {
       ),
       tool(
         'hand_over',
-        'Give a task to the long-running worker (code, tests, PRs, terraform, browser, long work, merges / releases). Starts it if it sleeps.',
-        { task: z.string(), context: z.string().optional() },
-        wrap(({ task, context }) =>
-          gatedHandover(`передати воркеру: ${task}`, () => handOver(task, context))
+        "Give a task to the long-running worker (code, tests, PRs, terraform, browser, long work, merges / releases). Starts it if it sleeps. with_files: true sends the owner's screenshots / files of this turn along (the worker sees the files themselves).",
+        { task: z.string(), context: z.string().optional(), with_files: z.boolean().optional() },
+        wrap(({ task, context, with_files: withFiles }) =>
+          gatedHandover(`передати воркеру: ${task}`, () => handOver(task, context, withFiles))
         )
       ),
       tool(
