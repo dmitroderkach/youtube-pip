@@ -7,6 +7,7 @@
  */
 import type { Page } from '@playwright/test';
 import { E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS, E2E_WAIT_TIMEOUT_MS } from '../constants';
+import { waitForPageAdToEnd } from '../fixtures/page-ads';
 import {
   expect,
   test,
@@ -94,6 +95,8 @@ function pipItemsInShownMenu(page: Page, youtubeLabel: string) {
 }
 
 async function rightClickPlayer(page: Page, playerSelector: string): Promise<void> {
+  // While an ad plays the context menu is not ours: right-click once it is over
+  await waitForPageAdToEnd(page);
   const box = await page.locator(playerSelector).boundingBox();
   expect(box).not.toBeNull();
   await page.mouse.click(

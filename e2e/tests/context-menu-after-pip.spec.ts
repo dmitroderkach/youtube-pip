@@ -7,6 +7,7 @@
  */
 import type { Page } from '@playwright/test';
 import { E2E_WAIT_TIMEOUT_MS } from '../constants';
+import { waitForPageAdToEnd } from '../fixtures/page-ads';
 import { openContextMenuInPip, test, expect } from '../fixtures';
 import { E2E_SELECTORS } from '../selectors';
 
@@ -48,7 +49,8 @@ test.describe('Context menu on the page after using it in PiP', () => {
     });
     await page.locator(E2E_SELECTORS.MOVIE_PLAYER).waitFor({ state: 'visible' });
 
-    // Open the menu on the page with a real right-click
+    // Open the menu on the page with a real right-click (once no ad plays: its menu is not ours)
+    await waitForPageAdToEnd(page);
     const box = await page.locator(E2E_SELECTORS.MOVIE_PLAYER).boundingBox();
     await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 3, { button: 'right' });
     await expect.poll(() => visibleMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS }).toBe(true);
