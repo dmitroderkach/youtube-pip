@@ -154,16 +154,31 @@ export function createVoice({
   }
 
   /** Text of a voice message or audio file: Gemini when the service account is there, AWS Transcribe otherwise. */
+  /** One attempt of a speech-to-text engine, timed (a JSON line: `voice-transcribe`, engine, ms, ok). */
+  async function timed(engine, attempt) {
+    const started = Date.now();
+    let ok = false;
+    try {
+      const text = await attempt();
+      ok = true;
+      return text;
+    } finally {
+      log(JSON.stringify({ timing: 'voice-transcribe', engine, ms: Date.now() - started, ok }));
+    }
+  }
+
   async function transcribe(path, mimeType, { seconds } = {}) {
     if (ttsServiceAccount()) {
       try {
-        return await transcribeGemini(path, mimeType, { seconds });
+        return await timed(TRANSCRIBE_MODEL, () => transcribeGemini(path, mimeType, { seconds }));
       } catch (error) {
         if (overloaded(error)) {
           log('Gemini transcription overloaded, retrying once', error);
           await new Promise((resolveDelay) => setTimeout(resolveDelay, TRANSCRIBE_RETRY_DELAY_MS));
           try {
-            return await transcribeGemini(path, mimeType, { seconds });
+            return await timed(TRANSCRIBE_MODEL, () =>
+              transcribeGemini(path, mimeType, { seconds })
+            );
           } catch (retryError) {
             log('Gemini transcription failed, falling back to AWS Transcribe', retryError);
           }
@@ -172,7 +187,7 @@ export function createVoice({
         }
       }
     }
-    return transcribeAws(path, mimeType);
+    return timed('aws-transcribe', () => transcribeAws(path, mimeType));
   }
 
   async function transcribeAws(path, mimeType) {
