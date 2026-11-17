@@ -13,6 +13,9 @@ import { isPlainFile } from './isolation.mjs';
 export const TELEGRAM_MAX_LENGTH = 4000;
 /** Telegram Bot API calls: attempts and pause between them (the network to Telegram drops now and then). */
 const TELEGRAM_ATTEMPTS = 3;
+/** One Bot API call (JSON) at most this long; an upload (sendVoice, sendDocument, sendPhoto) longer. */
+const TELEGRAM_TIMEOUT_MS = 15_000;
+const TELEGRAM_UPLOAD_TIMEOUT_MS = 60_000;
 const TELEGRAM_RETRY_DELAY_MS = 2000;
 const PHOTO_EXTENSIONS = /\.(png|jpe?g|webp|gif)$/i;
 /** Bot API upload limits: photos up to 10 MB, other files up to 50 MB. */
@@ -42,7 +45,16 @@ export const htmlToText = (html) =>
     .replace(/&gt;/g, '>')
     .replace(/&amp;/g, '&');
 
-export function createTelegram({ token, chatId, log, readFile, inboxDir }) {
+export function createTelegram({
+  token,
+  chatId,
+  log,
+  readFile,
+  inboxDir,
+  // Tests: shorter per-attempt limits and pauses
+  timeouts = { call: TELEGRAM_TIMEOUT_MS, upload: TELEGRAM_UPLOAD_TIMEOUT_MS },
+  retryDelayMs = TELEGRAM_RETRY_DELAY_MS,
+}) {
   const env = { TELEGRAM_BOT_TOKEN: token, TELEGRAM_CHAT_ID: chatId };
   const claudeRead = readFile;
   const INBOX_DIR = inboxDir;
@@ -54,11 +66,16 @@ export function createTelegram({ token, chatId, log, readFile, inboxDir }) {
   async function telegramRequest(method, makeBody, headers = {}) {
     let lastError = '';
     for (let attempt = 1; attempt <= TELEGRAM_ATTEMPTS; attempt++) {
+      const started = Date.now();
       try {
+        const body = makeBody();
         const res = await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/${method}`, {
           method: 'POST',
           headers,
-          body: makeBody(),
+          body,
+          // A stalled connection fails the attempt instead of hanging until the OS gives up (seen live: a getFile of
+          // a voice message took 23 s); an upload (FormData) gets longer
+          signal: AbortSignal.timeout(body instanceof FormData ? timeouts.upload : timeouts.call),
         });
         const json = await res
           .json()
@@ -69,8 +86,11 @@ export function createTelegram({ token, chatId, log, readFile, inboxDir }) {
       } catch (error) {
         lastError = String(error?.cause?.code ?? error?.message ?? error);
       }
+      log(
+        `telegram ${method} attempt ${attempt} failed after ${Date.now() - started} ms: ${lastError}`
+      );
       if (attempt < TELEGRAM_ATTEMPTS) {
-        await new Promise((resolve) => setTimeout(resolve, TELEGRAM_RETRY_DELAY_MS * attempt));
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs * attempt));
       }
     }
     log(`telegram ${method} failed after ${TELEGRAM_ATTEMPTS} attempts: ${lastError}`);
@@ -198,6 +218,9 @@ export function createTelegram({ token, chatId, log, readFile, inboxDir }) {
         }
       ).catch((error) => {
         lastError = error;
+        log(
+          `telegram file download attempt ${attempt} failed: ${error?.cause?.code ?? error?.message}`
+        );
         return null;
       });
     }

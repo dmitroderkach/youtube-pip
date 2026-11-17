@@ -83,6 +83,14 @@ export function createIncoming({ log, telegram, voice, store }) {
     const files = [];
     for (const attachment of message.attachments ?? []) {
       let path;
+      const spoken = attachment.kind === 'voice' || attachment.kind === 'audio';
+      // The owner sees at once that the voice message was picked up (before its download, which can take a while)
+      let statusMs = 0;
+      if (spoken) {
+        const shownAt = Date.now();
+        await setStatus('🎙 Розпізнаю аудіо…');
+        statusMs = Date.now() - shownAt;
+      }
       const started = Date.now();
       try {
         path = await download(attachment.file_id, attachment.file_name);
@@ -97,16 +105,14 @@ export function createIncoming({ log, telegram, voice, store }) {
         );
         continue;
       }
-      if (attachment.kind === 'voice' || attachment.kind === 'audio') {
+      if (spoken) {
         // Where a voice message's seconds go (one JSON line: Logs Insights `filter timing`)
         const steps = {
+          statusMs,
           downloadMs: Date.now() - started,
           audioSeconds: attachment.duration ?? null,
         };
         let mark = Date.now();
-        await setStatus('🎙 Розпізнаю аудіо…');
-        steps.statusMs = Date.now() - mark;
-        mark = Date.now();
         const text = await transcribe(path, attachment.mime_type, {
           seconds: attachment.duration,
         });
