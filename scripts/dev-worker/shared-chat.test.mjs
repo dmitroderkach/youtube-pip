@@ -140,9 +140,10 @@ test('pinned status: sends and pins once, then edits; an unchanged body is not s
 
 test('incoming: a voice message is transcribed, shown and kept; a photo becomes a path for Claude', async () => {
   const said = [];
+  const logged = [];
   const store = new Map();
   const incoming = createIncoming({
-    log: () => {},
+    log: (line) => logged.push(line),
     telegram: {
       say: async (text) => said.push(text),
       download: async (fileId) => `/inbox/${fileId}`,
@@ -167,6 +168,13 @@ test('incoming: a voice message is transcribed, shown and kept; a photo becomes 
   );
   assert.deepEqual(statuses, ['🎙 Розпізнаю аудіо…']);
   assert.deepEqual(said, ['🎙 Розпізнав: «привіт»']);
+  // Where the seconds of a voice message go: one timing line per voice attachment
+  const timing = logged
+    .map((line) => JSON.parse(line))
+    .find((entry) => entry.timing === 'voice-in');
+  assert.ok(timing);
+  for (const step of ['downloadMs', 'statusMs', 'transcribeMs', 'shownMs'])
+    assert.equal(typeof timing[step], 'number');
   assert.equal(
     prompt,
     'привіт\n\nlook\n\n[The owner attached an image: /inbox/p1. Open it with the Read tool.]'

@@ -83,6 +83,7 @@ export function createIncoming({ log, telegram, voice, store }) {
     const files = [];
     for (const attachment of message.attachments ?? []) {
       let path;
+      const started = Date.now();
       try {
         path = await download(attachment.file_id, attachment.file_name);
       } catch (error) {
@@ -97,11 +98,23 @@ export function createIncoming({ log, telegram, voice, store }) {
         continue;
       }
       if (attachment.kind === 'voice' || attachment.kind === 'audio') {
+        // Where a voice message's seconds go (one JSON line: Logs Insights `filter timing`)
+        const steps = {
+          downloadMs: Date.now() - started,
+          audioSeconds: attachment.duration ?? null,
+        };
+        let mark = Date.now();
         await setStatus('🎙 Розпізнаю аудіо…');
+        steps.statusMs = Date.now() - mark;
+        mark = Date.now();
         const text = await transcribe(path, attachment.mime_type, {
           seconds: attachment.duration,
         });
+        steps.transcribeMs = Date.now() - mark;
+        mark = Date.now();
         await say(text ? `🎙 Розпізнав: «${text}»` : '🎙 У аудіо не знайшов мови');
+        steps.shownMs = Date.now() - mark;
+        log(JSON.stringify({ timing: 'voice-in', ...steps }));
         if (text) parts.push(text);
         await keepVoiceTranscript(message.message_id, text);
       } else {
