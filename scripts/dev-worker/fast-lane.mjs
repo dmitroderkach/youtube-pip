@@ -48,6 +48,7 @@ import {
   createPendingWork,
   createTaintGate,
   createTypingKeeper,
+  createVoiceQueue,
   handOverMessage,
   shouldSuppressAnswer,
   prefixCallbacks,
@@ -1422,6 +1423,16 @@ async function consume() {
 
 /** The voice replies still being made or sent (fast-lane-core.mjs createPendingWork). */
 const replies = createPendingWork();
+/** Voice replies in the background, sent in the order of their answers (fast-lane-core.mjs createVoiceQueue). */
+const voiceReplies = createVoiceQueue({
+  synthesize: (speech) => voice.synthesizeWithFallback(speech),
+  send: async (audio, { replyTo, speech }) => {
+    const messageId = await tg.sendVoice(audio, undefined, { replyTo });
+    await incoming.keepVoiceTranscript(messageId, speech);
+  },
+  pending: replies,
+  log,
+});
 
 async function finishTurn(answerText, failed) {
   // The answer (or nothing, when every message was handed over) goes out now: no more "typing…"
@@ -1435,8 +1446,9 @@ async function finishTurn(answerText, failed) {
     shown = '';
   }
   turnHandovers = { messages: 0, handedOver: 0, failed: false, gateAsked: false };
+  let answerMessageId = null;
   if (shown) {
-    await tg.say(shown);
+    answerMessageId = (await tg.say(shown))?.message_id ?? null;
     if (turnTiming) turnTiming.answerSentMs = Date.now() - turnTiming.start;
     lastAnswerAt = new Date().toISOString();
     await logChat('fast-lane', shown);
@@ -1451,16 +1463,13 @@ async function finishTurn(answerText, failed) {
   const trigger = voiceTrigger;
   voiceTrigger = null;
   if (shown && !failed && secrets.googleKey && voiceReplyWanted(voice.voiceMode(), trigger)) {
-    // Pending work: the invocation is not idle (and does not end) while the voice is made and sent
-    await replies.track(async () => {
-      try {
-        const speech = (spoken ?? voice.speakable(shown)).slice(0, voice.TTS_MAX_CHARS * 2);
-        const messageId = await tg.sendVoice(await voice.synthesizeWithFallback(speech));
-        await incoming.keepVoiceTranscript(messageId, speech);
-      } catch (error) {
-        log('voice reply failed', error);
-      }
-    });
+    // In the background: the next message is taken at once (its text answer never waits for this voice), the
+    // invocation does not end before the voice is sent, voices keep the order of their answers, and each is a reply
+    // to its own text answer, so one that arrives after a newer answer still shows which answer it speaks
+    void voiceReplies.enqueue(
+      (spoken ?? voice.speakable(shown)).slice(0, voice.TTS_MAX_CHARS * 2),
+      answerMessageId
+    );
   }
 }
 
