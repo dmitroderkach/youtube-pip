@@ -21,6 +21,7 @@ Statuses go to the chat through the Bot API. Always answers Telegram with 200, s
 """
 
 import hashlib
+import html
 import json
 import os
 import re
@@ -164,6 +165,50 @@ def bot_api(method, payload):
 
 def say(text):
     bot_api("sendMessage", {"chat_id": config()["chat_id"], "text": text, "disable_web_page_preview": True})
+
+
+# A hand-over in the chat: the whole task and the fast lane's context, folded when long (Telegram's message limit is
+# 4096 characters)
+HANDOVER_TASK_MAX = 3000
+HANDOVER_CONTEXT_MAX = 800
+HANDOVER_CONTEXT_RE = re.compile(r"\[Context from the fast lane[^:]*: (.*)\]\s*$", re.S)
+
+
+def clip(text, limit):
+    text = str(text or "").strip()
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def say_task(head, task, context=None):
+    """`head`, then the whole task (and the fast lane's context) in expandable quotes, so the owner sees all of it."""
+    parts = [html.escape(head), f"<blockquote expandable>{html.escape(clip(task, HANDOVER_TASK_MAX))}</blockquote>"]
+    if context:
+        parts.append(
+            f"Контекст:<blockquote expandable>{html.escape(clip(context, HANDOVER_CONTEXT_MAX))}</blockquote>"
+        )
+    bot_api(
+        "sendMessage",
+        {
+            "chat_id": config()["chat_id"],
+            "text": "\n".join(parts),
+            "parse_mode": "HTML",
+            "disable_web_page_preview": True,
+        },
+    )
+
+
+def handover_task_and_context(reason, text):
+    """The task to show (the fast lane's reason: the whole task since it sends it; the message's "Task:" part
+    otherwise) and the fast lane's context note from the message text, if any."""
+    text = str(text or "")
+    found = HANDOVER_CONTEXT_RE.search(text)
+    context = found.group(1).strip() if found else None
+    body = text[: found.start()] if found else text
+    body = body.strip()
+    if body.startswith("Task:"):
+        body = body[len("Task:") :].strip()
+    task = body if len(body) > len(reason) else reason
+    return (task or "без назви"), context
 
 
 def worker_tasks():
@@ -883,15 +928,17 @@ def hand_over(event):
         MessageDeduplicationId=f"handover-{since}-{hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]}",
     )
     # Every hand-over is shown in the chat, so the owner sees each task the worker gets this way
-    reason = str(request.get("reason") or "").strip()[:200] or "без назви"
+    # The whole task, not a clipped title (the owner, 2026-11-17, could not see what was handed over), folded
+    reason = str(request.get("reason") or "").strip()
+    task, context = handover_task_and_context(reason, message.get("text"))
     if tasks or only_running:
-        say(f"🛠 Передано робочому воркеру: {reason}")
+        say_task("🛠 Передано робочому воркеру:", task, context)
         return {"handed_over": True, "running": True}
     if worker_stopping():
-        say(f"🛠 Довга задача ({reason}): підніму робочий воркер, щойно попередній зупиниться")
+        say_task("🛠 Довга задача: підніму робочий воркер, щойно попередній зупиниться", task, context)
         request_start_after_stop(since)
         return {"handed_over": True, "pending": True}
-    say(f"🛠 Довга задача ({reason}): піднімаю робочий воркер…")
+    say_task("🛠 Довга задача: піднімаю робочий воркер…", task, context)
     return {"handed_over": True, "started": start_worker(since)}
 
 
