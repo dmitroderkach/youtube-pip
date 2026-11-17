@@ -362,3 +362,36 @@ export function createTypingKeeper({
     running: () => Boolean(timer),
   };
 }
+
+/**
+ * Work that still leads to something in the chat after a turn ended (the voice reply: synthesis and sendVoice): the
+ * invocation does not count as idle while any of it runs, and waits for it (up to a limit) before it ends, so the
+ * sandbox is not frozen half-way and the voice does not arrive only with the owner's next message.
+ */
+export function createPendingWork() {
+  const pending = new Set();
+  return {
+    /** Run `work` (a function returning a promise) as pending work; its errors are the caller's to handle. */
+    track(work) {
+      const promise = Promise.resolve()
+        .then(work)
+        .finally(() => pending.delete(promise));
+      pending.add(promise);
+      return promise;
+    },
+    busy: () => pending.size > 0,
+    /** Wait until everything pending settled or `ms` passed; true when nothing is left. */
+    async settle(ms) {
+      if (!pending.size) return true;
+      let timer;
+      await Promise.race([
+        Promise.allSettled([...pending]),
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, Math.max(0, ms));
+        }),
+      ]);
+      clearTimeout(timer);
+      return pending.size === 0;
+    },
+  };
+}
