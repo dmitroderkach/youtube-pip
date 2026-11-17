@@ -134,6 +134,20 @@ class FastLaneRouting(unittest.TestCase):
         clients["sqs"].send_message.assert_called_once()
         self.assertIn("Fix CI", bot.bot_api.call_args.args[1]["text"])
 
+    def test_hand_over_passes_spoken_on_only_when_literally_true(self):
+        for spoken, expected in ((True, True), ("yes", None), (None, None)):
+            with self.subTest(spoken=spoken):
+                bot, clients = load_dev_bot()
+                bot.config = mock.MagicMock(return_value={"chat_id": "42"})
+                bot.worker_tasks = mock.MagicMock(return_value=[{"lastStatus": "RUNNING", "arn": "t"}])
+                message = {"text": "Task: fix it"}
+                if spoken is not None:
+                    message["spoken"] = spoken
+                self.stored_hand_over(clients, {"reason": "fix it", "message": message})
+                bot.handler({"action": "hand_over", "key": KEY}, None)
+                body = json.loads(clients["sqs"].send_message.call_args.kwargs["MessageBody"])
+                self.assertEqual(body.get("spoken"), expected)
+
     def test_hand_over_shows_the_whole_task_and_the_context_folded(self):
         bot, clients = load_dev_bot()
         bot.config = mock.MagicMock(return_value={"chat_id": "42"})

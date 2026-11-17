@@ -918,6 +918,9 @@ def hand_over(event):
     if request.get("interrupt") is True:
         # The owner asked the busy worker to stop its current turn (the worker interrupts it on delivery)
         body["interrupt"] = True
+    if message.get("spoken") is True:
+        # The owner wrote it by voice (the fast lane transcribed it): the worker answers by voice too
+        body["spoken"] = True
     for name in ("reply_to", "forwarded_from"):
         if message.get(name):
             body[name] = message[name]
