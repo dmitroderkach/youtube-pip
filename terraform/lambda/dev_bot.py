@@ -928,7 +928,7 @@ def hand_over(event):
         MessageDeduplicationId=f"handover-{since}-{hashlib.sha256(json.dumps(body, sort_keys=True).encode()).hexdigest()[:16]}",
     )
     # Every hand-over is shown in the chat, so the owner sees each task the worker gets this way
-    # The whole task, not a clipped title (the owner, 2026-11-17: "не бачу всього контексту"), folded when long
+    # The whole task, not a clipped title (the owner, 2026-11-17, could not see what was handed over), folded
     reason = str(request.get("reason") or "").strip()
     task, context = handover_task_and_context(reason, message.get("text"))
     if tasks or only_running:
