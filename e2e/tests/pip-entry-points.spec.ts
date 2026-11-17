@@ -7,7 +7,6 @@
  */
 import type { Page } from '@playwright/test';
 import { E2E_CONTEXT_MENU_ITEM_VISIBLE_TIMEOUT_MS, E2E_WAIT_TIMEOUT_MS } from '../constants';
-import { waitForPageAdToEnd } from '../fixtures/page-ads';
 import {
   expect,
   test,
@@ -95,8 +94,6 @@ function pipItemsInShownMenu(page: Page, youtubeLabel: string) {
 }
 
 async function rightClickPlayer(page: Page, playerSelector: string): Promise<void> {
-  // While an ad plays the context menu is not ours: right-click once it is over
-  await waitForPageAdToEnd(page);
   const box = await page.locator(playerSelector).boundingBox();
   expect(box).not.toBeNull();
   await page.mouse.click(
@@ -137,65 +134,71 @@ async function pipMenuHasItem(page: Page): Promise<boolean> {
 }
 
 test.describe('Open PiP from the page (context menu item, controls button)', () => {
-  test('context menu item: shown first and fits → opens PiP → not in the PiP menu → back on the page after close', async ({
-    videoPageReady: page,
-    assertPiPWindowHasPlayer,
-    waitForPiPAdToEnd,
-  }) => {
-    await rightClickPlayer(page, E2E_SELECTORS.MOVIE_PLAYER);
-    await expect
-      .poll(() => shownMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS })
-      .toEqual({ hasItem: true, firstIsItem: true, allItemsFit: true });
-    // A right-click on the open menu (the browser opens its own menu over it) keeps our item
-    const shownBox = (await page.locator(MENU_ITEM).boundingBox())!;
-    await page.mouse.click(shownBox.x + shownBox.width / 2, shownBox.y + shownBox.height / 2, {
-      button: 'right',
+  // The context menu tests run without ads (blockAds, fixtures/block-ads.ts, like context-menu-copy): while an ad
+  // plays the player's menu is not ours, and a pre-roll outlasting the menu wait made them flake (on-call, 3 of 11 runs)
+  test.describe('context menu item', () => {
+    test.use({ blockAds: true });
+
+    test('context menu item: shown first and fits → opens PiP → not in the PiP menu → back on the page after close', async ({
+      videoPageReady: page,
+      assertPiPWindowHasPlayer,
+      waitForPiPAdToEnd,
+    }) => {
+      await rightClickPlayer(page, E2E_SELECTORS.MOVIE_PLAYER);
+      await expect
+        .poll(() => shownMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS })
+        .toEqual({ hasItem: true, firstIsItem: true, allItemsFit: true });
+      // A right-click on the open menu (the browser opens its own menu over it) keeps our item
+      const shownBox = (await page.locator(MENU_ITEM).boundingBox())!;
+      await page.mouse.click(shownBox.x + shownBox.width / 2, shownBox.y + shownBox.height / 2, {
+        button: 'right',
+      });
+      await expect
+        .poll(() => shownMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS })
+        .toEqual({ hasItem: true, firstIsItem: true, allItemsFit: true });
+      const item = page.locator(MENU_ITEM);
+      const labels = await expectedLabels(page);
+      if (labels) await expect(item).toHaveText(labels.menuItem);
+      else await expect(item).not.toHaveText('');
+      // Only our PiP entry: YouTube's own item (chromium-yt-pip / all-flags projects) is hidden
+      if (labels) {
+        expect(await pipItemsInShownMenu(page, labels.button)).toEqual({ ours: 1, youtube: 0 });
+      }
+
+      await item.click();
+      await assertPiPWindowHasPlayer(page);
+      // The page's menu closed with the click
+      await expect.poll(() => shownMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS }).toBeNull();
+
+      await waitForPiPAdToEnd(page);
+      expect(await pipMenuHasItem(page)).toBe(false);
+
+      await closePiPAndWait(page);
+      await page.locator(E2E_SELECTORS.MOVIE_PLAYER).waitFor({ state: 'visible' });
+      // After PiP the item is back in the page's menu, and the menu is still sized for it
+      await rightClickPlayer(page, E2E_SELECTORS.MOVIE_PLAYER);
+      await expect
+        .poll(() => shownMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS })
+        .toEqual({ hasItem: true, firstIsItem: true, allItemsFit: true });
     });
-    await expect
-      .poll(() => shownMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS })
-      .toEqual({ hasItem: true, firstIsItem: true, allItemsFit: true });
-    const item = page.locator(MENU_ITEM);
-    const labels = await expectedLabels(page);
-    if (labels) await expect(item).toHaveText(labels.menuItem);
-    else await expect(item).not.toHaveText('');
-    // Only our PiP entry: YouTube's own item (chromium-yt-pip / all-flags projects) is hidden
-    if (labels) {
-      expect(await pipItemsInShownMenu(page, labels.button)).toEqual({ ours: 1, youtube: 0 });
-    }
 
-    await item.click();
-    await assertPiPWindowHasPlayer(page);
-    // The page's menu closed with the click
-    await expect.poll(() => shownMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS }).toBeNull();
+    test('context menu item in the mini player opens PiP', async ({
+      videoPageReady: page,
+      assertPiPWindowHasPlayer,
+    }) => {
+      await page.keyboard.press('i');
+      await page.locator(E2E_SELECTORS.MINIPLAYER_HOST).waitFor({ state: 'visible' });
 
-    await waitForPiPAdToEnd(page);
-    expect(await pipMenuHasItem(page)).toBe(false);
+      await rightClickPlayer(page, E2E_SELECTORS.MINIPLAYER_HOST);
+      await expect
+        .poll(() => shownMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS })
+        .toEqual({ hasItem: true, firstIsItem: true, allItemsFit: true });
+      await page.locator(MENU_ITEM).click();
+      await assertPiPWindowHasPlayer(page);
 
-    await closePiPAndWait(page);
-    await page.locator(E2E_SELECTORS.MOVIE_PLAYER).waitFor({ state: 'visible' });
-    // After PiP the item is back in the page's menu, and the menu is still sized for it
-    await rightClickPlayer(page, E2E_SELECTORS.MOVIE_PLAYER);
-    await expect
-      .poll(() => shownMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS })
-      .toEqual({ hasItem: true, firstIsItem: true, allItemsFit: true });
-  });
-
-  test('context menu item in the mini player opens PiP', async ({
-    videoPageReady: page,
-    assertPiPWindowHasPlayer,
-  }) => {
-    await page.keyboard.press('i');
-    await page.locator(E2E_SELECTORS.MINIPLAYER_HOST).waitFor({ state: 'visible' });
-
-    await rightClickPlayer(page, E2E_SELECTORS.MINIPLAYER_HOST);
-    await expect
-      .poll(() => shownMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS })
-      .toEqual({ hasItem: true, firstIsItem: true, allItemsFit: true });
-    await page.locator(MENU_ITEM).click();
-    await assertPiPWindowHasPlayer(page);
-
-    await closePiPAndWait(page);
-    await page.locator(E2E_SELECTORS.MINIPLAYER_HOST).waitFor({ state: 'visible' });
+      await closePiPAndWait(page);
+      await page.locator(E2E_SELECTORS.MINIPLAYER_HOST).waitFor({ state: 'visible' });
+    });
   });
 
   test('controls button: next to the settings, YouTube-style tooltip → opens PiP → hidden in the PiP window', async ({

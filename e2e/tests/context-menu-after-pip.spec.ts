@@ -7,7 +7,6 @@
  */
 import type { Page } from '@playwright/test';
 import { E2E_WAIT_TIMEOUT_MS } from '../constants';
-import { waitForPageAdToEnd } from '../fixtures/page-ads';
 import { openContextMenuInPip, test, expect } from '../fixtures';
 import { E2E_SELECTORS } from '../selectors';
 
@@ -23,6 +22,10 @@ function visibleMenuOnPage(page: Page): Promise<boolean> {
 }
 
 test.describe('Context menu on the page after using it in PiP', () => {
+  // No ads (blockAds, fixtures/block-ads.ts, like the other context menu specs): while an ad plays the player's menu
+  // is not ours, and a pre-roll outlasting the menu wait made it flake (on-call)
+  test.use({ blockAds: true });
+
   test('menu opened in PiP, PiP closed → menu on the page opens and closes on item click', async ({
     videoPageReady: page,
     triggerEnterPictureInPicture,
@@ -49,8 +52,7 @@ test.describe('Context menu on the page after using it in PiP', () => {
     });
     await page.locator(E2E_SELECTORS.MOVIE_PLAYER).waitFor({ state: 'visible' });
 
-    // Open the menu on the page with a real right-click (once no ad plays: its menu is not ours)
-    await waitForPageAdToEnd(page);
+    // Open the menu on the page with a real right-click
     const box = await page.locator(E2E_SELECTORS.MOVIE_PLAYER).boundingBox();
     await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 3, { button: 'right' });
     await expect.poll(() => visibleMenuOnPage(page), { timeout: E2E_WAIT_TIMEOUT_MS }).toBe(true);
