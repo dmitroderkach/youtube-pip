@@ -26,24 +26,27 @@ sequenceDiagram
   autonumber
   participant O as Owner (Telegram, text or voice)
   participant B as dev-bot Lambda
+  participant F as Fast lane Lambda
   participant W as Dev worker (Fargate, Claude Code)
   participant G as GitHub (PR, CI on self-hosted runners)
   participant C as CodeBuild (tf-plan / tf-apply / image builds / github-gate)
 
   O->>B: "fix X" (the standard flow)
-  B->>W: SQS FIFO (starts the task if it is down)
+  B->>F: SQS FIFO (every message, unless the worker waits for an answer)
+  F->>B: hand-over (a change or a long task)
+  B->>W: SQS FIFO (starts the worker if it sleeps)
   W->>O: understanding of the task, questions as buttons, or a plan to approve
   W->>W: change, unit tests, narrowed e2e locally
   W->>G: branch + PR (CI runs the full e2e matrix)
-  W->>C: dev-ops merge <pr> (once CI is green; facts from GitHub, not the worker's words)
+  W->>C: dev-ops merge PR (once CI is green, with facts from GitHub, not the worker's words)
   C->>O: 🔀 merge? ✅ / 🚫
   O->>B: ✅
   B->>C: github-gate
   C->>G: squash merge of the approved head (gate App)
-  W->>C: dev-ops plan / dev-ops publish (after the merge, waited for in the background)
-  C->>O: the plan (or image) with ✅ Apply / 🚫
+  W->>C: dev-ops publish (after the merge, waited for in the background)
+  C->>O: the image with ✅ / 🚫, then the plan it requests with ✅ Apply / 🚫
   O->>B: ✅
-  B->>C: tf-apply of exactly that plan / image-publish
+  B->>C: image-publish, then tf-apply of exactly that plan
   C->>O: result
 ```
 
