@@ -104,7 +104,10 @@ const REPO = env.GITHUB_REPO ?? 'dmitroderkach/youtube-pip';
 /** Claude Code's memory project of the worker (memory/<project>/ in the state bucket). */
 const MEMORY_PROJECT = env.MEMORY_PROJECT ?? '-home-worker-youtube-pip';
 /** No message and no turn for this long: the invocation ends. */
-let IDLE_MS = Number(env.IDLE_SECONDS ?? 60) * 1000;
+// 10 s (owner, 2026-11-17; was 60): an invocation is billed while it waits, and the owner writing more often than
+// once a minute kept one invocation up to its deadline. The Claude Code session is kept between invocations of a
+// sandbox, so the next message starts no session; it only waits for dev-bot's wake-up (a fraction of a second).
+let IDLE_MS = Number(env.IDLE_SECONDS ?? 10) * 1000;
 /** Stop this long before the Lambda's deadline (save the session, answer the invocation). */
 const DEADLINE_MARGIN_MS = 90_000;
 const RECEIVE_WAIT_SECONDS = 5;
