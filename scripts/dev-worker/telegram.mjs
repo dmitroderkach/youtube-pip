@@ -217,11 +217,17 @@ export function createTelegram({ token, chatId, log, readFile, inboxDir }) {
     return path;
   }
 
-  async function sendVoice(audio, caption) {
+  /** A voice message; `replyTo`: the message it belongs to (e.g. its text answer), shown as a reply. */
+  async function sendVoice(audio, caption, { replyTo } = {}) {
     const json = await telegramRequest('sendVoice', () => {
       const form = new FormData();
       form.append('chat_id', String(env.TELEGRAM_CHAT_ID));
       if (caption) form.append('caption', caption);
+      if (replyTo)
+        form.append(
+          'reply_parameters',
+          JSON.stringify({ message_id: replyTo, allow_sending_without_reply: true })
+        );
       form.append('voice', new Blob([audio], { type: 'audio/ogg' }), 'voice.ogg');
       return form;
     });

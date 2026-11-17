@@ -395,3 +395,28 @@ export function createPendingWork() {
     },
   };
 }
+
+/**
+ * Voice replies in the background: `enqueue(speech, replyTo)` returns at once (the next message and its text answer
+ * never wait for a voice); synthesis starts at once, sending keeps the order of the answers, each voice is a reply to
+ * its own text answer. Every job runs as `pending` work (createPendingWork) so the invocation stays up until it is sent.
+ */
+export function createVoiceQueue({ synthesize, send, pending, log = () => {} }) {
+  let last = Promise.resolve();
+  return {
+    enqueue(speech, replyTo) {
+      const previous = last;
+      const job = pending.track(async () => {
+        try {
+          const audio = await synthesize(speech);
+          await previous;
+          await send(audio, { replyTo, speech });
+        } catch (error) {
+          log('voice reply failed', error);
+        }
+      });
+      last = job;
+      return job;
+    },
+  };
+}
