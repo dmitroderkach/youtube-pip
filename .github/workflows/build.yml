@@ -131,7 +131,7 @@ jobs:
           SKIP_AUTH_E2E_ON_CI: ${{ vars.SKIP_AUTH_E2E_ON_CI || 'false' }}
         # TEMPORARY (never merged): Shorts specs with web_shorts_cow_carousel forced on, then off
         run: |
-          SPECS="e2e/tests/shorts-pip.spec.ts e2e/tests/shorts-navigation.spec.ts e2e/tests/shorts-context-menu-copy.spec.ts e2e/tests/tmp-shorts-pip-look.spec.ts"
+          SPECS="e2e/tests/tmp-shorts-pip-look.spec.ts"
           rc=0
           E2E_FORCE_EXPERIMENT_FLAGS=web_shorts_cow_carousel npm run test:e2e -- $SPECS --project=chromium --project=chromium-yt-pip || rc=1
           E2E_FORCE_EXPERIMENT_FLAGS=web_shorts_cow_carousel=false npm run test:e2e -- $SPECS --project=chromium --project=chromium-yt-pip || rc=1

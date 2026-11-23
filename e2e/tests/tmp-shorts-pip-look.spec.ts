@@ -53,6 +53,50 @@ async function toggleTwice(pipPage: Page, page: Page, key: string): Promise<stri
   return `${s(before)} → ${s(after1)} → ${s(after2)}`;
 }
 
+/** The top controls of the visible reel in this page's document: presence, box, visibility, buttons. */
+async function controlsReport(target: Page): Promise<string> {
+  return target.evaluate(() => {
+    const all = Array.from(document.querySelectorAll<HTMLElement>('ytd-shorts-player-controls'));
+    const visible = all.filter((el) => el.getBoundingClientRect().height > 0);
+    const el = visible[0] ?? all[0];
+    if (!el) return `controls: none (of ${all.length})`;
+    const r = el.getBoundingClientRect();
+    let hiddenBy = '';
+    for (let n: HTMLElement | null = el; n; n = n.parentElement) {
+      const cs = getComputedStyle(n);
+      if (cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0) {
+        hiddenBy = `${n.tagName.toLowerCase()}${n.id ? '#' + n.id : ''} (display=${cs.display} visibility=${cs.visibility} opacity=${cs.opacity})`;
+        break;
+      }
+    }
+    const buttons = Array.from(el.querySelectorAll('button'))
+      .map((b) => b.getAttribute('aria-label') || b.getAttribute('title') || '?')
+      .join(' | ');
+    const ours = el.querySelectorAll('.ytpip-shorts-button').length;
+    return (
+      `controls: ${all.length} (visible ${visible.length}), box ${Math.round(r.x)},${Math.round(r.y)} ` +
+      `${Math.round(r.width)}x${Math.round(r.height)}, hidden by: ${hiddenBy || 'nothing'}, ` +
+      `our PiP button: ${ours}, buttons: ${buttons}`
+    );
+  });
+}
+
+/** Hover the reel's top controls (or the top of the page when there are none). */
+async function hoverControls(target: Page): Promise<void> {
+  const box = await target.evaluate(() => {
+    const el = Array.from(
+      document.querySelectorAll<HTMLElement>('ytd-shorts-player-controls')
+    ).find((c) => c.getBoundingClientRect().height > 0);
+    const r = el?.getBoundingClientRect();
+    return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null;
+  });
+  const size = target.viewportSize() ?? { width: 800, height: 600 };
+  const point = box ?? { x: size.width / 2, y: 60 };
+  await target.mouse.move(point.x - 20, point.y + 40);
+  await target.mouse.move(point.x, point.y, { steps: 5 });
+  await target.waitForTimeout(800);
+}
+
 test.use({
   authState: true,
   blockAds: true,
@@ -80,6 +124,10 @@ test('Shorts PiP: Space / K and screenshots of the popup controls', async ({
 
   await waitForShortsPlayerVisibleInMain(page);
   await ensurePlaying(page, false);
+  mkdirSync(SHOTS_DIR, { recursive: true });
+  await hoverControls(page);
+  const mainControls = await controlsReport(page);
+  await page.screenshot({ path: `${SHOTS_DIR}/${tag}__0-page-hover.png` });
   await triggerEnterPictureInPicture(page);
   await waitForShortsPlayerVisibleInPip(page);
   const pipPage = page
@@ -91,22 +139,19 @@ test('Shorts PiP: Space / K and screenshots of the popup controls', async ({
   const space = await toggleTwice(pipPage, page, 'Space');
   const k = await toggleTwice(pipPage, page, 'k');
 
-  mkdirSync(SHOTS_DIR, { recursive: true });
   await ensurePlaying(page, true);
   await page.waitForTimeout(1500);
-  const size =
-    pipPage.viewportSize() ??
-    (await pipPage.evaluate(() => ({ width: innerWidth, height: innerHeight })));
-  await pipPage.mouse.move(size.width / 2, size.height / 2);
-  await pipPage.mouse.move(size.width / 2 + 5, size.height / 2 + 5);
-  await page.waitForTimeout(700);
-  await pipPage.screenshot({ path: `${SHOTS_DIR}/${tag}__1-playing-hover.png` });
+  const size = pipPage.viewportSize() ?? { width: 0, height: 0 };
+  await hoverControls(pipPage);
+  const pipControlsPlaying = await controlsReport(pipPage);
+  await pipPage.screenshot({ path: `${SHOTS_DIR}/${tag}__1-pip-playing-hover.png` });
 
   await pipPage.keyboard.press('k');
-  await page.waitForTimeout(800);
-  await pipPage.mouse.move(size.width / 2, size.height / 3);
-  await page.waitForTimeout(700);
-  await pipPage.screenshot({ path: `${SHOTS_DIR}/${tag}__2-paused-hover.png` });
+  await page.waitForTimeout(300);
+  await pipPage.screenshot({ path: `${SHOTS_DIR}/${tag}__2-pip-right-after-pause.png` });
+  await hoverControls(pipPage);
+  const pipControlsPaused = await controlsReport(pipPage);
+  await pipPage.screenshot({ path: `${SHOTS_DIR}/${tag}__3-pip-paused-hover.png` });
 
   const carousel = await page.evaluate(
     () =>
@@ -118,6 +163,9 @@ test('Shorts PiP: Space / K and screenshots of the popup controls', async ({
     `[RESULT ${tag}] PiP Space: ${space}`,
     `[RESULT ${tag}] PiP K:     ${k}`,
     `[RESULT ${tag}] carousel in PiP: ${carousel}`,
+    `[RESULT ${tag}] page controls (hover): ${mainControls}`,
+    `[RESULT ${tag}] PiP controls (playing, hover): ${pipControlsPlaying}`,
+    `[RESULT ${tag}] PiP controls (paused, hover): ${pipControlsPaused}`,
   ];
   console.log(lines.join('\n'));
 });
